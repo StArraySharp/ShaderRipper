@@ -46,17 +46,13 @@ namespace ShaderRipper
             uint metadataSize = BE(b, 0);
             uint fileSize = BE(b, 4);
             uint version = BE(b, 8);
-            // v22 moved the real header fields: the endian flag sits at 0x10 and
-            // metadata_size / file_size / data_offset follow it as u32/i64/i64,
-            // with an extra unused i64, putting the metadata section at offset 48.
-            // The legacy slots at 0x00..0x0F are zero in v22.
             uint dataOffset = version >= 22 ? (uint)BE64(b, 0x20) : BE(b, 12);
             if (version >= 22) metadataSize = BE(b, 0x14);
 
             int i = 16;
-            i += 1;                                  // endian flag
-            i += 3;                                  // reserved
-            if (version >= 22) i += 4 + 8 + 8 + 8;   // metadata_size, file_size, data_offset, unused
+            i += 1;
+            i += 3;
+            if (version >= 22) i += 4 + 8 + 8 + 8;
 
             var r = new EndianReader(b, i, dataOffset > 0 ? (int)dataOffset : b.Length);
             r.Version = (int)version;
@@ -66,11 +62,6 @@ namespace ShaderRipper
             if (version >= 8) sf.TargetPlatform = r.ReadI32();
             if (version >= 13) sf.EnableTypeTree = r.ReadByte() != 0;
 
-            // Schema choice: the hand-transcribed JSON is verified against the
-            // 6000.x serialization this tool was built on; every other Unity
-            // generation falls back to AssetRipper's version-exact type trees.
-            // The Material tree (class 21) always comes from the tpk — the JSON
-            // never carried it.
             sf.Schema = schema;
             if (tpkClass != null)
             {
@@ -88,7 +79,7 @@ namespace ShaderRipper
             var classIds = new int[typeCount];
             for (int t = 0; t < typeCount; t++) classIds[t] = SkipSerializedType(r, sf.EnableTypeTree);
 
-            if (version >= 7 && version < 14) r.ReadI32();   // big_id_enabled
+            if (version >= 7 && version < 14) r.ReadI32();
 
             int objectCount = r.ReadI32();
             var entries = new List<(long pathId, uint off, uint size, int typeId)>(objectCount);
@@ -107,7 +98,7 @@ namespace ShaderRipper
 
             foreach (var e in entries)
             {
-                if (classIds[e.typeId] == 48)          // Shader
+                if (classIds[e.typeId] == 48)
                 {
                     try { sf.Shaders.Add(ParseShader(sf, e.pathId, e.off, e.size)); }
                     catch (Exception ex)
@@ -115,7 +106,7 @@ namespace ShaderRipper
                         Console.Error.WriteLine($"  [!] shader pathId={e.pathId}: {ex.Message}");
                     }
                 }
-                else if (classIds[e.typeId] == 21 && sf.MaterialSchema != null)   // Material
+                else if (classIds[e.typeId] == 21 && sf.MaterialSchema != null)
                 {
                     try { sf.Materials.Add(ParseMaterial(sf, e.pathId, e.off, e.size)); }
                     catch (Exception ex)
@@ -124,16 +115,12 @@ namespace ShaderRipper
                     }
                 }
             }
-            // Script types (serialized v11+): {int32 localIndex, int64 localId} pairs.
-            // Skipped, but the cursor must walk over them to reach the externals.
             if (version >= 11)
             {
                 int st = r.ReadI32();
                 if (st > 0 && st < 1_000_000) r.Skip(st * 12);
             }
 
-            // Externals: v6+ assetPath cstring, v5+ guid(16) + type(4), then the
-            // original path cstring.  Index+1 is the PPtr m_FileID that names it.
             int extCount = r.ReadI32();
             for (int x = 0; x < extCount && x < 4096; x++)
             {
@@ -142,7 +129,6 @@ namespace ShaderRipper
                 sf.Externals.Add(r.ReadCString());
             }
 
-            // Reference types (v20+): another serialized-type array.
             if (version >= 20)
             {
                 int rc = r.ReadI32();
@@ -216,7 +202,7 @@ namespace ShaderRipper
                         break;
 
                     default:
-                        sr.Skip(c);       // m_MaterialName?, m_LightmapFlags, m_...
+                        sr.Skip(c);
                         break;
                 }
             }
@@ -233,22 +219,16 @@ namespace ShaderRipper
             if (r.Version >= 13)
             {
                 if (r.Version >= 16 && classId == 114) r.Skip(16);
-                r.Skip(16);                                  // m_OldTypeHash
+                r.Skip(16);
             }
-            // The tree is only present when the file keeps it AND the type is not
-            // stripped.  Bundle-contained files keep it; resources.assets does not.
             if (typeTree && !stripped && r.Version >= 12)
             {
                 int nodeCount = r.ReadI32();
                 int strSize = r.ReadI32();
-                // v19+ widened TypeTreeNode with an 8-byte m_RefTypeHash
                 int stride = r.Version >= 19 ? 32 : 24;
                 r.Skip(nodeCount * stride);
                 r.Skip(strSize);
             }
-            // m_TypeDependencies: a length-prefixed int array.  It follows every type
-            // entry that carries a tree, and skipping it is what keeps the type table
-            // in step for bundle files.
             if (typeTree && r.Version >= 21)
             {
                 int deps = r.ReadI32();
@@ -262,8 +242,6 @@ namespace ShaderRipper
             var sh = new Shader { PathId = pathId, Offset = off, Size = size };
             var sr = new SchemaReader(sf.Raw, (int)off, (int)(off + size), sf.Schema);
 
-            // Single ordered pass over the root children — every node must be
-            // visited exactly once to keep the cursor faithful.
             foreach (var c in sf.Schema.Children)
             {
                 switch (c.Name)
@@ -297,7 +275,7 @@ namespace ShaderRipper
                         break;
 
                     default:
-                        sr.Skip(c);       // m_Dependencies, m_NonModifiableTextures, ...
+                        sr.Skip(c);
                         break;
                 }
             }
@@ -312,7 +290,6 @@ namespace ShaderRipper
                 switch (c.Name)
                 {
                     case "m_PropInfo":
-                        // composite owning m_Props
                         foreach (var pi in c.Children)
                         {
                             if (pi.Name != "m_Props") { sr.Skip(pi); continue; }
@@ -402,7 +379,6 @@ namespace ShaderRipper
         private static Pass MapPass(Dictionary<string, object> p)
         {
             var o = new Pass();
-            // m_State
             if (p.TryGetValue("m_State", out var st) && st is Dictionary<string, object> stt)
             {
                 o.StateName = Str(stt, "m_Name");
@@ -474,7 +450,6 @@ namespace ShaderRipper
                 }
             }
 
-            // pass-level tags
             if (p.TryGetValue("m_Tags", out var ptg) && ptg is Dictionary<string, object> ptgd)
             {
                 var tags = ptgd.TryGetValue("tags", out var tl) ? tl as List<object> : null;
@@ -484,7 +459,6 @@ namespace ShaderRipper
             }
             o.ProgramMask = (uint)Int(p, "m_ProgramMask");
 
-            // name table: map<string,int> -> Array< pair<string first, int second> >
             if (p.TryGetValue("m_NameIndices", out var niv))
                 foreach (var item in AsList(niv))
                     if (item is Dictionary<string, object> pd)
@@ -493,11 +467,9 @@ namespace ShaderRipper
                         if (!string.IsNullOrEmpty(nm)) o.NameIndices[nm] = Int(pd, "second");
                     }
 
-            // constant-buffer members index the same table by number
             var idxToName = new Dictionary<int, string>(o.NameIndices.Count);
             foreach (var kv in o.NameIndices) idxToName[kv.Value] = kv.Key;
 
-            // programs
             foreach (var stage in new[] { ("progVertex", "Vertex"), ("progFragment", "Fragment"),
                                           ("progGeometry", "Geometry"), ("progHull", "Hull"),
                                           ("progDomain", "Domain") })
@@ -505,10 +477,6 @@ namespace ShaderRipper
                 if (!p.TryGetValue(stage.Item1, out var pv) || pv is not Dictionary<string, object> pvd) continue;
 
                 var subs = new List<object>();
-                // Unity 6.3 leaves m_SubPrograms empty and stores the real entries in
-                // m_PlayerSubPrograms, a [platform][tier] table whose outer slots are
-                // mostly empty; collect every non-empty group.  m_ParameterBlobIndices
-                // runs parallel to it and names each program's constant-buffer layout.
                 var paramIdx = new List<object>();
                 var paramIdxMap = new Dictionary<int, int>();
                 if (pvd.TryGetValue("m_ParameterBlobIndices", out var pbv))
@@ -545,13 +513,8 @@ namespace ShaderRipper
                     if (sp.TryGetValue("m_KeywordIndices", out var kiv))
                         foreach (var kv in AsList(kiv))
                             try { prog.KeywordIndices.Add(Convert.ToInt32(kv)); } catch { }
-                    // Unity's own reflection of this program's constant buffers.
-                    // The sub-program block lists only the members this stage
-                    // actually references; the program-wide m_CommonParameters
-                    // holds the merged, complete set.  Read both and union them.
                     ReadConstantBuffers(sp, idxToName, prog.ConstantBuffers);
                     ReadConstantBuffers(pvd, idxToName, prog.ConstantBuffers);
-                    // Texture sampler registers: the authoritative t# -> name map.
                     ReadTextureParams(sp, idxToName, prog.TextureParams);
                     ReadTextureParams(pvd, idxToName, prog.TextureParams);
                     o.SubPrograms.Add(prog);
@@ -560,7 +523,6 @@ namespace ShaderRipper
             return o;
         }
 
-        // --- helpers over the dictionary values produced by SchemaReader ---
         /// <summary>
         /// Read <c>m_Parameters.m_ConstantBuffers</c> (or <c>m_CommonParameters</c>)
         /// off a program node into <paramref name="into"/>.  Each member carries a
@@ -589,7 +551,6 @@ namespace ShaderRipper
                 int ni = Int(cb, "m_NameIndex");
                 buf.Name = idxToName.TryGetValue(ni, out var bn) ? bn : ("cb#" + ni);
 
-                // matrices first: they carry m_RowCount instead of m_Dim
                 if (cb.TryGetValue("m_MatrixParams", out var mp))
                     foreach (var e in AsList(mp))
                         if (e is Dictionary<string, object> m)
@@ -615,7 +576,6 @@ namespace ShaderRipper
                             });
                 if (!string.IsNullOrEmpty(buf.Name) && buf.Name != "cb#0")
                 {
-                    // union with a buffer of the same name already collected
                     var have = into.Find(x => x.Name == buf.Name);
                     if (have == null) { into.Add(buf); continue; }
                     have.Size = Math.Max(have.Size, buf.Size);
@@ -693,7 +653,6 @@ namespace ShaderRipper
         {
             if (d == null || !d.TryGetValue(k, out var v) || v is not Dictionary<string, object> fv) return "";
             if (!fv.TryGetValue("name", out var n) || n is not string s) return "";
-            // Unity writes "<noninit>" for a string field that was never set.
             if (s.Length == 0 || s == "<noninit>") return "";
             return s;
         }

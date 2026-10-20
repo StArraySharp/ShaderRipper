@@ -14,17 +14,15 @@ namespace ShaderRipper
         {
             var cli = Argv.Parse(args);
 
-            // --lang en|zh：覆盖 UI 语言（默认跟随系统；内嵌 strings.en/zh-Hans 文本，AOT 安全）。
-            // 要放在 --help 之前，`--lang en -h` 才能出英文帮助。
-            try { Console.OutputEncoding = System.Text.Encoding.UTF8; } catch { /* 重定向输出时可能失败 */ }
+            try { Console.OutputEncoding = System.Text.Encoding.UTF8; } catch {  }
 
             Strings.SetLang(cli.Value("--lang"));
 
             if (cli.Has("--help") || cli.Has("-h")) { Usage(); return 0; }
-            if (cli.Has("--selftest-d3d9")) return D3D9Asm.Selftest();   // 诊断：SM2/3 反汇编自测
-            string disasmFile = cli.Value("--disasm");                    // 诊断：反汇编单个程序文件
+            if (cli.Has("--selftest-d3d9")) return D3D9Asm.Selftest();
+            string disasmFile = cli.Value("--disasm");
             if (disasmFile != null) return DisasmFile(disasmFile);
-            string glslFile = cli.Value("--glsl2cg");                     // 诊断：单个 GLSL → Cg（--asm 加原行注释）
+            string glslFile = cli.Value("--glsl2cg");
             if (glslFile != null)
             {
                 Cg.GlslToCg.AnnotateSource = cli.Has("--asm");
@@ -32,14 +30,11 @@ namespace ShaderRipper
                 return 0;
             }
 
-            // 资源根（schema/、data/）：显式参数 > 环境变量 > 从 exe 目录/工作目录向上找标记。
             string rootArg = cli.Value("--root") ?? Environment.GetEnvironmentVariable("SHADERRIPPER_ROOT") ?? Environment.GetEnvironmentVariable("SHADERRIP_ROOT");
             Paths.SetRoot(rootArg);
             if (!string.IsNullOrWhiteSpace(rootArg) && !Directory.Exists(rootArg))
                 Console.Error.WriteLine(Strings.F("RootDirMissing", rootArg));
 
-            // 游戏数据目录：--data > SHADERRIPPER_DATA > 第一个位置参数。
-            // 没有默认值——写死本机 Steam 路径换台机器就跑不起来，宁可报错并打印用法。
             string dataDir = FirstNonEmpty(cli.Value("--data"),
                                            Environment.GetEnvironmentVariable("SHADERRIPPER_DATA") ?? Environment.GetEnvironmentVariable("SHADERRIP_DATA"),
                                            cli.Bare.Count > 0 ? cli.Bare[0] : null);
@@ -51,59 +46,38 @@ namespace ShaderRipper
                 return 2;
             }
 
-            dataDir = Path.GetFullPath(dataDir);        // 相对路径按当前工作目录展开
-            dataDir = Path.GetFullPath(dataDir);        // 相对路径按当前工作目录展开
+            dataDir = Path.GetFullPath(dataDir);
+            dataDir = Path.GetFullPath(dataDir);
             string assets = Path.Combine(dataDir, "resources.assets");
             if (!File.Exists(assets)) { Console.Error.WriteLine(Strings.F("ResourcesAssetsMissing", assets)); return 2; }
 
-            // $Globals 修复表：默认加载 data/globals_names（存在才加载，发布包可不带）；
-            // --names <dir> 可显式指定或指向别处的表。
             GlobalsNames.TableDir = cli.Value("--names")
                                 ?? Paths.FindDir(Path.Combine("data", "globals_names"))
                                 ?? Paths.FindDir(Path.Combine("..", "data", "globals_names"));
 
-            // --only <substring>: regenerate a single shader, for debugging.
             string only = cli.Value("--only");
 
-            // --platform <id|name>: 强制用某个后端（d3d11/gles3/vulkan/metal…）。
-            // 默认挑 d3d11，因为只有它能直译成 Cg。
             int? forcedPlatform = Platforms.ByName(cli.Value("--platform"));
 
-            // --dump [filter]: 只打印 blob 表/子程序/参数块，不写产物（诊断用）。
             bool dumpMode = cli.Has("--dump");
             bool matCheck = cli.Has("--mat-check");
             string dumpFilter = cli.Value("--dump") ?? "";
 
-            // 默认扫包：游戏有 17 个 shader 只存在于 StreamingAssets/aa/*.bundle，
-            // 只读 resources.assets 会漏掉它们（ADOFAI_CustomTextureRect*、
-            // ScreenScroll、FadeBottom、Sprites_Tile …）。
-            // Bundle 扫描始终开启：shader 常散落在 assetbundle 里。
             string bundleDir = cli.Value("--bundles") ?? dataDir;
 
-            // --asm: 生成逐指令的原始反汇编注释（默认关，便于游戏内排查；核对直译时打开）。
-            // d3d11：DXBC 指令注释；glsl/gles：原始 GLSL 行注释；d3d9/d3d12：汇编落 Disassembly/。
             if (cli.Has("--asm"))
             {
                 global::ShaderRipper.Cg.CgProgramWriter.AnnotateAsm = true;
                 global::ShaderRipper.Cg.GlslToCg.AnnotateSource = true;
             }
 
-            // 内建着色器索引：名字出现在引擎内建资源清单里的，就是 Unity 自带的，
-            // 不做反编译。索引由编辑器导出（_uproj/Assets/Editor/DumpBuiltinShaders.cs）。
             int indexCount = BuiltinIndex.Load(cli.Value("--builtin-index"));
 
-            // Unity 内置 float4x4 名单：$Globals 里这类成员占连续 4 行，参数块只记起始
-            // offset，靠这张表把后续行也命名成 name[1..3]。
             int matrixCount = MatrixNames.Load(cli.Value("--matrix-names"));
 
-            // 逐 shader 的 $Globals 布局表（data/tmp_layouts/*.txt）：TMP 系的成员表被
-            // 剥空，只能拿 Unity 自己的 CGIncludes 真编一遍，把 RDEF 抄下来。
-            // 运行时按 dcl 行数 + name table 交集校验后才用，默认开启。
             int tmpLayoutCount = Cg.TmpLayouts.Load(cli.Value("--tmp-layouts"));
             if (cli.Has("--no-tmp-layout")) Cg.TmpLayouts.Enabled = false;
 
-            // The Shader type tree differs per Unity generation, and the game ships
-            // with type trees stripped, so pick the schema that matches the file.
             uint sfVersion = ReadSerializedFileVersion(assets);
             string schemaName = sfVersion >= 22 ? "shader_typetypes_6000.json" : "shader_typetypes.json";
             string schema = Paths.Schema(schemaName, null);
@@ -113,9 +87,6 @@ namespace ShaderRipper
                 return 3;
             }
 
-            // 输出目录：--out > SHADERRIPPER_OUT > 第二个位置参数 > <游戏名>_ShaderLabs。
-            // 游戏名取 _Data/app.info 第二行（Unity 标准文件：公司名\n产品名），
-            // 没有就退回目录名去掉 _Data 后缀。
             string gameName = ReadProductName(dataDir);
             if (gameName == null)
             {
@@ -127,7 +98,7 @@ namespace ShaderRipper
                                           cli.Bare.Count > 1 ? cli.Bare[1] : null)
                             ?? Path.Combine(Directory.GetCurrentDirectory(), gameName + "_ShaderLabs");
             outDir = Path.GetFullPath(outDir);
-            if (!dumpMode && !matCheck)          // --dump / --mat-check 只读，不落盘
+            if (!dumpMode && !matCheck)
             {
                 Directory.CreateDirectory(outDir);
             }
@@ -135,8 +106,6 @@ namespace ShaderRipper
             Console.WriteLine(Strings.Get("Banner"));
             Console.WriteLine(Strings.F("SFV_Schema", sfVersion, schemaName));
             var root = TypeNode.LoadSchema(schema);
-            // Version-adaptive schemas: hand-transcribed JSON for the generation
-            // this tool was built on, AssetRipper's type-tree database otherwise.
             Func<string, int, TypeNode> tpkClass = (ver, classId) =>
                 TpkSchema.Available ? TpkSchema.BuildClass(classId, ver) : null;
             var sf = SerializedFile.Load(assets, root, tpkClass);
@@ -153,7 +122,6 @@ namespace ShaderRipper
             if (indexCount <= 0)
                 Console.Error.WriteLine(Strings.Get("BuiltinIndexMissing"));
 
-            // Shaders that live in asset bundles rather than resources.assets.
             var allShaders = new List<Shader>(sf.Shaders);
             {
                 int bundleFiles = 0, nodes = 0, found = 0, skippedSources = 0;
@@ -164,8 +132,6 @@ namespace ShaderRipper
                 foreach (var path in Directory.EnumerateFiles(bundleDir, "*", SearchOption.AllDirectories))
                 {
                     if (!path.EndsWith(".bundle", StringComparison.OrdinalIgnoreCase)) continue;
-                    // 内建资源包（unitybuiltinassets.bundle）整体跳过：里面是
-                    // Unity 自带的着色器，不是游戏的渲染逻辑。
                     if (BuiltinSource.IsBuiltin(path))
                     {
                         skippedSources++;
@@ -189,7 +155,7 @@ namespace ShaderRipper
                         catch (Exception e)
                         {
                             Console.Error.WriteLine($"    node {node.Path}: {e}");
-                            continue; // not a serialized file
+                            continue;
                         }
                         if (inner.Shaders.Count == 0) continue;
                         nodes++;
@@ -197,7 +163,7 @@ namespace ShaderRipper
                         {
                             string nm = !string.IsNullOrEmpty(sh.Name) ? sh.Name
                                       : sh.ParsedForm?.Name ?? "";
-                            if (!string.IsNullOrEmpty(nm) && !seen.Add(nm)) continue;   // already have it
+                            if (!string.IsNullOrEmpty(nm) && !seen.Add(nm)) continue;
                             allShaders.Add(sh);
                             found++;
                         }
@@ -207,7 +173,6 @@ namespace ShaderRipper
             }
             Console.WriteLine(Strings.F("Output", outDir));
 
-            // --- --mat-check: 对账每个材质的存档属性 vs shader 属性表，产出报告 ---
             if (matCheck)
             {
                 string report = cli.Value("--mat-check");
@@ -215,7 +180,6 @@ namespace ShaderRipper
                 return MatCheck.Run(Path.GetDirectoryName(Path.GetFullPath(assets)), root, tpkClass, report);
             }
 
-            // --- diagnostic: --dump <substring> prints the blob table + per-container profile ---
             if (dumpMode)
             {
                 string filter = dumpFilter;
@@ -348,7 +312,6 @@ namespace ShaderRipper
                         Console.WriteLine($"      {h:x4}  {sbHex}");
                     }
                     var hh = BlobTool.FindDxbc(dd);
-                    // ---- blob index table: u32 count, then count * (u32 off, u32 size, u32 pad) ----
                     if (dd.Length >= 8)
                     {
                         int cnt = BitConverter.ToInt32(dd, 0);
@@ -409,7 +372,6 @@ namespace ShaderRipper
                             : !string.IsNullOrEmpty(sh.ParsedForm?.Name) ? sh.ParsedForm.Name
                             : "Shader_" + sh.PathId;
                 if (only != null && !name.Contains(only, StringComparison.OrdinalIgnoreCase)) continue;
-                // 名字在引擎内建清单里 → Unity 自带，跳过。--only 是显式点名，不受此限。
                 if (only == null && BuiltinIndex.Contains(name)) { skippedBuiltin++; continue; }
                 string safe = name;
                 foreach (char c in Path.GetInvalidFileNameChars()) safe = safe.Replace(c, '_');
@@ -417,8 +379,6 @@ namespace ShaderRipper
 
                 try
                 {
-                    // 一个 shader 可能同时带多个后端的编译结果；m_Offsets 与
-                    // m_Platforms 同序，选错下标拿到的就是另一种格式的字节。
                     int mainPlat = Platforms.PickMain(sh.Platforms, forcedPlatform);
                     if (mainPlat < 0)
                     {
@@ -438,9 +398,7 @@ namespace ShaderRipper
                         : new List<BlobTool.BlobSlot>();
                     var paramBlobs = BlobTool.ParseParamBlobs(decoded);
 
-                    // disassemble + translate each program, keyed by Unity's m_BlobIndex
-                    var progs = new Dictionary<int, Cg.AsmParser.Program>();   // blobIndex -> parsed program
-                    // blobIndex -> SubProgram（stage + 关键字变体），用于 Disassembly 命名
+                    var progs = new Dictionary<int, Cg.AsmParser.Program>();
                     var subByBlob = sh.ParsedForm.SubShaders
                         .SelectMany(ss => ss.Passes)
                         .SelectMany(p => p.SubPrograms)
@@ -451,8 +409,6 @@ namespace ShaderRipper
                         if (!string.IsNullOrEmpty(sh.ParsedForm.KeywordNames[ki]))
                             kwIndex[ki] = sh.ParsedForm.KeywordNames[ki];
 
-                    // 原始反汇编默认落盘：<out>/Disassembly/<shader>/，一个文件
-                    // 对应一个变体的一份顶点/片段程序，游戏内排查时可直接对照。
                     string disDir = Path.Combine(outDir, "Disassembly", safe);
                     string DisName(int blobIndex)
                     {
@@ -469,8 +425,6 @@ namespace ShaderRipper
                         return $"{blobIndex}_{stage}{kw}";
                     }
 
-                    // d3d9 主平台：SM2/SM3 裸 token 流，自研反汇编（见 D3D9Asm）。
-                    // 只产汇编参考，不回译 Cg —— 方言差距太大。
                     if (mainInfo.Format == "d3d9")
                     {
                         foreach (var pr in ProgramSource.Extract(decoded))
@@ -492,14 +446,13 @@ namespace ShaderRipper
                         string asm = BlobTool.Disassemble(container);
                         if (asm == null) continue;
 
-                        // DXBC+DXIL = D3D12/SM6：LLVM IR 文本，CgTranslator 吃不了
                         bool dxil = BlobTool.HasDxilChunk(container);
                         if (dxil) anyDxil = true;
 
                         Directory.CreateDirectory(disDir);
                         File.WriteAllText(Path.Combine(disDir,
                             DisName(slot.BlobIndex) + (dxil ? ".dxil.asm" : ".dxbc.asm")), asm);
-                        if (dxil) continue;                              // 只落参考，不进翻译
+                        if (dxil) continue;
 
                         var prog = global::ShaderRipper.Cg.AsmParser.Parse(asm);
                         foreach (var ins in prog.Code)
@@ -510,8 +463,6 @@ namespace ShaderRipper
                         progs[slot.BlobIndex] = prog;
                     }
 
-                    // Shader names are not unique: several shaders can sanitize to the
-                    // same file name, so disambiguate with the path id on collision.
                     string baseName = safe;
                     if (!usedNames.Add(safe))
                     {
@@ -519,13 +470,8 @@ namespace ShaderRipper
                         usedNames.Add(safe);
                     }
 
-                    // 其它平台的编译结果：GLSL / Metal 是**源码**，比任何直译都准，
-                    // 单独落到 Disassembly/<shader>/ 下供对照；Vulkan 是 SMOL-V 压缩的
-                    // SPIR-V，没有魔数，只能报告。
                     ExportOtherPlatforms(sh, mainPlat, safe, outDir, only);
 
-                    // 主平台不是 DXBC 时，把源码按 blobIndex 摆好交给 writer：
-                    // GLSL 能直接写成 GLSLPROGRAM 块，Metal 只能旁路参考。
                     Dictionary<int, ExtractedProgram> srcByBlob = null;
                     if (mainInfo.Format != "dxbc")
                     {
@@ -538,8 +484,6 @@ namespace ShaderRipper
                         for (int q = 0; q < extracted.Count && q < order.Count; q++)
                             srcByBlob[order[q]] = extracted[q];
 
-                        // 主平台是 GLSL/Metal 时，Unity 存的就是源码 —— 同样落
-                        // Disassembly/，一份一个变体，命名与 DXBC 反汇编一致。
                         foreach (var kv in srcByBlob)
                         {
                             if (kv.Value.Text.Length == 0) continue;
@@ -555,7 +499,6 @@ namespace ShaderRipper
                         }
                     }
 
-                    // ShaderLab with CG bodies
                     string writerFormat = mainInfo.Format == "dxbc" && progs.Count == 0 && anyDxil
                         ? "dxil" : mainInfo.Format;
                     string lab = ShaderLabWriter.Write(sh, name, progs, paramBlobs, safe,
@@ -566,7 +509,7 @@ namespace ShaderRipper
                 catch (Exception e)
                 {
                     Console.Error.WriteLine(Strings.F("ShaderFailed", name, e.Message));
-                    Console.Error.WriteLine(e.StackTrace);   // --trace 已移除：始终打印调用栈
+                    Console.Error.WriteLine(e.StackTrace);
                 }
             }
 
@@ -614,12 +557,10 @@ namespace ShaderRipper
                 catch { continue; }
                 if (payload.Length == 0) continue;
 
-                // 非主平台源码统一进 Disassembly/<shader>/，平台名做前缀区分
                 string dir = Path.Combine(outDir, "Disassembly", safe);
                 string prefix = info.Name + ".";
                 var progs = ProgramSource.Extract(payload);
 
-                // d3d9 侧车：SM2/SM3 token 流反汇编（D3D9Asm）
                 if (info.Format == "d3d9")
                 {
                     int k9 = 0;
@@ -655,8 +596,6 @@ namespace ShaderRipper
                 for (int k = 0; k < text.Count; k++)
                 {
                     var prog = text[k];
-                    // GLSL 的一个 slot 就是整个 pass（自带 VERTEX/FRAGMENT 分支），
-                    // 不能按 sub-program 的 stage 命名。
                     string stage = prog.Format == BlobFormat.Glsl ? "" : (k < stages.Count ? stages[k] : "blob" + k);
                     string ext = prog.Format switch
                     {
@@ -706,7 +645,6 @@ namespace ShaderRipper
 
         private static void Usage()
         {
-            // 帮助文本在 Strings.resx / Strings.zh-Hans.resx（--lang 可切）。
             Console.Write(Strings.Get("HelpText"));
             Console.WriteLine();
         }
@@ -754,8 +692,3 @@ namespace ShaderRipper
         }
     }
 }
-
-
-
-
-

@@ -75,7 +75,6 @@ namespace ShaderRipper
         {
             if (IsString(n)) return _r.ReadAlignedString();
 
-            // vector/map wrapper: transparent, delegate to inner Array
             if (n.IsArrayContainer)
             {
                 object inner = ReadValue(n.Children[0]);

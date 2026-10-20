@@ -10,37 +10,33 @@ namespace ShaderRipper.Cg
     {
         public sealed class Decl
         {
-            public string Kind;         // "constbuffer","sampler","texture2d","input","output","temps","indexableTemp"
+            public string Kind;
             public string Raw;
             public int Register;
             public int Count;
-            public string Name;         // CB name like "UnityPerDraw"
-            public string InputName;    // vs/ps input semantic
+            public string Name;
+            public string InputName;
             public int InputIndex;
             public string InputMask;
             public string OutputSemantic;
             public int TexDim;
-            public int Stride;              // dcl_resource_structured element size in bytes
+            public int Stride;
             public int Elements;
             public int ElemSize;
-            public List<float[]> IcbValues;   // dcl_immediateConstantBuffer rows
+            public List<float[]> IcbValues;
         }
 
         public sealed class Program
         {
-            public string Stage = "";               // vs_4_0 / ps_4_0 / ...
-            public string Profile = "";             // vs / ps
+            public string Stage = "";
+            public string Profile = "";
             public List<Decl> Decls = new List<Decl>();
             public List<Instruction> Code = new List<Instruction>();
-            public string[] Signatures;             // raw signature comment lines
+            public string[] Signatures;
             public List<SigEntry> InputSig;
             public List<SigEntry> OutputSig;
         }
 
-        // NAME  INDEX  MASK  REGISTER  SYSVALUE  FORMAT  USED
-        // The "Used" column can contain interior spaces ("xy w"), so it has to allow
-        // whitespace -- otherwise the row fails to match and the capture stops early,
-        // leaving later input registers undeclared.
         private static readonly System.Text.RegularExpressions.Regex SigRow = new(
             @"^([A-Za-z_][A-Za-z0-9_]*)\s+(\d+)\s+([xyzw]{1,4})\s+(\d+)\s+(\S+)\s+(\S+)\s*([xyzw\s]*)$",
             System.Text.RegularExpressions.RegexOptions.Compiled);
@@ -59,8 +55,6 @@ namespace ShaderRipper.Cg
                 string t = line.Trim();
                 if (t.Length == 0 || IsBlank(t)) continue;
 
-                // dcl_immediateConstantBuffer spans several lines of "{ a, b, c, d},"
-                // rows; collect the values instead of discarding them.
                 if (icbDepth > 0 || t.StartsWith("dcl_immediateConstantBuffer"))
                 {
                     string src = t.StartsWith("dcl_immediateConstantBuffer")
@@ -91,17 +85,14 @@ namespace ShaderRipper.Cg
                     continue;
                 }
 
-                // icb data rows: "{ 0, 1.000000, 0, 0}," / "{ 0, 0, 0, 1.000000} }"
                 if (t.StartsWith("{") || t.StartsWith("}")) continue;
 
-                // signature / comment blocks
                 if (t.StartsWith("//") || t.StartsWith(";"))
                 {
                     p.Signatures ??= Array.Empty<string>();
                     CaptureSignature(p, t);
                     continue;
                 }
-                // program profile line:  vs_4_0 / ps_4_0 / ps_5_0 ...
                 if (t.StartsWith("vs_") || t.StartsWith("ps_") || t.StartsWith("gs_") ||
                     t.StartsWith("hs_") || t.StartsWith("ds_") || t.StartsWith("cs_"))
                 {
@@ -114,14 +105,13 @@ namespace ShaderRipper.Cg
                     p.Decls.Add(ParseDecl(t));
                     continue;
                 }
-                // instruction
                 var ins = ParseInstruction(t);
                 if (ins != null) p.Code.Add(ins);
             }
             return p;
         }
 
-        private static int _sigTarget;   // 0 = none, 1 = input, 2 = output
+        private static int _sigTarget;
 
         /// <summary>
         /// Collect the "Input signature:" / "Output signature:" tables that
@@ -175,7 +165,6 @@ namespace ShaderRipper.Cg
             if (body.StartsWith("dcl_constantbuffer"))
             {
                 d.Kind = "constbuffer";
-                // dcl_constantbuffer CB0[5], immediateIndexed
                 int cb = body.IndexOf("CB", StringComparison.OrdinalIgnoreCase);
                 int br = body.IndexOf('[', cb);
                 int e = body.IndexOf(']', br);
@@ -191,7 +180,6 @@ namespace ShaderRipper.Cg
             }
             if (body.StartsWith("dcl_resource_structured"))
             {
-                // dcl_resource_structured t0, 56
                 d.Kind = "structured";
                 d.Register = ExtractRegIndex(body, "t");
                 int comma = body.IndexOf(',');
@@ -200,7 +188,6 @@ namespace ShaderRipper.Cg
             }
             if (body.StartsWith("dcl_resource_texture"))
             {
-                // dcl_resource_texture2d (float,float,float,float) t0
                 int ti = body.IndexOf("texture", StringComparison.Ordinal);
                 int sp = body.IndexOf(' ', ti);
                 string dim = body.Substring(ti + 7, sp - (ti + 7));
@@ -216,7 +203,6 @@ namespace ShaderRipper.Cg
             if (body.StartsWith("dcl_input_ps") || body.StartsWith("dcl_input_ps_siv") || body.StartsWith("dcl_input_ps_sgv"))
             {
                 d.Kind = "input";
-                // dcl_input_ps linear v0.xy
                 int vi = body.IndexOf('v');
                 d.Register = ExtractRegIndex(body, "v");
                 int dot = body.IndexOf('.', vi);
@@ -247,7 +233,6 @@ namespace ShaderRipper.Cg
             }
             if (body.StartsWith("dcl_indexableTemp"))
             {
-                // dcl_indexableTemp x0[6], 4   -> 6 elements of 4 components
                 d.Kind = "xtemp";
                 d.Register = ExtractRegIndex(body, "x");
                 int br = body.IndexOf('[');
@@ -284,10 +269,6 @@ namespace ShaderRipper.Cg
             return -1;
         }
 
-        // An opcode may carry parenthesised annotations that contain spaces and
-        // commas -- "ld_structured_indexable(structured_buffer, stride=56)(mixed,...)"
-        // or "sample_indexable(texture2d)(float,float,float,float)".  The opcode ends
-        // at the first space that is not inside parentheses.
         private static readonly System.Text.RegularExpressions.Regex OpcodeRx = new(
             @"^([A-Za-z_][A-Za-z0-9_]*(?:\s*\([^()]*(?:\([^()]*\)[^()]*)*\))*)(?:\s+(.*))?$",
             System.Text.RegularExpressions.RegexOptions.Compiled);
@@ -308,7 +289,6 @@ namespace ShaderRipper.Cg
             ins.Opcode = paren > 0 ? full.Substring(0, paren) : full;
             if (ins.Opcode.Length == 0) return null;
 
-            // split operands at top-level commas
             foreach (var part in SplitOperands(rest))
             {
                 if (part.Length == 0) continue;
@@ -377,14 +357,12 @@ namespace ShaderRipper.Cg
 
             if (v == "null") { o.Kind = "null"; return o; }
 
-            // negation
             if (v.StartsWith("-")) { o.Negate = true; v = v.Substring(1); }
             if (v.StartsWith("|") && v.EndsWith("|")) v = v.Substring(1, v.Length - 2);
             if (v.StartsWith("|")) { o.Negate = true; v = v.Substring(1).TrimEnd('|'); }
             if (v.StartsWith("+")) v = v.Substring(1);
             if (v.StartsWith("-")) { o.Negate = !o.Negate; v = v.Substring(1); }
 
-            // immediate literal l(0.0, 0.0, 0.0, 0.0)
             if (v.StartsWith("l(") || v.StartsWith("l ("))
             {
                 o.Kind = "l";
@@ -397,17 +375,12 @@ namespace ShaderRipper.Cg
                 return o;
             }
 
-            // swizzle: the separator dot is the one AFTER the closing bracket, when
-            // the operand is an indexed access.  Searching for the first '.' would
-            // land inside the index expression -- e.g. "icb[r0.z + 0].xyzx" would
-            // split at "r0." and yield the bogus swizzle "z + 0].xyzx".
             int close = v.LastIndexOf(']');
             int dot = close >= 0 ? v.IndexOf('.', close + 1) : v.IndexOf('.');
             string reg = dot >= 0 ? v.Substring(0, dot) : v;
             string swz = dot >= 0 ? v.Substring(dot + 1) : "";
             o.Swizzle = swz;
 
-            // indexed: cb0[2] / x0[r1.x+0] / cb1[4]
             int br = reg.IndexOf('[');
             if (br >= 0)
             {
@@ -426,7 +399,6 @@ namespace ShaderRipper.Cg
                 return o;
             }
 
-            // plain register r0 / v1 / o0 / t0 / s0 / x0
             if (reg.Length == 0)
             {
                 if (Environment.GetEnvironmentVariable("SHADERRIP_TRACE") == "1")

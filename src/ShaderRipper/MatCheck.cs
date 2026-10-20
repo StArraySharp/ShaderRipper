@@ -21,8 +21,8 @@ namespace ShaderRipper
             public string File, Material, Shader;
             public bool ShaderResolved;
             public int ShaderProps, SetFloats, SetColors, SetTextures;
-            public List<string> Missing = new();   // set by material, absent from shader
-            public List<string> Touched = new();   // set by material and known to shader
+            public List<string> Missing = new();
+            public List<string> Touched = new();
         }
 
         public static int Run(string dataDir, TypeNode jsonRoot,
@@ -31,8 +31,6 @@ namespace ShaderRipper
             var rows = new List<Row>();
             int filesLoaded = 0, loadErrors = 0;
 
-            // 全局 shader 库：文件标识 → pathId → shader。材质 PPtr 的 m_FileID
-            // 指向 externals 表里的路径名，与加载文件的标识对上就能跨文件解析。
             var repo = new List<(string Key, Dictionary<long, Shader> ByPathId)>();
 
             foreach (var (fileName, loader) in EnumerateSerialized(dataDir, tpkClass))
@@ -61,7 +59,6 @@ namespace ShaderRipper
                         byPathId.TryGetValue(m.ShaderPathId, out sh);
                     else
                     {
-                        // externals[i] == m_FileID-1 → 路径名 → 在库里找同名文件
                         int idx = m.ShaderFileId - 1;
                         string ext = idx >= 0 && idx < sf.Externals.Count ? sf.Externals[idx] : null;
                         if (ext != null)
@@ -114,7 +111,6 @@ namespace ShaderRipper
                 (known.Contains(name) ? row.Touched : row.Missing).Add(name);
             foreach (var (name, fileId, pathId) in m.TexEnvs)
             {
-                // 材质保留槽位但没绑纹理（PPtr 全零）是常态，不是 mismatch
                 if (!known.Contains(name) && (fileId != 0 || pathId != 0))
                     row.Missing.Add(name);
                 if (known.Contains(name))

@@ -8,13 +8,13 @@ namespace ShaderRipper.Cg
     /// <summary>One row of a DXBC input/output signature block.</summary>
     internal sealed class SigEntry
     {
-        public string Name;      // TEXCOORD, POSITION, SV_Position, COLOR, ...
+        public string Name;
         public int Index;
-        public string Mask;      // xyzw
+        public string Mask;
         public int Register;
-        public string SysValue;  // NONE, POS, TARGET, ...
-        public string Format;    // float, uint, ...
-        public string Used;      // xyzw
+        public string SysValue;
+        public string Format;
+        public string Used;
 
         public bool IsSystem => SysValue != null &&
                                 !SysValue.Equals("NONE", StringComparison.OrdinalIgnoreCase);
@@ -61,17 +61,13 @@ namespace ShaderRipper.Cg
 
         public readonly List<Field> AppdataFields = new();
         public readonly List<Field> V2fFields = new();
-        // A register can carry more than one semantic in disjoint lanes
-        // (`TEXCOORD0 xy` + `TEXCOORD1 zw` share v2), so each register maps to every
-        // field it holds, in declaration order.
-        public readonly Dictionary<int, List<Field>> VsInReg = new();   // vN -> appdata fields
-        public readonly Dictionary<int, List<Field>> VsOutReg = new();  // oN -> v2f fields
-        public readonly Dictionary<int, List<Field>> PsInReg = new();   // vN -> v2f fields
+
+        public readonly Dictionary<int, List<Field>> VsInReg = new();
+        public readonly Dictionary<int, List<Field>> VsOutReg = new();
+        public readonly Dictionary<int, List<Field>> PsInReg = new();
 
         private readonly HashSet<string> _appUsed = new(StringComparer.Ordinal);
         private readonly HashSet<string> _v2fUsed = new(StringComparer.Ordinal);
-
-        // ---- appdata (vertex inputs) ----
 
         public void BuildAppdata(List<SigEntry> ins)
         {
@@ -93,8 +89,6 @@ namespace ShaderRipper.Cg
                 AddTo(VsInReg, e.Register, f);
             }
         }
-
-        // ---- v2f ----
 
         /// <summary>
         /// Build the interpolator struct.  The vertex output signature defines what
@@ -150,8 +144,6 @@ namespace ShaderRipper.Cg
                     }
                     else if (!string.IsNullOrEmpty(e.Mask) && !string.IsNullOrEmpty(f.Mask))
                     {
-                        // the two stages can declare different lanes for one semantic,
-                        // and the struct has to carry the union
                         f.Mask = string.Concat("xyzw".Where(c => f.Mask.Contains(c) || e.Mask.Contains(c)));
                     }
                     AddTo(PsInReg, e.Register, f);
@@ -222,7 +214,6 @@ namespace ShaderRipper.Cg
                 return e.Name.Equals("SV_Position", StringComparison.OrdinalIgnoreCase)
                     ? "SV_POSITION" : e.Name.ToUpperInvariant();
             string b = BaseSemantic(e.Name);
-            // numbered semantics are always written with their index ("TEXCOORD0")
             return NumberedSemantics.Contains(b) ? b + e.Index : b;
         }
 
@@ -276,10 +267,6 @@ namespace ShaderRipper.Cg
             {
                 string note = f.OrigIndex >= 0 && f.OrigIndex != f.Index
                     ? $"  // compiled as {f.Base}{f.OrigIndex}" : "";
-                // 系统值语义里这几个必须是整型，声明成 float 会被编译器直接拒
-                // （"invalid type used for 'SV_VERTEXID' input semantics, must be
-                // integral"）。DXBC 的签名只给寄存器掩码，不给 C 类型，所以按
-                // 语义名补回来。
                 string type = IntegralSemantics.Contains(NormSemantic(f.Semantic))
                     ? "uint" : f.Type;
                 sb.AppendLine($"\t{type,-7} {f.Name,-12} : {f.Semantic};{note}");
@@ -289,8 +276,6 @@ namespace ShaderRipper.Cg
         }
 
         private static bool NeedsIndex(Field f) => false;
-
-        // ---- emission helpers ----
 
         /// <summary>
         /// Declares vN locals initialised from the input struct.  The local keeps
@@ -335,7 +320,6 @@ namespace ShaderRipper.Cg
                 need = Math.Max(need, neededComps?.Invoke(kv.Key) ?? 0);
                 if (need <= 0) need = 1;
 
-                // one field covering the whole local: keep the plain form
                 if (fields.Count == 1 && LaneStart(fields[0]) == 0 && LaneCount(fields[0]) >= need)
                 {
                     yield return $"\t{fields[0].Type,-6} v{kv.Key} = {structVar}.{fields[0].Name};";
@@ -351,8 +335,6 @@ namespace ShaderRipper.Cg
                         int start = LaneStart(f);
                         int len = LaneCount(f);
                         if (i < start || i >= start + len) continue;
-                        // the mask is the lane inside the register; the field itself
-                        // always counts from its own first component
                         src = f.Comps == 1 && len == 1
                             ? $"{structVar}.{f.Name}"
                             : $"{structVar}.{f.Name}.{"xyzw"[i - start]}";
@@ -371,8 +353,6 @@ namespace ShaderRipper.Cg
             foreach (var kv in new SortedDictionary<int, List<Field>>(map))
                 foreach (var f in kv.Value)
                 {
-                    // only the full-width case can copy the whole local; anything
-                    // narrower is taken by its lane group so the conversion is explicit
                     if (string.IsNullOrEmpty(f.Mask) || (LaneStart(f) == 0 && f.Mask.Length >= 4))
                         yield return $"\t{structVar}.{f.Name} = o{kv.Key};";
                     else
@@ -381,8 +361,3 @@ namespace ShaderRipper.Cg
         }
     }
 }
-
-
-
-
-

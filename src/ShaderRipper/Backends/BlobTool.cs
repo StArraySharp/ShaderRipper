@@ -26,7 +26,6 @@ namespace ShaderRipper
         {
             try
             {
-                // probe with a tiny valid call to ensure the DLL binds
                 NativeReady = true;
             }
             catch (Exception e) { NativeError = e.Message; NativeReady = false; }
@@ -123,8 +122,6 @@ namespace ShaderRipper
 
             if (res.Count == 0 && usedBlobIndices != null)
             {
-                // Unity 6 layout: pair the containers, in payload order, with the
-                // blob indices the shader references, in ascending order.
                 var hits = FindDxbc(buf);
                 var idxs = usedBlobIndices.Distinct().OrderBy(x => x).ToList();
                 if (hits.Count == idxs.Count)
@@ -132,7 +129,7 @@ namespace ShaderRipper
                         res.Add(new BlobSlot(idxs[k], hits[k].off, hits[k].total));
             }
 
-            if (res.Count == 0)          // fallback: legacy positional scan
+            if (res.Count == 0)
             {
                 var hits = FindDxbc(buf);
                 for (int k = 0; k < hits.Count; k++) res.Add(new BlobSlot(k, hits[k].off, hits[k].total));
@@ -152,7 +149,7 @@ namespace ShaderRipper
         public sealed class CbInfo
         {
             public string Name = "";
-            public int Size;                                   // bytes
+            public int Size;
             /// <summary>Register the program binds this buffer to, or -1 when unrecorded.</summary>
             public int Register = -1;
             public List<(string name, int offset, int type, int dim)> Members = new();
@@ -202,12 +199,6 @@ namespace ShaderRipper
                     p = next;
                 }
 
-                // After the member records the blob carries a small list of
-                // (buffer name, ?, register) -- the register each buffer is bound to
-                // in THIS program.  That is stronger evidence than reading the
-                // declaration order off the reconstructed source, and it is the only
-                // place a program that kept a buffer without a member table can be
-                // resolved at all.
                 if (recordEnd > 0 && list.Count > 0)
                 {
                     var map = ReadRegisterMap(buf, recordEnd, end);
@@ -280,10 +271,6 @@ namespace ShaderRipper
             int members = BitConverter.ToInt32(b, q + 4);
             if (cb.Size < 0 || cb.Size > 1 << 20 || members < 0 || members > 4096) return null;
 
-            // The record tail measured 12 bytes for one blob and 8 for another, so the
-            // member list is taken at +8 and the outer scan resynchronises by 4 bytes
-            // whenever the next position does not parse.  Trying a single fixed stride
-            // drops blobs whose tail differs.
             int r = q + 8;
             for (int i = 0; i < members; i++)
             {
@@ -293,7 +280,7 @@ namespace ShaderRipper
                 string mname = System.Text.Encoding.ASCII.GetString(b, r + 4, mn);
                 int s = r + 4 + ((mn + 3) & ~3);
                 if (s + 24 > end) return null;
-                int moff = BitConverter.ToInt32(b, s + 20);       // byte offset in the cbuffer
+                int moff = BitConverter.ToInt32(b, s + 20);
                 var tail = new int[6];
                 for (int k = 0; k < 6; k++) tail[k] = BitConverter.ToInt32(b, s + 4 * k);
                 if (moff >= 0 && moff < cb.Size) { cb.Members.Add((mname, moff, tail[1], tail[2])); cb.MemberTails.Add(tail); }
@@ -335,7 +322,7 @@ namespace ShaderRipper
             return res;
         }
 
-        private static readonly byte[] DxbcMagic = { 0x44, 0x58, 0x42, 0x43 };  // "DXBC"
+        private static readonly byte[] DxbcMagic = { 0x44, 0x58, 0x42, 0x43 };
 
         private static int IndexOf(byte[] hay, byte[] needle, int from)
         {
@@ -357,7 +344,6 @@ namespace ShaderRipper
     /// DXIL（D3D12）只有 dxcompiler 认，仍走 DxcDisassemble。</summary>
     public static string Disassemble(byte[] container)
     {
-        // SHADERRIP_FORCE_MANAGED=1 跳过 d3dcompiler，直接走托管反汇编（跨平台一致性验证用）
         bool forceManaged = Environment.GetEnvironmentVariable("SHADERRIP_FORCE_MANAGED") == "1";
         string s = null;
         if (!forceManaged && OperatingSystem.IsWindows())
@@ -371,8 +357,6 @@ namespace ShaderRipper
             s = DxcDisassemble(container);
         return s;
     }
-
-    // ---- DXDecompiler（纯托管 SM4/5 DXBC 反汇编）----
 
     /// <summary>DXDecompiler 托管反汇编 DXBC 容器；失败返回 null。
     /// 输出风格与 d3dcompiler 接近（vs_5_0 / dcl_ / mov 等标准 SM 汇编）。</summary>
@@ -390,11 +374,6 @@ namespace ShaderRipper
             return null;
         }
     }
-
-    // ---- 浮点字面量归一化：DXDecompiler 用最短表示（0.15 / 0.3333333），
-    // d3dcompiler 固定 6 位小数（0.150000 / 0.333333）。统一成 d3dcompiler 风格，
-    // 使两个平台的反汇编文本（进而 CGPROGRAM）逐字节一致。只处理 l(...) 字面量组，
-    // 不碰寄存器名/语义标记。 ----
 
     private static readonly System.Text.RegularExpressions.Regex LiteralGroup =
         new(@"l\(([^()]*)\)");
@@ -417,8 +396,6 @@ namespace ShaderRipper
                 return v.ToString("0.000000", System.Globalization.CultureInfo.InvariantCulture);
             }) + ")");
     }
-
-    // ---- d3dcompiler（Windows 内嵌解压，仅用于 SM4/5 DXBC）----
 
     [DllImport("d3dcompiler_47", CharSet = CharSet.Ansi, ExactSpelling = true)]
     private static extern int D3DDisassemble(
@@ -444,7 +421,7 @@ namespace ShaderRipper
 
             IntPtr buf = gbp(blob);
             ulong len = (ulong)gbs(blob);
-            string text = Marshal.PtrToStringAnsi(buf, (int)len)?.Replace("\0", "");   // 缓冲区偶带 NUL 残留
+            string text = Marshal.PtrToStringAnsi(buf, (int)len)?.Replace("\0", "");
             rel(blob);
             return text;
         }
@@ -453,7 +430,6 @@ namespace ShaderRipper
     }
 
     private delegate int DisasmFnX(IntPtr data, uint size, uint flags, string comment, out IntPtr blob);
-
 
     /// <summary>DXBC 容器里有没有 DXIL chunk（= D3D12/SM6 程序）。</summary>
     public static bool HasDxilChunk(byte[] container)
@@ -472,8 +448,6 @@ namespace ShaderRipper
         return false;
     }
 
-    // ---- DXIL 反汇编：dxcompiler.dll（COM, DxcCreateInstance + IDxcCompiler3）----
-
     private static readonly Guid CLSID_DxcCompiler = new Guid("73E22D93-E6CE-47F3-B5BF-F0664F39C1B0");
     private static readonly Guid IID_IDxcCompiler3 = new Guid("228B4687-5A6A-4730-900C-9702B2203F54");
     private static readonly Guid IID_IDxcResult = new Guid("58346CDA-DDE7-4497-9461-6F87AF5E0659");
@@ -485,7 +459,7 @@ namespace ShaderRipper
 
     [UnmanagedFunctionPointer(CallingConvention.StdCall)]
     private delegate int DxcCreateInstanceFn(ref Guid clsid, ref Guid iid, out IntPtr obj);
-    // IDxcCompiler3：IUnknown(0-2), Compile(3), Disassemble(4)
+
     [UnmanagedFunctionPointer(CallingConvention.StdCall)]
     private delegate int Disassemble3Fn(IntPtr self, IntPtr dxcBuffer, ref Guid riid, out IntPtr result);
     [UnmanagedFunctionPointer(CallingConvention.StdCall)]
@@ -493,8 +467,6 @@ namespace ShaderRipper
 
     private static IntPtr LoadDxcCompiler()
     {
-        // 跨平台：优先用内嵌解压的原生库（发布产物是单文件，磁盘上没有），
-        // 失败再走系统搜索路径；Windows 额外试注册表定位的 Unity 安装目录。
         if (OperatingSystem.IsWindows())
         {
             IntPtr h;
@@ -530,10 +502,8 @@ namespace ShaderRipper
             catch { }
             return IntPtr.Zero;
         }
-        // Linux/macOS：先解压内嵌的 .so（libdxil.so 预加载，让 dxc 后续 dlopen
-        // "libdxil.so" 时命中已加载的 soname），再试 exe 同目录，最后裸 soname。
         string soC = NativeLibLoader.ExtractNative("libdxil.so");
-        if (soC != null && NativeLibrary.TryLoad(soC, out IntPtr hDxil)) { /* 预加载即可 */ }
+        if (soC != null && NativeLibrary.TryLoad(soC, out IntPtr hDxil)) {  }
         string so = NativeLibLoader.ExtractNative("libdxcompiler.so");
         if (so != null && NativeLibrary.TryLoad(so, out IntPtr hSo)) return hSo;
         so = Path.Combine(AppContext.BaseDirectory, "libdxcompiler.so");
@@ -565,19 +535,17 @@ namespace ShaderRipper
                 return null;
             }
 
-            // DxcBuffer { Ptr, Size, Encoding }
             IntPtr buf = Marshal.AllocHGlobal(container.Length);
             Marshal.Copy(container, 0, buf, container.Length);
-            IntPtr dxcBuf = Marshal.AllocHGlobal(24);   // {Ptr(8), Size(8), Encoding(4)+pad}
+            IntPtr dxcBuf = Marshal.AllocHGlobal(24);
             Marshal.WriteIntPtr(dxcBuf, 0, buf);
             Marshal.WriteIntPtr(dxcBuf, 8, (IntPtr)container.Length);
             Marshal.WriteInt32(dxcBuf, 16, 0);
 
             IntPtr vtbl = Marshal.ReadIntPtr(compiler);
             var disasm = (Disassemble3Fn)Marshal.GetDelegateForFunctionPointer(
-                Marshal.ReadIntPtr(vtbl, 4 * IntPtr.Size), typeof(Disassemble3Fn));  // IUnknown(0-2), Compile(3), Disassemble(4)
+                Marshal.ReadIntPtr(vtbl, 4 * IntPtr.Size), typeof(Disassemble3Fn));
 
-            // 结果是 IDxcResult（riid 必须对；IID_IDxcBlob/OperationResult 会 E_INVALIDARG）
             Guid iidResult = IID_IDxcResult;
             int hr = disasm(compiler, dxcBuf, ref iidResult, out IntPtr result);
             if (hr != 0)
@@ -588,7 +556,6 @@ namespace ShaderRipper
             relC(compiler);
             if (hr != 0 || result == IntPtr.Zero) return null;
 
-            // IDxcResult：IUnknown(0-2), GetStatus(3), GetResult(4)——主输出即反汇编文本
             IntPtr rvtbl = Marshal.ReadIntPtr(result);
             hr = ((GetResultFn)Marshal.GetDelegateForFunctionPointer(
                 Marshal.ReadIntPtr(rvtbl, 4 * IntPtr.Size), typeof(GetResultFn)))(result, out IntPtr blob);
@@ -618,11 +585,11 @@ namespace ShaderRipper
     internal enum BlobFormat
     {
         Unknown = 0,
-        Dxbc,        // d3d11 / d3d12: DirectX bytecode (DXBC+SM4/5 或 DXBC+DXIL)
-        SpirV,       // vulkan / metal-on-vulkan
-        Metal,       // Unity's 0xF00DCAFE metal archive (entry name + MSL source)
-        Glsl,        // gles3 / gles / opengl: HLSLcc output, already text
-        D3d9,        // d3d9: SM2/SM3 裸 token 流（自研反汇编，见 D3D9Asm）
+        Dxbc,
+        SpirV,
+        Metal,
+        Glsl,
+        D3d9,
     }
 
     internal static class BlobFormatDetect
@@ -635,14 +602,11 @@ namespace ShaderRipper
             if (b == null || b.Length < off + 4) return BlobFormat.Unknown;
             if (len < 0) len = b.Length - off;
             uint u = System.BitConverter.ToUInt32(b, off);
-            if (u == 0x43425844) return BlobFormat.Dxbc;          // "DXBC"
+            if (u == 0x43425844) return BlobFormat.Dxbc;
             if (u == MetalMagic) return BlobFormat.Metal;
             if (u == SpirVMagic || u == 0x03022307) return BlobFormat.SpirV;
             if (LooksD3d9(b, off, off + len)) return BlobFormat.D3d9;
 
-            // GLSL is text; HLSLcc always opens with "#version".  Skip a BOM and
-            // leading whitespace but do not scan far: a wrong guess here costs a
-            // lot less than accepting a binary blob as source.
             int i = off;
             int limit = Math.Min(off + len, off + 512);
             if (i + 3 <= limit && b[i] == 0xEF && b[i + 1] == 0xBB && b[i + 2] == 0xBF) i += 3;
@@ -691,8 +655,6 @@ namespace ShaderRipper
                 if (u == 0x43425844) return (BlobFormat.Dxbc, i);
                 if (u == 0x07230203) return (BlobFormat.SpirV, i);
                 if (u == MetalMagic) return (BlobFormat.Metal, i);
-                // d3d9 版本 token：高 16 位 FFFE(vs)/FFFF(ps)，主版本 1..3。
-                // 随手一个 0xFFFFxxxx 不算数，必须整条 token 流能走到 END。
                 uint hi = u >> 16;
                 if (i == start || hi == 0xFFFE || hi == 0xFFFF)
                 {
@@ -722,7 +684,7 @@ namespace ShaderRipper
             uint hi = v >> 16;
             if (hi != 0xFFFE && hi != 0xFFFF) return false;
             uint major = (v >> 8) & 0xFF;
-            if (major < 2 || major > 3) return false;             // SM1 不带长度字段
+            if (major < 2 || major > 3) return false;
             return D3d9TokenEnd(b, off + 4, end) >= 0;
         }
 
@@ -733,18 +695,18 @@ namespace ShaderRipper
             while (p + 4 <= end && guard++ < 1 << 20)
             {
                 uint w = System.BitConverter.ToUInt32(b, p);
-                if (w == 0x0000FFFF) return p + 4;                // END
-                if ((w & 0xFFFF) == 0xFFFE)                       // comment
+                if (w == 0x0000FFFF) return p + 4;
+                if ((w & 0xFFFF) == 0xFFFE)
                 {
                     int cnt = (int)((w >> 16) & 0x7FFF);
                     if (cnt == 0) return -1;
                     p += 4 + cnt * 4;
                     continue;
                 }
-                if ((w & 0x80000000) != 0) return -1;             // 裸操作数 token
+                if ((w & 0x80000000) != 0) return -1;
                 int len = (int)((w >> 24) & 0xF);
                 if (len <= 0) return -1;
-                p += (len + 1) * 4;                               // 长度不含指令 token
+                p += (len + 1) * 4;
             }
             return -1;
         }

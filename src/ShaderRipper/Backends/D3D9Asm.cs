@@ -37,7 +37,6 @@ namespace ShaderRipper
         private const uint EndToken = 0x0000FFFF;
         private const int D3DSIO_COMMENT = 0xFFFE;
 
-        // ---- D3DSIO opcodes（d3d9types.h 权威值）----
         private static readonly Dictionary<int, (string name, bool destFirst)> Ops =
             new()
             {
@@ -71,10 +70,8 @@ namespace ShaderRipper
                 [95] = ("texldl", true), [96] = ("breakp", false),
             };
 
-        // D3DSHADER_COMPARISON（ifc/breakc/setp 的 bit16-18）
         private static readonly string[] Cmp = { "", "gt", "eq", "ge", "lt", "ne", "le" };
 
-        // D3DDECLUSAGE（SM3 dcl 语义）
         private static readonly string[] Usage =
         {
             "position", "blendweight", "blendindices", "normal", "psize", "texcoord",
@@ -109,19 +106,19 @@ namespace ShaderRipper
             {
                 uint w = BitConverter.ToUInt32(b, p);
                 if (w == EndToken) return sb.ToString();
-                if ((w & 0xFFFF) == D3DSIO_COMMENT)                  // comment token
+                if ((w & 0xFFFF) == D3DSIO_COMMENT)
                 {
                     int cnt = (int)((w >> 16) & 0x7FFF);
                     if (cnt == 0) return null;
                     p += 4 + cnt * 4;
                     continue;
                 }
-                if ((w & 0x80000000) != 0) return null;              // 裸操作数
+                if ((w & 0x80000000) != 0) return null;
 
                 int opcode = (int)(w & 0xFFFF);
                 int length = (int)((w >> 24) & 0xF);
-                if (length <= 0) return null;                        // SM1 无长度字段
-                int instEnd = p + (length + 1) * 4;                  // 长度不含指令 token
+                if (length <= 0) return null;
+                int instEnd = p + (length + 1) * 4;
                 if (instEnd > end) return null;
 
                 sb.Append("    ");
@@ -129,7 +126,7 @@ namespace ShaderRipper
 
                 p = instEnd;
             }
-            return null;                                             // 没有 END
+            return null;
         }
 
         private static bool Emit(byte[] b, int p, int instEnd, uint w, int opcode,
@@ -139,7 +136,6 @@ namespace ShaderRipper
             string name = op.name ?? "op_" + opcode;
             bool destFirst = op.destFirst;
 
-            // opcode 特定控制：比较码（ifc/breakc/setp）与 texld 的 _pp/_bx
             int ctrl = (int)((w >> 16) & 0xFF);
             if (opcode == 41) name = "if_" + Cmp[ClampC(ctrl)];
             else if (opcode == 45) name = "break_" + Cmp[ClampC(ctrl)];
@@ -150,7 +146,7 @@ namespace ShaderRipper
 
             switch (opcode)
             {
-                case 81:  // def c#, f, f, f, f
+                case 81:
                 {
                     var d = FmtOperand(b, ref operands, instEnd, true, isVs);
                     if (d == null) return false;
@@ -160,7 +156,7 @@ namespace ShaderRipper
                     sb.Append(name).Append(' ').Append(string.Join(", ", v)).AppendLine();
                     return true;
                 }
-                case 47:  // defb
+                case 47:
                 {
                     var d = FmtOperand(b, ref operands, instEnd, true, isVs);
                     if (d == null) return false;
@@ -168,7 +164,7 @@ namespace ShaderRipper
                     sb.Append(name).Append(' ').Append(d).Append(", ").Append(v).AppendLine();
                     return true;
                 }
-                case 48:  // defi
+                case 48:
                 {
                     var d = FmtOperand(b, ref operands, instEnd, true, isVs);
                     if (d == null) return false;
@@ -178,10 +174,8 @@ namespace ShaderRipper
                     sb.Append(name).Append(' ').Append(string.Join(", ", v)).AppendLine();
                     return true;
                 }
-                case 31:  // dcl
+                case 31:
                 {
-                    // 统一布局：dcl → 参数 token（bit31=1；SM3 语义：usage=bit0-3、
-                    // index=bit16-19；sampler：资源维度=bit27-29）→ dest
                     if (operands + 8 > instEnd) return false;
                     uint param = BitConverter.ToUInt32(b, operands);
                     operands += 4;
@@ -190,13 +184,13 @@ namespace ShaderRipper
                     uint dt = BitConverter.ToUInt32(b, operands - 4);
                     uint dim = (param >> 27) & 0x7;
 
-                    if (dim >= 2 && dim <= 4)                            // sampler dcl
+                    if (dim >= 2 && dim <= 4)
                     {
                         string r = dim == 4 ? "volume" : dim == 3 ? "cube" : "2d";
                         sb.Append("dcl_").Append(r).Append(' ').Append(d).AppendLine();
                         return true;
                     }
-                    if (major >= 3)                                      // SM3 语义 dcl
+                    if (major >= 3)
                     {
                         uint usage = param & 0xF, index = (param >> 16) & 0xF;
                         string u = usage < (uint)Usage.Length ? Usage[usage] : "usage" + usage;
@@ -243,25 +237,25 @@ namespace ShaderRipper
             string reg;
             switch (type)
             {
-                case 0: reg = "r" + num; break;                          // TEMP
-                case 1: reg = "v" + num; break;                          // INPUT
-                case 2: reg = "c" + num; break;                          // CONST
-                case 3: reg = isVs ? "a" + num : "t" + num; break;       // ADDR / TEXTURE
-                case 4: reg = num == 0 ? "oPos" : num == 1 ? "oFog" : "oPts"; break;  // RASTOUT
-                case 5: reg = "oD" + num; break;                         // ATTROUT
-                case 6: reg = isVs ? "o" + num : "oT" + num; break;      // OUTPUT / TEXCRDOUT
-                case 7: reg = "i" + num; break;                          // CONSTINT
-                case 8: reg = "oC" + num; break;                         // COLOROUT
-                case 9: reg = "oDepth"; break;                           // DEPTHOUT
-                case 10: reg = "s" + num; break;                         // SAMPLER
-                case 11: reg = "c" + (num + 2048); break;                // CONST2
-                case 12: reg = "c" + (num + 4096); break;                // CONST3
-                case 13: reg = "c" + (num + 6144); break;                // CONST4
-                case 14: reg = "b" + num; break;                         // CONSTBOOL
-                case 15: reg = "aL"; break;                              // LOOP
-                case 17: reg = num == 1 ? "vFace" : "vPos"; break;       // MISC（子类型=寄存器号）
-                case 18: reg = "L" + num; break;                         // LABEL
-                case 19: reg = "p" + num; break;                         // PREDICATE
+                case 0: reg = "r" + num; break;
+                case 1: reg = "v" + num; break;
+                case 2: reg = "c" + num; break;
+                case 3: reg = isVs ? "a" + num : "t" + num; break;
+                case 4: reg = num == 0 ? "oPos" : num == 1 ? "oFog" : "oPts"; break;
+                case 5: reg = "oD" + num; break;
+                case 6: reg = isVs ? "o" + num : "oT" + num; break;
+                case 7: reg = "i" + num; break;
+                case 8: reg = "oC" + num; break;
+                case 9: reg = "oDepth"; break;
+                case 10: reg = "s" + num; break;
+                case 11: reg = "c" + (num + 2048); break;
+                case 12: reg = "c" + (num + 4096); break;
+                case 13: reg = "c" + (num + 6144); break;
+                case 14: reg = "b" + num; break;
+                case 15: reg = "aL"; break;
+                case 17: reg = num == 1 ? "vFace" : "vPos"; break;
+                case 18: reg = "L" + num; break;
+                case 19: reg = "p" + num; break;
                 default: reg = "?t" + type + "_" + num; break;
             }
 
@@ -280,26 +274,26 @@ namespace ShaderRipper
                     if ((mask & 8) != 0) m.Append('w');
                     suffix += m.ToString();
                 }
-                uint dm = (w >> 20) & 0xF;                               // D3DSPDM
+                uint dm = (w >> 20) & 0xF;
                 if ((dm & 1) != 0) suffix += "_sat";
                 if ((dm & 2) != 0) suffix += "_pp";
                 if ((dm & 4) != 0) suffix += "_centroid";
             }
             else
             {
-                uint sw = (w >> 16) & 0xFF;                              // 每 2 位一个分量
+                uint sw = (w >> 16) & 0xFF;
                 int x = (int)(sw & 3), y = (int)((sw >> 2) & 3), z = (int)((sw >> 4) & 3), ww = (int)((sw >> 6) & 3);
                 if (!(x == 0 && y == 1 && z == 2 && ww == 3))
                     suffix += "." + Swz[x] + Swz[y] + Swz[z] + Swz[ww];
 
-                uint sm = (w >> 24) & 0xF;                               // D3DSPSM
+                uint sm = (w >> 24) & 0xF;
                 switch (sm)
                 {
-                    case 1: prefix = "-"; break;                         // NEG
+                    case 1: prefix = "-"; break;
                     case 2: suffix += "_bias"; break;
                     case 3: prefix = "-"; suffix += "_bias"; break;
-                    case 4: prefix = "1-"; break;                        // COMP
-                    case 5: suffix += "_bx2"; break;                     // SIGN
+                    case 4: prefix = "1-"; break;
+                    case 5: suffix += "_bx2"; break;
                     case 6: prefix = "-"; suffix += "_bx2"; break;
                     case 7: prefix = "1-"; suffix += "_bx2"; break;
                     case 8: suffix += "_x2"; break;
@@ -311,7 +305,6 @@ namespace ShaderRipper
 
             string s = prefix + reg + suffix;
 
-            // 相对寻址（bit13）：后面跟一个地址操作数 token（通常是 a0.x）
             if (!isDest && (w & 0x2000) != 0)
             {
                 string addr = FmtOperand(b, ref p, end, false, isVs);
@@ -320,8 +313,6 @@ namespace ShaderRipper
             }
             return s;
         }
-
-        // ---------------- 自测：预编译 fixture（见 D3D9Fixtures.cs），跨平台无依赖 ----------------
 
         /// <summary>--selftest-d3d9：对预编译的 SM2/SM3 fixture 跑反汇编并做基本校验。
         /// 返回 0 = 全部通过。</summary>

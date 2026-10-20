@@ -183,11 +183,11 @@ namespace ShaderRipper
     internal sealed class AssetCbMember
     {
         public string Name = "";
-        public int Offset;          // <c>m_Index</c>: byte offset inside the buffer
-        public int Type;            // <c>m_Type</c>: Unity's ShaderParamType
-        public int Dim;             // vector: component count
-        public int ArraySize;       // 1 unless declared as an array
-        public int RowCount;        // matrix: rows
+        public int Offset;
+        public int Type;
+        public int Dim;
+        public int ArraySize;
+        public int RowCount;
         public bool IsMatrix;
     }
 

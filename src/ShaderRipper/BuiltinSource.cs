@@ -31,7 +31,6 @@ namespace ShaderRipper
             if (string.Equals(file, DefaultResources, StringComparison.OrdinalIgnoreCase)) return true;
             if (string.Equals(file, BuiltinExtra, StringComparison.OrdinalIgnoreCase)) return true;
 
-            // 包名带哈希前缀（64b0…_unitybuiltinassets.bundle），只能做包含匹配。
             return file.Contains(BuiltinBundle, StringComparison.OrdinalIgnoreCase);
         }
     }

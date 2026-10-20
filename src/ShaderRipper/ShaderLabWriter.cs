@@ -63,12 +63,10 @@ namespace ShaderRipper
             sb.AppendLine($"Shader \"{name}\"");
             sb.AppendLine("{");
 
-            // ---- Properties ----
             sb.AppendLine("\tProperties");
             sb.AppendLine("\t{");
             foreach (var p in sh.ParsedForm.Props) sb.AppendLine("\t\t" + PropLine(p));
             sb.AppendLine("\t}");
-
 
             foreach (var ss in sh.ParsedForm.SubShaders)
             {
@@ -80,9 +78,6 @@ namespace ShaderRipper
 
                 foreach (var pass in ss.Passes)
                 {
-                    // 只写资产里真有的名字：Unity 给无名 pass 的 m_StateName 也可能是
-                    // 空的，凭序号编一个 "Pass0" 会让 UsePass 引用和 Frame Debugger
-                    // 里出现不存在的名字。
                     sb.AppendLine();
                     sb.AppendLine($"\t\tPass");
                     sb.AppendLine("\t\t{");
@@ -91,7 +86,6 @@ namespace ShaderRipper
                     WritePassTags(sb, pass);
                     WriteState(sb, pass);
 
-                    // ---- programs ----
                     var byStage = new Dictionary<string, List<SubProgram>>();
                     foreach (var sp in pass.SubPrograms)
                     {
@@ -102,8 +96,6 @@ namespace ShaderRipper
                     bool any = byStage.Keys.Any(k => k is "Vertex" or "Fragment");
                     bool glslDone = false;
 
-                    // d3d9（SM2/3 裸 token）与 D3D12（DXBC+DXIL）只做反汇编，不回译 Cg：
-                    // 方言差距太大，硬译产物没法看。完整汇编在 Disassembly/<shader>/。
                     if (mainFormat is "d3d9" or "dxil")
                     {
                         sb.AppendLine("\t\t\t// " + (mainFormat == "d3d9"
@@ -114,9 +106,6 @@ namespace ShaderRipper
                     else if (mainFormat == "glsl" && sources != null &&
                         byStage.Keys.Any(k => k is "Vertex" or "Fragment"))
                     {
-                        // 每个 slot 是一份完整的 HLSLcc 程序（自带 VERTEX/FRAGMENT
-                        // 分支）。按关键字变体组织成 #if/#elif/#else 链，与 d3d11
-                        // 直译路径的变体结构完全一致。
                         var kwIndex = new Dictionary<int, string>();
                         for (int ki = 0; ki < sh.ParsedForm.KeywordNames.Count; ki++)
                             if (!string.IsNullOrEmpty(sh.ParsedForm.KeywordNames[ki]))
@@ -195,18 +184,6 @@ namespace ShaderRipper
                         string body = Cg.CgProgramWriter.Build(pass, progs, pass.Tags, sh.ParsedForm.Props,
                                                                sh.ParsedForm.KeywordNames, paramBlobs, shaderKey);
 
-                        // _LightColor0 / _SpecColor live in UnityLightingCommon.cginc,
-                        // which UnityCG.cginc does not pull in. Unity 6.3 moved them
-                        // out of UnityShaderVariables, so they are genuinely absent
-                        // unless this file is included.
-                        //
-                        // The catch: the translator also emits `float4 _LightColor0;`
-                        // as a named $Globals member whenever the program reads it.
-                        // That declaration is a *name binding* for the cbuffer row,
-                        // not a real uniform, and it collides with the include's
-                        // copy. So when we add the include we drop the translator's
-                        // standalone line -- the include's fixed4/_SpecColor and
-                        // fixed4/_LightColor0 are the same registers under SM5.
                         bool usesLight = body.Contains("_LightColor0") ||
                                          body.Contains("_SpecColor");
                         bool declaresLight =
@@ -271,9 +248,6 @@ namespace ShaderRipper
             if (t == 1) return $"{flags}{nm} (\"{desc}\", Vector) = {v4}";
             if (t == 2) return $"{flags}{nm} (\"{desc}\", Float) = {N(d[0])}";
             if (t == 3) return $"{flags}{nm} (\"{desc}\", Range({N(d[1])}, {N(d[2])})) = {N(d[0])}";
-            // 纹理属性的 m_Type 恒为 4（"texture"），真正的维度在 m_DefTexture.m_TexDim
-            // （UnityEngine.TextureDimension: 1=Any 2=2D 3=3D 4=Cube 5=2DArray 6=CubeArray）。
-            // 早先拿 m_Type 当维度，于是 cubemap 全被写成 2D。
             string dim = p.DefTextureDim switch
             {
                 1 => "Any", 3 => "3D", 4 => "Cube", 5 => "2DArray", 6 => "CubeArray",
@@ -343,9 +317,6 @@ namespace ShaderRipper
         {
             void W(string k, string v) => sb.AppendLine($"\t\t\t{k} {v}");
 
-            // A state entry with a property name must be emitted as a reference:
-            // the number next to it is only the serialized default, and a surface
-            // shader's material drives the real value (ZWrite [_ZWrite] etc.).
             string C(float v, string name, Dictionary<int, string> map) =>
                 !string.IsNullOrEmpty(name) ? $"[{name}]"
                 : map.GetValueOrDefault((int)v, ((int)v).ToString());
@@ -371,30 +342,15 @@ namespace ShaderRipper
                 W("Offset", $"{fx}, {ux}");
             }
 
-            // stencil: only when it actually differs from Unity defaults
-            // (defaults: Ref 0, ReadMask/WriteMask 255, Comp Always(8), ops Keep(0))
-
-            // Slot semantics, measured on real assets: slot 0 is the unprefixed
-            // main block, slots 1/2 are Front/Back.  A slot with Comp 0 (Disabled)
-            // emits nothing, so it contributes no state.  A block is inert -- and
-            // Unity 6000.3's parser rejects some of the spellings it produced --
-            // when every slot that emits anything is Comp Always with Keep ops and
-            // nothing else would change stencil state.
             bool IsInert(StencilOp o) => (int)o.Comp == 8 &&
                 (int)o.PassOp == 0 && (int)o.Fail == 0 && (int)o.ZFail == 0 && !o.AnyName;
             bool Emits(StencilOp o) => (int)o.Comp != 0 || (int)o.PassOp != 0 ||
                 (int)o.Fail != 0 || (int)o.ZFail != 0 || o.AnyName;
             bool NonDefault(StencilOp o) => !IsInert(o);
 
-            // A slot with Comp == 0 (Disabled) emits nothing at all -- it never
-            // changes stencil state. Treating it as "emitting but not inert"
-            // made the block appear on shaders that never actually use stencil,
-            // which is exactly what produced the illegal `Front Comp Always`.
             bool Silent(StencilOp o) => (int)o.Comp == 0 &&
                 (int)o.PassOp == 0 && (int)o.Fail == 0 && (int)o.ZFail == 0;
 
-            // The masks are 0, not Unity's 255 default: combined with every slot
-            // being inert-or-silent, the block is a complete no-op.
             bool MasksAreNoop() => (int)p.StencilRef == 0 &&
                 (int)p.StencilReadMask == 0 && (int)p.StencilWriteMask == 0;
 
@@ -402,18 +358,11 @@ namespace ShaderRipper
                 p.StencilOps.Where(Emits).All(o => IsInert(o) || Silent(o)) &&
                 (MasksAreNoop() || ((int)p.StencilRef == 0 && (int)p.StencilReadMask == 0));
 
-            // When every emitting slot agrees on all four values, one unprefixed
-            // block says it; the Front/Back prefixes are legal ShaderLab, but this
-            // Unity version's parser rejects `Front Comp Always`.
             bool same = p.StencilOps.Where(Emits)
                                       .Select(o => (o.Comp, o.PassOp, o.Fail, o.ZFail,
                                                     o.CompName, o.PassName, o.FailName, o.ZFailName))
                                       .Distinct().Count() <= 1;
 
-            // A stencil field can be driven by a material property (`Ref [_Stencil]`,
-            // `Comp [_StencilComp]`).  Such a block is NOT a no-op even when every
-            // serialized value happens to equal Unity's default -- UI shaders ship
-            // exactly like that, and dropping the block kills RectMask2D clipping.
             bool stencilNamed = !string.IsNullOrEmpty(p.StencilRefName) ||
                                 !string.IsNullOrEmpty(p.StencilReadMaskName) ||
                                 !string.IsNullOrEmpty(p.StencilWriteMaskName) ||
@@ -430,16 +379,11 @@ namespace ShaderRipper
                 sb.AppendLine($"\t\t\t\tRef {Sl(p.StencilRef, p.StencilRefName, EmptyMap)}");
                 sb.AppendLine($"\t\t\t\tReadMask {Sl(p.StencilReadMask, p.StencilReadMaskName, EmptyMap)}");
                 sb.AppendLine($"\t\t\t\tWriteMask {Sl(p.StencilWriteMask, p.StencilWriteMaskName, EmptyMap)}");
-                // The Front/Back prefixes are legal ShaderLab, but Unity 6000.3's
-                // parser rejects `Front Comp Always`.  When all three slots agree,
-                // emit one unprefixed block, which the parser accepts.
                 string[] opNames = { "", "Front", "Back" };
                 for (int i = 0; i < 3 && i < p.StencilOps.Count; i++)
                 {
-                    if (same && i > 0) continue;             // slot 0 once, unprefixed
+                    if (same && i > 0) continue;
                     var so = p.StencilOps[i];
-                    // Front/Back slots that are plain defaults would emit
-                    // `Front Comp Always`, which Unity 6000.3's parser rejects.
                     if (i > 0 && IsInert(so)) continue;
                     string pre = same ? "" : (opNames[i] == "" ? "" : opNames[i] + " ");
                     if ((int)so.Comp != 0 || so.CompName != "") sb.AppendLine($"\t\t\t\t{pre}Comp {Sl(so.Comp, so.CompName, CompareMap)}");
@@ -449,7 +393,6 @@ namespace ShaderRipper
                 }
                 sb.AppendLine("\t\t\t}");
             }
-            // blends
             for (int b = 0; b < p.Blends.Count; b++)
             {
                 var bs = p.Blends[b];
@@ -461,9 +404,6 @@ namespace ShaderRipper
                            : BlendMap.GetValueOrDefault((int)bs.SrcBlend, ((int)bs.SrcBlend).ToString());
                 string dst = !string.IsNullOrEmpty(bs.DestBlendName) ? $"[{bs.DestBlendName}]"
                            : BlendMap.GetValueOrDefault((int)bs.DestBlend, ((int)bs.DestBlend).ToString());
-                // BlendOp cannot take a property reference in ShaderLab -- the
-                // parser only accepts an operation token there -- so a named op
-                // falls back to its serialized value, on its own line.
                 string op = "";
                 string opLine = null;
                 if (!string.IsNullOrEmpty(bs.BlendOpName))
@@ -474,10 +414,6 @@ namespace ShaderRipper
                 else if ((int)bs.BlendOp != 0)
                     op = ", " + BlendOpMap.GetValueOrDefault((int)bs.BlendOp, ((int)bs.BlendOp).ToString());
 
-                // separate alpha factors: `Blend Src Dst, SrcA DstA`. Unity
-                // serializes srcBlendAlpha/destBlendAlpha alongside the colour
-                // pair; only restate them when they differ (or are property-
-                // driven while the colour pair is not).
                 string alpha = "";
                 string sa = !string.IsNullOrEmpty(bs.SrcBlendAlphaName) ? $"[{bs.SrcBlendAlphaName}]"
                           : BlendMap.GetValueOrDefault((int)bs.SrcBlendAlpha, ((int)bs.SrcBlendAlpha).ToString());
@@ -488,8 +424,6 @@ namespace ShaderRipper
                 W(lbl, $"{src} {dst}{alpha}{op}");
                 if (opLine != null)
                     W(b == 0 ? "BlendOp" : $"BlendOp {b}", opLine);
-                // `ColorMask [_ColorMask]` is how every UI/TMP shader drives it; the
-                // serialized value is only the shader's default and is often 0.
                 if (!string.IsNullOrEmpty(bs.ColMaskName))
                     W(b == 0 ? "ColorMask" : $"ColorMask {b}", $"[{bs.ColMaskName}]");
                 else if ((int)bs.ColMask != 15)
@@ -507,7 +441,3 @@ namespace ShaderRipper
         }
     }
 }
-
-
-
-

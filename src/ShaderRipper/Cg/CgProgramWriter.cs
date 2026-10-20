@@ -18,7 +18,7 @@ namespace ShaderRipper.Cg
     internal static class CgProgramWriter
     {
         /// <summary>在每条指令前插入原始 DXBC 反汇编注释（--no-asm 关闭）。</summary>
-        public static bool AnnotateAsm = false;   // 默认关：注释行干扰游戏内排查，--asm 打开
+        public static bool AnnotateAsm = false;
 
         public static string Build(Pass pass, Dictionary<int, AsmParser.Program> progs,
                                    IReadOnlyList<(string kh, string kv)> passTags,
@@ -27,8 +27,6 @@ namespace ShaderRipper.Cg
                                    Dictionary<int, List<BlobTool.CbInfo>> paramBlobs,
                                    string shaderKey = null){
             var names = GlobalsNames.For(shaderKey);
-            // TMP 的 uniform 全是裸声明，$Globals 的成员表在参数块里是 0 项、
-            // 资产反射也为空；只有它的源码声明顺序能定布局。
             bool tmpLayout = shaderKey != null &&
                              shaderKey.StartsWith("TextMeshPro", StringComparison.OrdinalIgnoreCase);
             var indexToName = new Dictionary<int, string>();
@@ -39,7 +37,6 @@ namespace ShaderRipper.Cg
             if (vsList.Count == 0 && psList.Count == 0)
                 return "// (no compiled program in this pass)\n";
 
-            // one entry per distinct keyword combination
             var vsByKey = Index(vsList, indexToName);
             var psByKey = Index(psList, indexToName);
             var allKeys = vsByKey.Keys.Union(psByKey.Keys)
@@ -49,19 +46,10 @@ namespace ShaderRipper.Cg
             var groups = VariantPlan.Groups(keywordSets);
             var nameTable = pass.NameIndices?.Keys.ToList() ?? new List<string>();
 
-            // 先把本 pass 的每个子程序各解析一次，收集"寄存器 → 缓冲名"的确认结果。
-            // 有些变体的名字表太薄，认不出 cb1 = UnityPerCamera，导致 _ZBufferParams
-            // 这类成员整块留成行号；同一 shader 内身份稳定，可以互相兜底。
             var identityHint = CollectIdentityHints(pass, progs, nameTable, props, paramBlobs, names);
-
-
 
             var sb = new StringBuilder();
 
-            // ---- shader model ---------------------------------------------
-            // The compiled profile (vs_4_0 / ps_5_0 ...) is the real requirement;
-            // a fixed 3.0 target would under-declare SM4/SM5 features such as
-            // structured buffers.
             var profs = new List<AsmParser.Program>();
             if (vsList.Count > 0) profs.Add(Lookup(progs, vsList[0]));
             if (psList.Count > 0) profs.Add(Lookup(progs, psList[0]));
@@ -77,17 +65,12 @@ namespace ShaderRipper.Cg
             }
             sb.AppendLine($"#pragma target {major}.{minor}");
 
-            // ---- keyword pragmas -------------------------------------------
             foreach (var g in groups) sb.AppendLine(VariantPlan.Pragma(g));
             if (groups.Count > 0) sb.AppendLine();
             var vanalysis = VariantPlan.Analyze(groups, keywordSets.Select(s => new HashSet<string>(s, StringComparer.Ordinal)).ToList());
             sb.AppendLine($"// {allKeys.Count} keyword variant(s), {groups.Count} independent toggle(s)");
             foreach (var note in vanalysis.Notes) sb.AppendLine($"// variants: {note}");
 
-            // Unity's multi_compile enumerates every toggle combination, but the
-            // metadata only lists the ones it actually compiled.  An #if/#elif chain
-            // with a final #else keeps every combination defined: the unmatched ones
-            // fall back to the first variant rather than compiling to nothing.
             for (int vi = 0; vi < allKeys.Count; vi++)
             {
                 string key = allKeys[vi];
@@ -146,8 +129,6 @@ namespace ShaderRipper.Cg
             if (sp == null) return null;
             return progs.TryGetValue(sp.BlobIndex, out var p) ? p : null;
         }
-
-        // ---- one keyword combination -------------------------------------
 
         private static List<BlobTool.CbInfo> ParamFor(Dictionary<int, List<BlobTool.CbInfo>> p, SubProgram sp)
         {
@@ -230,11 +211,7 @@ namespace ShaderRipper.Cg
             iface.BuildAppdata(vs?.InputSig);
             iface.BuildV2f(vs?.OutputSig, ps?.InputSig);
 
-            // 记录尺寸只是下界，用所有尺寸里最大的那个行数做上限，避免"读超了"被判成
-            // 不是 $Globals 而整块放弃命名。
             var assetGlobals = BestGlobals(vsSp, psSp);
-            // 整个 shader 的参数块：每个子程序只记自己读到的成员，跨程序合起来才能
-            // 算出"到下一个成员的距离"，矩阵（unity_WorldToLight 之类）才判得出来。
             var allParamCbs = paramBlobs?.Values.SelectMany(x => x).ToList();
             var vsCb = CbResolver.Resolve(vs, nameTable, props, ParamFor(paramBlobs, vsSp), -1, names, assetGlobals, identityHint, allParamCbs, tmpLayout, null, vsSp?.TextureParams);
             var psCb = CbResolver.Resolve(ps, nameTable, props, ParamFor(paramBlobs, psSp), -1, names, assetGlobals, identityHint, allParamCbs, tmpLayout, vsCb?.ChosenLayout, psSp?.TextureParams);
@@ -265,7 +242,7 @@ namespace ShaderRipper.Cg
                                              CbResolver vsCb, CbResolver psCb, IReadOnlyList<Property> props)
         {
             var seenTex = new HashSet<string>();
-            var seenCb = new Dictionary<int, int>();     // register -> widest declared size
+            var seenCb = new Dictionary<int, int>();
             var seenXt = new HashSet<int>();
             bool icbDone = false;
 
@@ -292,8 +269,6 @@ namespace ShaderRipper.Cg
                     }
                     else if (d.Kind == "constbuffer")
                     {
-                        // The two stages can declare different extents for the same
-                        // register; the declaration has to cover the larger one.
                         int size = Math.Max(1, d.Count);
                         if (seenCb.TryGetValue(d.Register, out int prev) && prev >= size) continue;
                         seenCb[d.Register] = size;
@@ -308,19 +283,11 @@ namespace ShaderRipper.Cg
                 }
             }
 
-            // emit the cbuffer declarations once, with the widest size seen
-            // $Globals is a single buffer, so at most one register can be it; and a
-            // uniform may be declared once per program.  Both are enforced here
-            // rather than trusted, because a mis-identified register would otherwise
-            // produce a duplicate declaration.
             var emitted = new HashSet<string>(StringComparer.Ordinal);
             bool globalsClaimed = false;
             foreach (var kv in seenCb.OrderBy(k => k.Key))
             {
                 int reg = kv.Key, size = kv.Value, bytes = 0;
-                // The parameter blob records the buffer's real byte size; the
-                // dcl_constantbuffer extent only reaches the last row the code
-                // touches.  Grow the declaration to the recorded size.
                 foreach (var res in new[] { vsCb, psCb })
                     if (res != null && res.CbSize.TryGetValue(reg, out int b))
                     {
@@ -328,10 +295,6 @@ namespace ShaderRipper.Cg
                         size = Math.Max(size, b / 16);
                     }
                 bool full = IsFullyMapped(reg, vs, vsCb) && IsFullyMapped(reg, ps, psCb);
-                // A register number is per stage: cb0 can be $Globals in the fragment
-                // while it is UnityPerDraw in the vertex.  $Globals is the identity
-                // that decides whether loose uniform declarations must be written,
-                // so it wins: the other stage's block is supplied by an include.
                 string vsName = vs != null && vsCb.CbName.TryGetValue(reg, out var vsn) ? vsn : null;
                 string psName = ps != null && psCb.CbName.TryGetValue(reg, out var psn) ? psn : null;
                 bool globalsHere = vsName == "$Globals" || psName == "$Globals";
@@ -361,8 +324,6 @@ namespace ShaderRipper.Cg
                 else if (full && cbname != null && UnityCbuffers.SelfDeclared.Contains(cbname)
                          && gnames != null && gnames.Count > 0)
                 {
-                    // this buffer comes from an include UnityCG.cginc does not pull in,
-                    // so the block has to declare the members it uses itself
                     sb.AppendLine($"// cb{reg} = {cbname}  (not in UnityCG.cginc; declared here)");
                     foreach (var g in gnames) sb.AppendLine($"{g.type} {g.name};");
                 }
@@ -375,10 +336,6 @@ namespace ShaderRipper.Cg
                 }
             }
 
-
-            // A property the code names but the reflection did not cover would
-            // otherwise be used-but-undeclared; declare every property, plus the
-            // companions Unity generates for a texture (_ST, _TexelSize).
             var declared = new HashSet<string>(StringComparer.Ordinal);
             foreach (System.Text.RegularExpressions.Match m in System.Text.RegularExpressions.Regex.Matches(
                          sb.ToString(),
@@ -397,8 +354,6 @@ namespace ShaderRipper.Cg
                 if (declared.Add(p.Name + "_ST")) sb.AppendLine($"float4 {p.Name}_ST;");
                 if (declared.Add(p.Name + "_TexelSize")) sb.AppendLine($"float4 {p.Name}_TexelSize;");
             }
-            // 纹理维度取自属性表（m_DefTexture.m_TexDim）：早先把纹理属性一律声明成
-            // sampler2D，于是 cubemap 的 texCUBE 会退化成 tex2D 语义。
             var notes = new HashSet<string>(StringComparer.Ordinal);
             foreach (var res in new[] { vsCb, psCb })
                 foreach (var n in res?.Notes ?? new List<string>())
@@ -425,9 +380,6 @@ namespace ShaderRipper.Cg
             var use = new SortedDictionary<int, int>();
             foreach (var res in new[] { vsCb, psCb })
             {
-                // Only a stage that calls this register $Globals contributes rows to
-                // the note: the other stage's register of the same number is a
-                // different buffer, and mixing them would describe neither.
                 if (res == null || !res.CbName.TryGetValue(reg, out var n) || n != "$Globals") continue;
                 if (!res.RowUse.TryGetValue(reg, out var r)) continue;
                 foreach (var kv in r)
@@ -440,7 +392,6 @@ namespace ShaderRipper.Cg
 
             const string comps = "xyzw";
 
-            // a row counts as named when every lane the code reads sits on a name
             bool Named(int row, int mask)
             {
                 for (int c = 0; c < 4; c++)
@@ -464,8 +415,6 @@ namespace ShaderRipper.Cg
             sb.AppendLine($"// $Globals cb{reg}[{size}] = {sizeTxt}; {use.Count} row(s) read, "
                           + $"{use.Count - unnamed.Count} named.");
 
-            // Always state the whole read mask, named or not, so the note is a
-            // complete record of what the code touches.
             string Lanes(int mask)
             {
                 string s = "";
@@ -535,18 +484,13 @@ namespace ShaderRipper.Cg
                                                   AsmParser.Program vs, CbResolver vsCb,
                                                   AsmParser.Program ps, CbResolver psCb)
         {
-            // A register number is per stage: the vertex may bind UnityPerDraw to 0
-            // while the fragment binds $Globals to 0.  When the caller has decided
-            // the register is $Globals, only the stage that calls it $Globals
-            // contributes members; the other stage's buffer is declared by an
-            // include and must not be merged under $Globals's name.
             List<(string name, string type)> Pick(AsmParser.Program p, CbResolver res)
             {
                 if (p == null || res == null) return null;
                 if (!res.CbName.TryGetValue(reg, out var n)) return null;
                 if (cbname == "$Globals")
                 {
-                    if (n != "$Globals") return null;   // the other identity: an include supplies it
+                    if (n != "$Globals") return null;
                 }
                 else if (n != cbname) return null;
                 return res.GlobalsDecl.TryGetValue(reg, out var g) ? g : null;
@@ -556,8 +500,6 @@ namespace ShaderRipper.Cg
             var b = Pick(ps, psCb);
             if (a != null && b != null)
             {
-                // The two stages can name different subsets of the same block;
-                // declare the union so every referenced name exists.
                 var u = new List<(string name, string type)>(a);
                 foreach (var x in b) if (!u.Any(y => y.name == x.name)) u.Add(x);
                 return u;
@@ -585,8 +527,6 @@ namespace ShaderRipper.Cg
             return f.ToString("0.0######", System.Globalization.CultureInfo.InvariantCulture);
         }
 
-        // ---- entry points -------------------------------------------------
-
         private static void EmitVertex(StringBuilder sb, AsmParser.Program p, ShaderInterface iface, CbResolver cb)
         {
             string inStruct = iface.AppdataFields.Count > 0 ? "appdata" : "v2f";
@@ -603,8 +543,6 @@ namespace ShaderRipper.Cg
             DeclareRegisters(sb, p);
             sb.AppendLine();
 
-            // 条件 ret（分支内提前返回）要返回装配好的输出结构，否则分支后面的
-            // 代码会覆盖 o0..oN，效果静默损坏（FloorMesh 的阴影就是这么坏的）。
             string vret = "new v2f { " + string.Join(", ", iface.BindOutputs(iface.VsOutReg, "o")
                 .Select(l => l.Trim().TrimEnd(';').Replace("o.", ""))) + " }";
             sb.Append(CollapseMvp(new CgTranslator(p, 1) { Cb = cb, AnnotateAsm = AnnotateAsm, ReturnExpr = vret }.TranslateBody()));
@@ -650,7 +588,6 @@ namespace ShaderRipper.Cg
         /// </summary>
         private static string CollapseMvp(string body)
         {
-            // the register aliases the body starts from: `float4 v0 = v.vertex;`
             var alias = new System.Collections.Generic.Dictionary<string, string>();
             foreach (System.Text.RegularExpressions.Match am in
                      System.Text.RegularExpressions.Regex.Matches(body,
@@ -711,10 +648,3 @@ namespace ShaderRipper.Cg
         }
     }
 }
-
-
-
-
-
-
-

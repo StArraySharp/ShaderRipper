@@ -49,7 +49,6 @@ namespace ShaderRipper
                                   next != null &&
                                   !next.StartsWith("-", StringComparison.Ordinal);
 
-                // --bundles 的值必须是已存在的目录，否则当作"没有值"
                 if (takesValue && t.Equals("--bundles", StringComparison.OrdinalIgnoreCase) &&
                     !System.IO.Directory.Exists(next))
                     takesValue = false;

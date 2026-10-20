@@ -37,7 +37,7 @@ namespace ShaderRipper.Cg
 
         private sealed class InOut
         {
-            public string Name;         // struct member name
+            public string Name;
             public string CgType = "float4";
             public string Semantic;
         }
@@ -45,9 +45,9 @@ namespace ShaderRipper.Cg
         private sealed class Branch
         {
             public List<(string decl, string name)> Uniforms = new();
-            public List<InOut> Ins = new();         // vertex attributes
-            public List<InOut> Varyings = new();    // vertex outs / fragment ins
-            public List<string> Globals = new();    // file-scope arrays/vars (TempArray0, ImmCB_0)
+            public List<InOut> Ins = new();
+            public List<InOut> Varyings = new();
+            public List<string> Globals = new();
             public List<string> Locals = new();
             public List<string> Body = new();
             public string BodyText = "";
@@ -76,8 +76,6 @@ namespace ShaderRipper.Cg
             "unity_SHC", "_WorldSpaceLightPos0", "unity_AmbientSky", "unity_AmbientEquator",
             "unity_AmbientGround", "unity_IndirectSpecColor", "unity_OcclusionMaskSelector",
             "unity_WorldTransformParams", "unity_LightShadowBias",
-            // 注意：unity_ProbeVolume* 在 UnityShaderVariables.cginc 里是条件宏声明，
-            // 我们的最小编译单元没有那些宏 —— 自己声明（值不会被绑定，但探针贡献本就为 0）。
         };
 
         private static readonly HashSet<string> SkipLines = new(StringComparer.Ordinal)
@@ -120,8 +118,6 @@ namespace ShaderRipper.Cg
             (new Regex(@"\bsamplerCube\b"), "samplerCUBE"),
         };
 
-        // ---------------- entry ----------------
-
         /// <summary>--asm：在每条翻译出的 Cg 行上方插入对应的原始 GLSL 行注释。
         /// GLSL 本身就是 Unity 存下的"原始汇编"，这就是它的逐行反汇编注释。</summary>
         public static bool AnnotateSource;
@@ -137,30 +133,19 @@ namespace ShaderRipper.Cg
                 return new Result { Notes = notes };
             }
 
-            // uniforms: union of both stages.  Engine-injected names (matrices,
-            // _Time, _ScreenParams, SH coefficients ...) are NOT declared here --
-            // UnityCG.cginc already declares them, and an own copy would either
-            // redefine (error) or, renamed, never bind (invisible geometry).
-            // Everything else keeps its canonical name so Unity binds the material
-            // value by name; "int" declarations for material properties become
-            // float (HLSLcc occasionally writes int for float properties, and the
-            // material side is a float -- the DXBC version reads them as float too).
             var uniforms = new List<string>();
             var seen = new HashSet<string>(StringComparer.Ordinal);
             foreach (var (decl, name) in (pv?.Uniforms ?? new List<(string, string)>())
                      .Concat(pf?.Uniforms ?? new List<(string, string)>()))
             {
                 if (!seen.Add(name)) continue;
-                if (BuiltinUniforms.Contains(name)) continue;      // cginc supplies it
+                if (BuiltinUniforms.Contains(name)) continue;
                 string d = decl;
                 if (name.StartsWith("_") && d.StartsWith("int "))
                     d = "float " + name + ";";
                 uniforms.Add(d);
             }
 
-            // file-scope globals: union of both stages.  HLSL 里全局变量不可写
-            // ("implicitly constant")，所以不下发到文件作用域，而是作为每个 stage
-            // 函数体的头部局部变量——GLSL 语义里全局数组本来也只在 main 内读写。
             var globals = new List<string>();
             var gseen = new HashSet<string>(StringComparer.Ordinal);
             foreach (var g in (pv?.Globals ?? new List<string>())
@@ -172,13 +157,10 @@ namespace ShaderRipper.Cg
                 if (pf != null && pf.Globals.Contains(g)) pf.Locals.Insert(0, g);
             }
 
-            // sampler 类型档案：sampler3D / samplerCube 的采样要路由到 tex3D /
-            // texCUBE，且不能把它们的 uv 截成 .xy
             _s3d.Clear(); _cube.Clear();
             foreach (var u in (pv?.Uniforms ?? new List<(string, string)>())
                      .Concat(pf?.Uniforms ?? new List<(string, string)>()))
             {
-                // 用改名前的原始名字建档——TranslateBody 跑到采样路由时正文还没改名
                 var m = Regex.Match(u.decl, @"^(sampler3D|samplerCUBE|samplerCube)\s+(\w+)");
                 if (!m.Success) continue;
                 if (m.Groups[1].Value == "sampler3D") _s3d.Add(m.Groups[2].Value);
@@ -190,7 +172,6 @@ namespace ShaderRipper.Cg
             if (pf != null && pf.BodyText.Length > 0)
                 pf.Body = TranslateBody(pf.BodyText, false);
 
-            // v2f: vertex outs ∪ fragment ins, keyed by member name
             var v2f = new Dictionary<string, InOut>(StringComparer.Ordinal);
             foreach (var v in pv?.Varyings ?? Enumerable.Empty<InOut>())
                 v2f[v.Name] = v;
@@ -226,8 +207,6 @@ namespace ShaderRipper.Cg
                 foreach (var g in pv.Locals) sb.AppendLine("\t" + g + ";");
                 sb.AppendLine("\tv2f o;");
                 foreach (var l in pv.Body) sb.AppendLine("\t" + l);
-                // HLSLcc 习惯在 main 末尾补一句 return;——翻译后 body 已自带
-                // return，包装层不再重复。
                 if (!pv.Body[^1].Trim().StartsWith("return", StringComparison.Ordinal))
                     sb.AppendLine("\treturn o;");
                 sb.AppendLine("}");
@@ -251,16 +230,12 @@ namespace ShaderRipper.Cg
             return new Result { Cg = sb.ToString(), Notes = notes };
         }
 
-        // ---------------- branch extraction ----------------
-
         private static string ExtractBranch(string glsl, string stage)
         {
             if (glsl == null) return null;
             int at = glsl.IndexOf("#ifdef " + stage, StringComparison.Ordinal);
             if (at < 0) return null;
             at += ("#ifdef " + stage).Length;
-            // the HLSLCC prologue itself contains #if/#endif pairs, so the branch
-            // ends at the *matching* #endif, not the first one
             int depth = 0;
             for (int i = at; i < glsl.Length;)
             {
@@ -278,8 +253,6 @@ namespace ShaderRipper.Cg
             return glsl[at..];
         }
 
-        // ---------------- parsing ----------------
-
         private static Branch ParseBranch(string src, bool isVertex)
         {
             if (src == null) return null;
@@ -287,7 +260,6 @@ namespace ShaderRipper.Cg
             var varyings = new Dictionary<string, InOut>(StringComparer.Ordinal);
             var lines = src.Replace("\r\n", "\n").Split('\n');
 
-            // cut out the main() body
             int mainAt = Array.FindIndex(lines, l => l.TrimStart().StartsWith("void main()"));
             string bodyText = "";
             if (mainAt >= 0)
@@ -315,11 +287,8 @@ namespace ShaderRipper.Cg
                 if (line.Length == 0 || SkipLines.Contains(line)) continue;
                 if (line.StartsWith("#") || line.StartsWith("}") || line.StartsWith("{")) continue;
 
-                // layout(location = N) 只是 GLSL 的接口位置标注，去掉后
-                // "out vec2 vs_TEXCOORD0" 就能走下面的常规 varying 通道
                 string l = Regex.Replace(StripQual(line), @"^layout\s*\([^)]*\)\s*", "");
 
-                // samplers: UNITY_LOCATION(0) uniform mediump sampler2D t0;
                 var ms = Regex.Match(l, @"^(?:\w+\([^)]*\)\s*)?uniform\s+(sampler\w+)\s+(\w+)\s*;");
                 if (ms.Success)
                 {
@@ -327,7 +296,6 @@ namespace ShaderRipper.Cg
                     res.Uniforms.Add(($"{st} {ms.Groups[2].Value};", ms.Groups[2].Value));
                     continue;
                 }
-                // plain uniform
                 ms = Regex.Match(l, @"^uniform\s+(.+?);\s*$");
                 if (ms.Success)
                 {
@@ -336,15 +304,9 @@ namespace ShaderRipper.Cg
                     res.Uniforms.Add((d + ";", nm.Success ? nm.Groups[1].Value : d));
                     continue;
                 }
-                // vertex attribute: in highp vec4 in_POSITION0;
                 ms = Regex.Match(l, @"^in\s+(.+?)\s+(in_\w+)\s*;");
                 if (ms.Success && isVertex)
                 {
-                    // keep the original "in_POSITION0" spelling as the member name so
-                    // the body needs no rewriting; the semantic strips the prefix and
-                    // is normalised to what Unity actually binds -- "POSITION0" is not
-                    // a stream semantic, so positions never bound and the mesh
-                    // degenerated into a fan from the origin.
                     string full = ms.Groups[2].Value;
                     string sem = full[3..];
                     sem = Regex.Replace(sem, @"^(POSITION|NORMAL|TANGENT)\d+$", "$1",
@@ -357,7 +319,6 @@ namespace ShaderRipper.Cg
                     });
                     continue;
                 }
-                // varying: in/out highp vec4 vs_TEXCOORD0;
                 ms = Regex.Match(l, @"^(in|out)\s+(.+?)\s+(vs_\w+)\s*;");
                 if (ms.Success)
                 {
@@ -375,16 +336,12 @@ namespace ShaderRipper.Cg
                     if (isVertex && ms.Groups[1].Value == "out") io.Semantic ??= ms.Groups[3].Value[3..];
                     continue;
                 }
-                // file-scope 可写数组/变量（TempArray0、ImmCB_0）：main() 里会写它们，
-                // 必须以全局声明保留，否则整段引用全部变成 undeclared identifier。
                 ms = Regex.Match(l, @"^(?:const\s+)?(vec[234]|ivec[234]|bvec[234]|uvec[234]|float|half|int|uint|bool)\s+(\w+)\s*(\[[^\]]*\])\s*(=.*)?;$");
                 if (ms.Success)
                 {
                     res.Globals.Add(MapDecl($"{ms.Groups[1].Value} {ms.Groups[2].Value}{ms.Groups[3].Value}"));
                     continue;
                 }
-                // fragment colour output: (layout(location = 0) )out vec4 SV_Target0;
-                // （layout 前缀在上面已统一剥掉）
                 ms = Regex.Match(l, @"^out\s+(.+?)\s+(SV_Target\d*)\s*;");
                 if (ms.Success)
                 {
@@ -392,8 +349,6 @@ namespace ShaderRipper.Cg
                     res.OutputSemantic = ms.Groups[2].Value;
                     continue;
                 }
-                // global temporary: vec2 u_xlat0;  (a "vs_"-prefixed one is a varying
-                // that HLSLcc forgot to mark "out" -- it still crosses the stage)
                 ms = Regex.Match(l, @"^(.+?)\s+(\w+)\s*;\s*$");
                 if (ms.Success)
                 {
@@ -422,9 +377,8 @@ namespace ShaderRipper.Cg
                     + $"uniforms={res.Uniforms.Count} ins={res.Ins.Count} varyings={varyings.Count} "
                     + $"locals={res.Locals.Count} body={res.Body.Count} out={res.OutputSemantic}");
 
-            // only varyings this stage actually participates in
             res.Varyings.AddRange(varyings.Values);
-            if (!isVertex) res.Ins.Clear();     // fragment "in in_*" is not a thing
+            if (!isVertex) res.Ins.Clear();
 
             if (bodyText.Length > 0)
             {
@@ -457,14 +411,10 @@ namespace ShaderRipper.Cg
             string ty = MapType(m.Groups[2].Value);
             string name = m.Groups[3].Value;
             string arr = m.Groups[4].Value;
-            // HLSLcc stores matrices as four vec4 rows; keeping that representation
-            // makes every index expression valid without touching the algebra.
             if (name.StartsWith("hlslcc_mtx4x4"))
                 return $"{(quals.Length > 0 ? quals + " " : "")}float4 {name["hlslcc_mtx4x4".Length..]}{arr}";
             return $"{(quals.Length > 0 ? quals + " " : "")}{ty} {name}{arr}";
         }
-
-        // ---------------- statement translation ----------------
 
         private static List<string> TranslateBody(string body, bool isVertex)
         {
@@ -476,39 +426,27 @@ namespace ShaderRipper.Cg
 
                 foreach (var (re, rep) in Rules) s = re.Replace(s, rep);
                 s = Regex.Replace(s, @"hlslcc_mtx4x4(\w+)", "$1");
-                // 引擎矩阵在 cginc 里是 float4x4；HLSLcc 的寄存器式下标 mtx[k] 对它
-                // 自己声明的 float4[4] 数组成立（第 k 个寄存器 = 第 k 列，组合即
-                // mul(M, v)），对 float4x4 却返回第 k 行——等于乘了转置，几何全部
-                // 扭曲/放射。改成显式列取值：第 k 列 = _m0k_m1k_m2k_m3k。
                 s = Regex.Replace(s,
                     @"\b(unity_ObjectToWorld|unity_WorldToObject|unity_MatrixV|unity_MatrixP|unity_MatrixVP|glstate_matrix_\w+)\[(\d+)\]",
                     "$1._m0$2_m1$2_m2$2_m3$2");
                 s = Regex.Replace(s, @"\bint\s*\(\s*(0x[0-9a-fA-F]+u?)\s*\)", "$1");
-                // Unity's CG front-end rejects the one-argument vector fill
-                // ("float4(x)") that GLSL allows -- expand it explicitly
-                // 单参向量构造统一改 cast：float2(x)/float3(float4(...))/int2(uint2(...))
-                // （GLSL 允许单参与截断，Cg 前端拒绝）
                 s = RewriteVecCtors(s);
 
-                // GLSL 的逐分量比较内建（HLSL 里就是关系运算符：分量式、返回 boolN）
                 s = RewriteRelational(s);
-                // textureLod(tex, uv, lod) 是三参；tex2Dlod 要 float4，把 lod 塞进 w
                 s = RewriteTexLod(s);
-                // 3D / Cube 采样器先改采样指令名，再把它们的 uv 从 .xy 截断中豁免
                 foreach (var n in _s3d)
                     s = Regex.Replace(s, @"tex2D\(" + Regex.Escape(n) + @"\b", "tex3D(" + n);
                 foreach (var n in _cube)
                     s = Regex.Replace(s, @"tex2D\(" + Regex.Escape(n) + @"\b", "texCUBE(" + n);
                 string excl = string.Concat(_s3d.Concat(_cube)
                     .Select(n => Regex.Escape(n) + "|"));
-                // GLSL 允许 texture(sampler2D, vec3)；tex2D 只要 float2
                 s = Regex.Replace(s,
                     @"tex2D\((?!" + excl + @")([^,()]*(?:\([^()]*\))?),\s*(\w[\w.\[\]]*)\.xyzw*\)",
                     "tex2D($1, ($2).xy)");
 
                 if (isVertex)
                 {
-                    s = Regex.Replace(s, @"\bin_(\w+)", "v.in_$1");       // appdata member access
+                    s = Regex.Replace(s, @"\bin_(\w+)", "v.in_$1");
                     s = Regex.Replace(s, @"\bvs_(\w+)", m => "o." + m.Groups[1].Value.ToLowerInvariant());
                     s = s.Replace("gl_Position", "o.pos");
                     if (s == "return;") s = "return o;";
@@ -518,7 +456,7 @@ namespace ShaderRipper.Cg
                     s = Regex.Replace(s, @"\bvs_(\w+)", m => "i." + m.Groups[1].Value.ToLowerInvariant());
                     s = s.Replace("gl_FragCoord", "i.fragcoord");
                     s = Regex.Replace(s, @"\bSV_Target\d*\b", "fragOut");
-                    if (s == "return;") s = "return fragOut;";   // early exit carries the partial result
+                    if (s == "return;") s = "return fragOut;";
                 }
                 res.Add(s);
                 if (AnnotateSource && s != raw?.Trim())
@@ -622,7 +560,7 @@ namespace ShaderRipper.Cg
                     if (s[i] == '(') depth++;
                     else if (s[i] == ')' && --depth == 0) { close = i; break; }
                 }
-                if (close < 0) return s;                    // 括号不配平：保持原样
+                if (close < 0) return s;
                 string args = s.Substring(open + 1, close - open - 1);
                 int d2 = 0, split = -1;
                 for (int k = 0; k < args.Length; k++)
@@ -632,7 +570,7 @@ namespace ShaderRipper.Cg
                     else if (c == ')') d2--;
                     else if (c == ',' && d2 == 0) { split = k; break; }
                 }
-                if (split < 0) return s;                    // 不是双参形态：保持原样
+                if (split < 0) return s;
                 string a = args.Substring(0, split).Trim(), b = args.Substring(split + 1).Trim();
                 string op = m.Groups[1].Value switch
                 {

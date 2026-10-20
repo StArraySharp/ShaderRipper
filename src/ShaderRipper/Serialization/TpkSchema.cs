@@ -62,7 +62,6 @@ namespace ShaderRipper
             try { want = UnityVersion.Parse(unityVersion); }
             catch { return null; }
 
-            // pick the closest class version <= want, else the earliest
             KeyValuePair<UnityVersion, TpkUnityClass> best = default;
             bool have = false;
             foreach (var kv in info.Classes)

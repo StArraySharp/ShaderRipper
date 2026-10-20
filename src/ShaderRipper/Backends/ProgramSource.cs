@@ -86,7 +86,6 @@ namespace ShaderRipper
                         break;
 
                     case BlobFormat.D3d9:
-                        // SM2/SM3 token 流自带长度（每条指令 bit24-27），走到 END 为止
                         int te = BlobFormatDetect.D3d9TokenEnd(payload, at + 4, off + size);
                         p.Length = te > 0 ? te - at : off + size - at;
                         break;
@@ -100,9 +99,6 @@ namespace ShaderRipper
         public static bool LooksSmolV(byte[] b)
         {
             if (b == null || b.Length < 64) return false;
-            // SMOL-V keeps OpName strings but drops the SPIR-V header.  "GLSL.std.450"
-            // (the extended-instruction-set import) is present in virtually every
-            // HLSLcc/DXC module and is the cheapest reliable marker.
             var needle = Encoding.ASCII.GetBytes("GLSL.std");
             return IndexOf(b, needle, 0) >= 0;
         }
@@ -129,7 +125,7 @@ namespace ShaderRipper
         /// <summary>SPIR-V has no total length; walk the instruction stream.</summary>
         private static int SpirVLength(byte[] b, int at, int end)
         {
-            int p = at + 20;                                    // 5-word module header
+            int p = at + 20;
             while (p + 4 <= end)
             {
                 uint w = BitConverter.ToUInt32(b, p);
@@ -144,7 +140,6 @@ namespace ShaderRipper
         private static string ReadText(byte[] b, int at, int end)
         {
             int e = Math.Min(end, b.Length);
-            // trim trailing NULs / 0xFF padding
             while (e > at && (b[e - 1] == 0 || b[e - 1] == 0xFF)) e--;
             return Encoding.UTF8.GetString(b, at, e - at).TrimEnd('\0', '\r', '\n', ' ');
         }

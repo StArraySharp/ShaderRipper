@@ -8,13 +8,13 @@ namespace ShaderRipper.Cg
     /// <summary>One operand of a DXBC instruction (register + swizzle + modifiers).</summary>
     internal sealed class Operand
     {
-        public string Kind;        // "r","v","o","cb","x","t","s","icb","l","null"
-        public int Index;          // register index (or cb slot)
-        public int ArrayIndex = -1; // for x#[n] / cb#[n]; -1 means "dynamic, see ArrayExpr"
-        public string ArrayExpr;   // dynamic index expression for x[r1.x+0]
-        public string Swizzle = ""; // "xyzx" etc (may include - for negation handled separately)
+        public string Kind;
+        public int Index;
+        public int ArrayIndex = -1;
+        public string ArrayExpr;
+        public string Swizzle = "";
         public bool Negate;
-        public float[] Imm;        // for l(...)
+        public float[] Imm;
         public string Raw;
 
         public override string ToString() => Raw;
@@ -30,7 +30,7 @@ namespace ShaderRipper.Cg
         public bool Saturate;
         public List<Operand> Operands = new List<Operand>();
         public bool IsLabel;
-        public string LabelTarget;   // for control flow targets
+        public string LabelTarget;
         public int Line;
         public string Raw;
     }

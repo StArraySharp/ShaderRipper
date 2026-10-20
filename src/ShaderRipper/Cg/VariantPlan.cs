@@ -18,8 +18,8 @@ namespace ShaderRipper.Cg
     {
         public sealed class Group
         {
-            public string Name;                                 // the toggle used in the pragma / guard
-            public List<string> Aliases = new List<string>();   // co-occurring keywords it stands for
+            public string Name;
+            public List<string> Aliases = new List<string>();
         }
 
         /// <summary>Keyword names of one sub-program, resolved through the name table.</summary>
@@ -83,11 +83,6 @@ namespace ShaderRipper.Cg
                     foreach (var a in g.Aliases)
                         yield return a;
         }
-
-        // ------------------------------------------------------------------
-        // stripped-variant analysis (no pragma text survives serialization, so
-        // multi_compile vs shader_feature is inferred from coverage alone)
-        // ------------------------------------------------------------------
 
         public sealed class Analysis
         {

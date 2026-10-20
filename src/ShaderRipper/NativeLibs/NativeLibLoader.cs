@@ -48,7 +48,7 @@ namespace ShaderRipper
                 using var src = asm.GetManifestResourceStream("ShaderRipper.Native." + fileName);
                 if (src == null) return null;
                 if (!File.Exists(target) || new FileInfo(target).Length != src.Length)
-                {                                                     // 版本/大小变化才覆写，避免并发读写冲突
+                {
                     using var dst = File.Create(target);
                     src.CopyTo(dst);
                 }
@@ -67,9 +67,9 @@ namespace ShaderRipper
                 {
                     string target = ExtractNative("D3Dcompiler_47.dll");
                     if (target != null && NativeDir != null)
-                        SetDllDirectory(NativeDir);                   // dxil.dll 也在这里，dxc 同目录即可找到
+                        SetDllDirectory(NativeDir);
                 }
-                catch { /* 解压失败就让 DllImport 走系统搜索路径 */ }
+                catch {  }
                 _done = true;
             }
         }

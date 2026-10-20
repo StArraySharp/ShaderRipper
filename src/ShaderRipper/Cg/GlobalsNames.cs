@@ -142,12 +142,10 @@ namespace ShaderRipper.Cg
                 {
                     if (e.Value.ValueKind == JsonValueKind.String)
                     {
-                        // flat form: "2": "float4 _Color" or "3.x": "float _Frame"
                         AddRow(table, e.Name, e.Value.GetString());
                     }
                     else if (e.Name == "rows" && e.Value.ValueKind == JsonValueKind.Object)
                     {
-                        // legacy nested form: "rows": { "2": { "xyzw": ... } }
                         foreach (var r in e.Value.EnumerateObject())
                             foreach (var l in r.Value.EnumerateObject())
                                 if (l.Value.ValueKind == JsonValueKind.String)
@@ -212,8 +210,8 @@ namespace ShaderRipper.Cg
             var names = lanes.Values.Select(NameOf).Distinct().ToList();
             if (names.Count != 1) return null;
             string spec = lanes.Values.First();
-            if (TypeOf(spec) == "float") return null;       // a lone scalar is a lane, not a row
-            if (WidthOf(TypeOf(spec)) != 4) return null;    // a float2 covers half a slot only
+            if (TypeOf(spec) == "float") return null;
+            if (WidthOf(TypeOf(spec)) != 4) return null;
             return (TypeOf(spec), names[0]);
         }
 

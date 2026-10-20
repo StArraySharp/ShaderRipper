@@ -34,7 +34,7 @@ namespace ShaderRipper.Cg
 
         public sealed class Layout
         {
-            public string Source;      // 数据文件里的注释（来自哪几个入口）
+            public string Source;
             public int Bytes;
             public int Rows;
             public List<Member> Members = new();
@@ -80,7 +80,6 @@ namespace ShaderRipper.Cg
                     }
                     if (s.StartsWith("#", StringComparison.Ordinal) || cur == null) continue;
 
-                    // "<类型> <名字> @ <偏移>"
                     int at = s.LastIndexOf('@');
                     if (at <= 0) continue;
                     if (!int.TryParse(s.Substring(at + 1).Trim(), out int off)) continue;
@@ -126,19 +125,14 @@ namespace ShaderRipper.Cg
             int bestScore = 0;
             foreach (var lay in _all)
             {
-                // dcl 的行数只是"本程序读到的最远行 +1"的下界，缓冲可能比它大；
-                // 反过来缓冲也可能被记成整条 pass 的最大尺寸（ForwardAdd 的
-                // unity_WorldToLight 只出现在部分程序里），所以不能要求完全相等。
                 if (lay.Rows < declaredRows || lay.Members.Count == 0) continue;
 
                 var cov = Coverage(lay);
-                if (readRows.Any(r => !cov.Contains(r))) continue;   // 读到的行必须被覆盖
+                if (readRows.Any(r => !cov.Contains(r))) continue;
 
                 int overlap = lay.Members.Count(m => known.Contains(m.Name));
                 int agree = anchors == null ? 0
                     : anchors.Count(a => lay.Members.Any(m => m.Name == a.Key && m.Offset == a.Value));
-                // 锚点（参数块/资产反射给出的"名字 @ 偏移"）比名字交集硬得多：
-                // 三个以上成员落在完全相同的偏移上，这张表就只能是它。
                 bool accepted = agree >= 3 || overlap >= 4;
                 if (!accepted) continue;
 

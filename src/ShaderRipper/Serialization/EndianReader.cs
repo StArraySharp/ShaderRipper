@@ -26,7 +26,7 @@ namespace ShaderRipper
             int s = _p;
             while (_p < _end && _b[_p] != 0) _p++;
             string v = Encoding.UTF8.GetString(_b, s, _p - s);
-            if (_p < _end) _p++;      // skip NUL
+            if (_p < _end) _p++;
             return v;
         }
 

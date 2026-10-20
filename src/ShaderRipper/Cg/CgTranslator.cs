@@ -103,7 +103,6 @@ namespace ShaderRipper.Cg
             {
                 int at = _sb.Length;
                 Emit(ins);
-                // 只在真正产出了代码的指令前注释，纯声明/空操作不刷屏
                 if (AnnotateAsm && _sb.Length > at && !string.IsNullOrWhiteSpace(ins.Raw))
                     _sb.Insert(at, new string('\t', _indent) + "// " + ins.Raw + Environment.NewLine);
             }
@@ -133,9 +132,6 @@ namespace ShaderRipper.Cg
                 if (d.Kind == "sampler") _sb.AppendLine($"SamplerState s{d.Register};");
             _sb.AppendLine();
 
-            // DXBC can declare the same register more than once (e.g. "dcl_output
-            // o0.xyzw" together with "dcl_output_siv o0.xyzw, position"), so
-            // de-duplicate by register number before emitting the declarations.
             var seenV = new HashSet<int>();
             foreach (var d in _p.Decls)
                 if ((d.Kind == "input" || d.Kind == "vinput") && seenV.Add(d.Register))
@@ -156,7 +152,6 @@ namespace ShaderRipper.Cg
             foreach (var d in _p.Decls)
                 if (d.Kind == "xtemp")
                 {
-                    // dcl_indexableTemp x0[N], 4 -- N is already the element count
                     int n = Math.Max(1, d.Elements);
                     _sb.AppendLine($"float4 x{d.Register}[{n}];");
                 }
@@ -212,9 +207,6 @@ namespace ShaderRipper.Cg
                         if (o.ArrayIndex >= 0 && Cb != null &&
                             Cb.CompExpr.TryGetValue((o.Index, o.ArrayIndex, CompIndex(FirstSwz(o.Swizzle))), out var cn))
                         {
-                            // A scalar member already names the one component the
-                            // access wants, so the swizzle would be noise
-                            // (`_IconAngle.x` on a float).
                             s = cn;
                             if (o.Swizzle != null && o.Swizzle.Length <= 1) swizzled = true;
                             break;
@@ -268,11 +260,10 @@ namespace ShaderRipper.Cg
         private List<string> Comps(Operand o, int want, string dstSw = null)
         {
             var res = new List<string>();
-            // absolute component index of each destination lane
             int[] laneIdx = new int[want];
             if (string.IsNullOrEmpty(dstSw) || dstSw.Length != want)
             {
-                for (int i = 0; i < want; i++) laneIdx[i] = i;   // full mask: x,y,z,w
+                for (int i = 0; i < want; i++) laneIdx[i] = i;
             }
             else
             {
@@ -297,7 +288,6 @@ namespace ShaderRipper.Cg
                 }
                 return res;
             }
-            // component each destination lane reads
             var lanes = new char[want];
             for (int i = 0; i < want; i++)
             {
@@ -326,7 +316,6 @@ namespace ShaderRipper.Cg
             for (int i = 0; i < want; i++)
             {
                 char c = sw[Math.Min(i, sw.Length - 1)];
-                // a scalar member that owns exactly this lane gets its own name
                 if (o.Kind == "cb" && o.ArrayIndex >= 0 && Cb != null &&
                     Cb.CompExpr.TryGetValue((o.Index, o.ArrayIndex, CompIndex(c)), out var cn))
                 {
@@ -357,9 +346,6 @@ namespace ShaderRipper.Cg
             var o = ins.Operands;
             if (string.IsNullOrWhiteSpace(ins.Opcode)) return;
 
-            // Operand 0 is a *source* for the control-flow / predicate opcodes;
-            // for everything else it is the destination, and a `null` destination
-            // means the result is discarded ("sincos null, r7.x, r7.x").
             if (o.Count > 0 && o[0].Kind == "null" && !ReadsOperand0.Contains(ins.Opcode))
                 return;
 
@@ -424,7 +410,6 @@ namespace ShaderRipper.Cg
                 case "movc_sat": Movc(o, true); break;
                 case "sample": Sample(o, null); break;
                 case "sample_l": Sample(o, o.Count > 4 ? o[4] : null); break;
-                // SM4.1 "indexable" spelling of the same sampling ops
                 case "sample_indexable": Sample(o, null); break;
                 case "sample_l_indexable": Sample(o, o.Count > 4 ? o[4] : null); break;
                 case "sample_c_lz": Sample(o, null); break;
@@ -480,8 +465,6 @@ namespace ShaderRipper.Cg
             for (int i = 0; i < n; i++) r.Add($"{a[i]} {op} {b[i]}");
             Assign(o[0], r);
         }
-
-        // ---- _sat variants (clamp to [0,1]) ----
 
         private void SatAssign(Operand dst, List<string> src)
         {
@@ -606,7 +589,7 @@ namespace ShaderRipper.Cg
                 if (isAnd)
                 {
                     if (am && bm) r.Add(F(BitConverter.Int32BitsToSingle(ab & bb)));
-                    else if (bm && bv == 0f) r.Add("0.0");       // and with a zero mask is dead
+                    else if (bm && bv == 0f) r.Add("0.0");
                     else if (am && av == 0f) r.Add("0.0");
                     else if (bm) r.Add($"((({a[i]}) != 0.0) ? {F(bv)} : 0.0)");
                     else if (am) r.Add($"((({b[i]}) != 0.0) ? {F(av)} : 0.0)");
@@ -633,8 +616,6 @@ namespace ShaderRipper.Cg
             for (int i = 0; i < n; i++) r.Add($"mad({a[i]}, {b[i]}, {c[i]})");
             Assign(o[0], r);
         }
-
-        // ---- integer ops (operate on int-typed temps; we keep them explicit) ----
 
         private void IBin(List<Operand> o, string op)
         {
@@ -682,10 +663,6 @@ namespace ShaderRipper.Cg
         private void UDiv(List<Operand> o)
         {
             int n = N(o[0]);
-            // Four-operand form: dst(quotient), dst(remainder or null),
-            // src0 = numerator, src1 = divisor. The null second destination is
-            // how the disassembler spells "remainder discarded" -- treating it
-            // as a source turned `udiv r0.x, null, r0.y, r0.x` into 0 / r0.y.
             var num = o.Count > 2 ? o[2] : null;
             var den = o.Count > 3 ? o[3] : null;
 
@@ -703,8 +680,6 @@ namespace ShaderRipper.Cg
                 return;
             }
 
-            // Four-operand form: the sources are operands 2 and 3, not 1 and 2.
-            // IBin would read the discarded remainder destination as a source.
             if (num != null && den != null)
             {
                 var a = Comps(num, n, o[0].Swizzle);
@@ -743,7 +718,6 @@ namespace ShaderRipper.Cg
             var r = new List<string>();
             for (int i = 0; i < n; i++)
             {
-                // movc branches on the condition being non-zero, not on it clearing 0.5
                 string x = $"{c[i]} != 0.0 ? {a[i]} : {b[i]}";
                 r.Add(sat ? $"saturate({x})" : x);
             }
@@ -789,12 +763,8 @@ namespace ShaderRipper.Cg
 
         private void Dp(List<Operand> o, int k)
         {
-            // A dot product pairs component i of each source; the destination
-            // swizzle does NOT select source components.  Passing o[0].Swizzle here
-            // made "dp3 r5.x, l(1,2,1,0), v" index every source component by 'x'.
             var a = Comps(o[1], k, "xyzw");
             var b = Comps(o[2], k, "xyzw");
-            // drop the swizzle from the operand prefix: components already carry .x/.y/...
             var terms = new List<string>();
             for (int i = 0; i < k; i++) terms.Add($"{Strip(a[i])} * {Strip(b[i])}");
             string expr = string.Join(" + ", terms);
@@ -804,10 +774,6 @@ namespace ShaderRipper.Cg
         /// <summary>Comps() returns "base.swz.c"; collapse a single-component tail for readability.</summary>
         private static string Strip(string s)
         {
-            // "r0.xyxx.x" -> "r0.x" ; "0.222" stays.
-            // The swizzle only ever follows a closing bracket, so any dot inside
-            // "[...]" must not be mistaken for the previous swizzle separator:
-            // "icb[(int)(r0.z)+0].z" used to collapse to "icb[(int)(r0.z".
             int lastDot = s.LastIndexOf('.');
             if (lastDot < 0) return s;
             string tail = s.Substring(lastDot + 1);
@@ -822,10 +788,6 @@ namespace ShaderRipper.Cg
 
         private void Sincos(List<Operand> o)
         {
-            // Two encodings appear in fxc output:
-            //   sincos dst.xy, src           -> dst.x = sin(src), dst.y = cos(src)
-            //   sincos dstSin, dstCos, src   -> separate sin/cos destinations,
-            //                                   either of which may be `null`
             Operand sinDst, cosDst, src;
             if (o.Count >= 3) { sinDst = o[0]; cosDst = o[1]; src = o[2]; }
             else { sinDst = o[0]; cosDst = null; src = o[1]; }
@@ -913,8 +875,6 @@ namespace ShaderRipper.Cg
             }
             string coord = ncomp == 1 ? cc[0] : $"float{ncomp}({string.Join(", ", cc)})";
 
-            // tex2Dlod takes one scalar level; a vector immediate must be reduced
-            // to its first component or the constructor exceeds four components.
             string lodScalar = "";
             if (lod != null)
             {
@@ -946,8 +906,3 @@ namespace ShaderRipper.Cg
         }
     }
 }
-
-
-
-
-

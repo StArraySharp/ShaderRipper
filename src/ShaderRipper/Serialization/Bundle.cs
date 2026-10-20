@@ -35,8 +35,8 @@ namespace ShaderRipper
 
             int p = 8;
             uint version = U32(buf, ref p);
-            CStr(buf, ref p);                                  // unityVersion
-            CStr(buf, ref p);                                  // unityRevision
+            CStr(buf, ref p);
+            CStr(buf, ref p);
             long size = (long)U64(buf, ref p);
             uint compressedInfoSize = U32(buf, ref p);
             uint uncompressedInfoSize = U32(buf, ref p);
@@ -47,12 +47,6 @@ namespace ShaderRipper
                 ? size - compressedInfoSize
                 : p;
 
-            // Where the block table begins is not fully pinned down across Unity
-            // versions: 6000.3 bundles carry extra header bytes after `flags`
-            // (0x243 has the 0x200 archive bit set) and put the table 14 bytes past
-            // the declared end.  Rather than guess, try the declared position and a
-            // short window after it, and accept only a decode that yields exactly
-            // the declared uncompressed size.
             byte[] info = null;
             long infoAt = -1;
             for (int shift = 0; shift <= 64 && info == null; shift++)
@@ -71,12 +65,12 @@ namespace ShaderRipper
                     var d = Decompress(slice, (int)uncompressedInfoSize, compression);
                     if (d.Length == uncompressedInfoSize) { info = d; infoAt = at; }
                 }
-                catch { /* try the next offset */ }
+                catch {  }
             }
             if (info == null)
                 throw new InvalidDataException("block table not found");
 
-            int q = 16;                                        // hash
+            int q = 16;
             int blockCount = (int)U32(info, ref q);
             var blocks = new (uint raw, uint comp, ushort flags)[blockCount];
             for (int i = 0; i < blockCount; i++)
@@ -93,18 +87,14 @@ namespace ShaderRipper
             {
                 long off = (long)U64(info, ref q);
                 long len = (long)U64(info, ref q);
-                U32(info, ref q);                              // node flags
+                U32(info, ref q);
                 nodes[i] = (off, len, CStr(info, ref q));
             }
 
-            // decompress every block into one contiguous stream, then slice the nodes out
             long total = 0;
             foreach (var b in blocks) total += b.raw;
             var stream = new byte[total];
 
-            // Block data does not always begin immediately after the table either:
-            // 6000.3 bundles leave a short interstitial, so locate it by requiring the
-            // first block to decode to exactly its declared size.
             long sp = -1;
             if (blocks.Length > 0)
             {
@@ -121,7 +111,7 @@ namespace ShaderRipper
                                            (Compression)(blocks[0].flags & 0x3F));
                         if (d.Length == blocks[0].raw) sp = cand;
                     }
-                    catch { /* try the next offset */ }
+                    catch {  }
                 }
             }
             if (sp < 0) throw new InvalidDataException("block data not found");
@@ -215,11 +205,10 @@ namespace ShaderRipper
             int s = p;
             while (p < b.Length && b[p] != 0) p++;
             var s2 = System.Text.Encoding.UTF8.GetString(b, s, p - s);
-            p++;                                               // NUL
+            p++;
             return s2;
         }
         private static uint BE(byte[] b, int o) =>
             (uint)((b[o] << 24) | (b[o + 1] << 16) | (b[o + 2] << 8) | b[o + 3]);
     }
 }
-

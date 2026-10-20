@@ -28,8 +28,8 @@ namespace ShaderRipper
     {
         public int Id;
         public string Name = "";
-        public string Format = "";      // "dxbc" | "glsl" | "metal" | "spirv" | "console"
-        public bool HasSource;          // true when the payload is recompilable text
+        public string Format = "";
+        public bool HasSource;
         public override string ToString() => $"{Name}({Id})";
     }
 
@@ -37,9 +37,9 @@ namespace ShaderRipper
     {
         private static readonly PlatformInfo[] Table =
         {
-            new() { Id = 1,  Name = "opengl",     Format = "glsl",  HasSource = true },  // 旧桌面 GL：同样是 HLSLcc 的 GLSL 文本
-            new() { Id = 2,  Name = "d3d9",       Format = "d3d9" },                     // SM2/SM3 裸字节码（自研 token 反汇编）
-            new() { Id = 4,  Name = "d3d11",      Format = "dxbc" },                     // D3D12 的 DXIL 也挂在此 id，按 DXIL chunk 识别
+            new() { Id = 1,  Name = "opengl",     Format = "glsl",  HasSource = true },
+            new() { Id = 2,  Name = "d3d9",       Format = "d3d9" },
+            new() { Id = 4,  Name = "d3d11",      Format = "dxbc" },
             new() { Id = 5,  Name = "gles20",     Format = "glsl",  HasSource = true },
             new() { Id = 9,  Name = "gles3",      Format = "glsl",  HasSource = true },
             new() { Id = 11, Name = "ps4",        Format = "console" },
@@ -107,7 +107,6 @@ namespace ShaderRipper
                     if ((int)ids[i] == forced.Value) return i;
                 return -1;
             }
-            // 1) d3d11, 2) any dxbc, 3) GLSL source, 4) d3d9 asm / 旧 GL, 5) Metal, 6) Vulkan, 7) first
             int[] order = { 4, 12, 20, 21, 22, 25, 9, 5, 15, 1, 2, 14, 18 };
             foreach (int want in order)
                 for (int i = 0; i < ids.Count; i++)
