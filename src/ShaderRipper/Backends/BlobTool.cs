@@ -352,22 +352,41 @@ namespace ShaderRipper
         }
 
     /// <summary>Disassemble one DXBC/DXIL container; null on failure.
-    /// 统一走 dxcompiler（COM）：Windows = dxcompiler.dll，Linux = libdxcompiler.so
-    /// （微软 DXC 官方发行版，随发布包携带）。d3d9（SM2/3）走 D3D9Asm 纯托管实现。</summary>
+    /// Windows：SM4/5 DXBC 先走 d3dcompiler（内嵌解压）。d3dcompiler 缺席或失败时
+    /// （含全平台 Linux），SM4/5 DXBC 走 DXDecompiler（纯托管 NuGet，跨平台）；
+    /// DXIL（D3D12）只有 dxcompiler 认，仍走 DxcDisassemble。</summary>
     public static string Disassemble(byte[] container)
     {
-        // SM4/5 DXBC 只有 d3dcompiler 认（dxc 拒收："missing DXIL part"）；
-        // DXIL（D3D12）只有 dxcompiler 认。两个都试，Linux 上 d3dcompiler 缺席时
-        // 仅 DXIL 可反汇编（SM4/5 无任何原生替代，GLSL 路径不受影响）。
         string s = null;
         if (OperatingSystem.IsWindows())
         {
             NativeLibLoader.EnsureD3DCompiler();
             s = DisassembleWith(container, D3DDisassemble);
         }
+        if (s == null && !HasDxilChunk(container))
+            s = ManagedDisassemble(container);
         if (s == null)
             s = DxcDisassemble(container);
         return s;
+    }
+
+    // ---- DXDecompiler（纯托管 SM4/5 DXBC 反汇编）----
+
+    /// <summary>DXDecompiler 托管反汇编 DXBC 容器；失败返回 null。
+    /// 输出风格与 d3dcompiler 接近（vs_5_0 / dcl_ / mov 等标准 SM 汇编）。</summary>
+    private static string ManagedDisassemble(byte[] container)
+    {
+        try
+        {
+            var bc = new DXDecompiler.BytecodeContainer(container);
+            string s = bc.ToString();
+            return string.IsNullOrEmpty(s) ? null : s;
+        }
+        catch (Exception e)
+        {
+            Console.Error.WriteLine("[dxbc] DXDecompiler: " + e.Message);
+            return null;
+        }
     }
 
     // ---- d3dcompiler（Windows 内嵌解压，仅用于 SM4/5 DXBC）----
