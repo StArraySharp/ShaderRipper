@@ -1,81 +1,84 @@
 # ShaderRipper
 
-从 Unity 游戏数据中提取 Shader，重建为可读的 **ShaderLab + CGPROGRAM**。纯 C#，无外部依赖。
+[English](README.md) | [简体中文](README.zh-CN.md)
 
-**支持平台**：d3d11（DXBC 汇编逐条直译 Cg）、GLES3 / GLES2 / OpenGLCore（GLSL 源码回译 Cg）、d3d9（SM2/3 自研反汇编）、D3D12（DXIL，经 dxcompiler COM 反汇编）；Metal / Vulkan 仅输出参考文件。
+Extract Shaders from Unity game data and rebuild them as readable **ShaderLab + CGPROGRAM**. Pure C#, no external dependencies.
 
-## 编译
+**Supported platforms**: d3d11 (instruction-by-instruction DXBC→Cg translation), GLES3 / GLES2 / OpenGLCore (GLSL source back-translation to Cg), d3d9 (SM2/3, self-contained disassembler), D3D12 (DXIL via dxcompiler COM); Metal / Vulkan are exported as reference files only.
 
-需要 .NET 10 SDK。Windows 上反汇编用到 d3dcompiler/dxcompiler（AOT 链接需要 MSVC + Windows SDK 库路径）。
+## Build
+
+Requires the .NET 10 SDK. Disassembly on Windows uses d3dcompiler/dxcompiler (NativeAOT linking needs MSVC + Windows SDK lib paths).
 
 ```bash
 dotnet build ShaderRipper.slnx -c Release
 
-# Windows NativeAOT（约 5 MB 单文件）
+# Windows NativeAOT (~5 MB single file)
 dotnet publish src/ShaderRipper/ShaderRipper.csproj -c Release -r win-x64 -p:PublishAot=true -o publish/aot-win-x64
 
-# Linux：AOT 不能跨 OS 编译，linux 包需在 Linux 上构建；
-# Windows 交叉打包用 self-contained（约 16 MB）
+# Linux: AOT cannot cross-compile across OSes — build the Linux AOT on Linux.
+# Cross-pack from Windows with self-contained + trimmed (~21 MB single file):
 dotnet publish src/ShaderRipper/ShaderRipper.csproj -c Release -r linux-x64 \
   --self-contained -p:PublishSingleFile=true -p:PublishTrimmed=true -o publish/linux-x64
 ```
 
-Linux / macOS：
-- **d3d9（SM2/3）反汇编是纯托管实现，全平台开箱即用**，无需任何原生库
-- **DXIL（D3D12/SM6）反汇编**走 `libdxcompiler.so`（微软 [DirectXShaderCompiler](https://github.com/microsoft/DirectXShaderCompiler) 官方 Linux 发行版），放到 `/usr/lib` 或 exe 同目录即可；`NativeLibs/linux-x64/` 已随仓库携带 v1.8.2407（glibc ≤2.34，兼容 Ubuntu 22.04）
-- **SM4/5 DXBC 反汇编**：Windows 用内嵌的 d3dcompiler_47；d3dcompiler 缺席或失败时（含 Linux）走 [DXDecompiler](https://github.com/AssetRipper/DXDecompiler)（纯托管 NuGet，跨平台）——现在 **Linux 也能反汇编 SM4/5 DXBC**
-- GLES3 / GLES2 / OpenGLCore 的 GLSL 回译路径纯托管，全平台可用
+Linux / macOS:
+- **d3d9 (SM2/3) disassembly is fully managed and works everywhere** with no native libraries
+- **DXIL (D3D12/SM6) disassembly** uses `libdxcompiler.so` (official Linux builds of Microsoft's [DirectXShaderCompiler](https://github.com/microsoft/DirectXShaderCompiler)); put it in `/usr/lib` or next to the executable. `NativeLibs/linux-x64/` ships v1.8.2407 (glibc ≤ 2.34, compatible with Ubuntu 22.04)
+- **SM4/5 DXBC disassembly**: uses the embedded d3dcompiler_47 on Windows; when it is absent or fails (including Linux) it falls back to [DXDecompiler](https://github.com/AssetRipper/DXDecompiler) (fully managed NuGet, cross-platform) — so **Linux can now disassemble SM4/5 DXBC too**
+- The GLES3 / GLES2 / OpenGLCore GLSL back-translation path is fully managed and works everywhere
 
-## 使用
+## Usage
 
 ```bash
-# 最简：指定游戏数据目录（含 resources.assets），输出到 ./<游戏名>_ShaderLabs
-ShaderRipper.exe --data "游戏目录/游戏名_Data"
+# Simplest: point at the game data directory (contains resources.assets);
+# output goes to ./<Game>_ShaderLabs
+ShaderRipper.exe --data "GameDir/Game_Data"
 
-# 指定输出目录
-ShaderRipper.exe --data "游戏名_Data" --out D:\out
+# Explicit output directory
+ShaderRipper.exe --data "Game_Data" --out D:\out
 
-# 只提取名字含 Floor 的 shader，带反汇编注释
-ShaderRipper.exe --data "游戏名_Data" --out D:\out --only Floor --asm
+# Only shaders whose name contains "Floor", with disassembly comments
+ShaderRipper.exe --data "Game_Data" --out D:\out --only Floor --asm
 ```
 
-输出结构：
+Output layout:
 
 ```
 <out>/
-├── *.shader                     重建的 ShaderLab（CGPROGRAM 内为汇编直译的 Cg）
-└── Disassembly/<shader>/        各平台原始反汇编 / GLSL / Metal 源码
+├── *.shader                     Rebuilt ShaderLab (CGPROGRAM holds assembly-translated Cg)
+└── Disassembly/<shader>/        Per-platform raw disassembly / GLSL / Metal source
 ```
 
-注意：CGPROGRAM 里是**编译后汇编的直译**，不是作者源码（源码不在游戏包内）；属性、状态、Pass 结构、变体 `#if` 链均忠实还原。
+Note: the CGPROGRAM body is a **translation of the compiled assembly**, not the author's source (source code is not shipped in game data); properties, render state, Pass structure, and variant `#if` chains are faithfully reconstructed.
 
-## CLI 参数
+## CLI options
 
-| 参数 | 说明 |
+| Option | Description |
 |---|---|
-| `--data <dir>` | 游戏数据目录（含 resources.assets），或环境变量 `SHADERRIPPER_DATA` |
-| `--out <dir>` | 输出目录，默认 `./<游戏名>_ShaderLabs`，或 `SHADERRIPPER_OUT` |
-| `--root <dir>` | schema/data 资源根目录（默认从 exe 位置向上查找） |
-| `--platform <id\|名>` | 强制后端：`d3d11` / `d3d9` / `d3d12` / `gles3` / `gles20` / `openglcore` / `metal` / `vulkan`；默认优先 d3d11，无则自动选 GLSL 平台 |
-| `--asm` | 输出逐指令反汇编注释（d3d11=DXBC、glsl=原 GLSL 行、d3d9/12=原生汇编） |
-| `--only <子串>` | 只处理名字含该子串的 shader |
-| `--bundles [dir]` | 同时扫描 asset bundle（默认扫 --data 同级） |
-| `--list-shaders <f>` | 列出 SerializedFile 里的 shader 清单 |
-| `--dump [子串]` | 只打印 blob/参数块信息，不写文件 |
-| `--schema <f\|dir>` | 指定类型树（默认按文件版本自动选） |
-| `--names <dir>` | $Globals 修复表目录（默认 `data/globals_names`，存在才加载；发布包可不带） |
-| `--tmp-layouts <dir>` | $Globals 布局表目录（默认 `data/tmp_layouts`） |
-| `--no-tmp-layout` | 不用布局表（TMP 行号保持数字） |
-| `--builtin-index <f>` | 内置 shader 名单（默认 `data/unity_builtin_shaders.txt`） |
-| `--matrix-names <f>` | float4x4 名单（默认 `data/unity_matrix_names.txt`） |
-| `--glsl2cg <file>` | 单个 GLSL 文件回译 Cg（调试用，配 `--asm` 显示原行） |
-| `--disasm <file>` | 反汇编单个程序文件（DXBC/DXIL/d3d9 token） |
-| `--selftest-d3d9` | d3d9 反汇编器自测 |
-| `--lang <en\|zh>` | UI 语言，默认跟随系统 |
-| `-h, --help` | 帮助 |
+| `--data <dir>` | Game data directory (contains resources.assets), or env `SHADERRIPPER_DATA` |
+| `--out <dir>` | Output directory, default `./<Game>_ShaderLabs`, or env `SHADERRIPPER_OUT` |
+| `--root <dir>` | Root for schema/data resources (searched upward from the exe by default) |
+| `--platform <id\|name>` | Force backend: `d3d11` / `d3d9` / `d3d12` / `gles3` / `gles20` / `openglcore` / `metal` / `vulkan`; defaults to d3d11, otherwise auto-picks a GLSL platform |
+| `--asm` | Emit per-instruction disassembly comments (d3d11=DXBC, glsl=original GLSL lines, d3d9/12=native assembly) |
+| `--only <substr>` | Only process shaders whose name contains the substring |
+| `--bundles [dir]` | Also scan asset bundles (defaults to siblings of --data) |
+| `--list-shaders <f>` | List shaders in a SerializedFile |
+| `--dump [substr]` | Print blob/parameter block info only, no files written |
+| `--schema <f\|dir>` | Type tree to use (auto-selected per file version by default) |
+| `--names <dir>` | $Globals fix-up table directory (default `data/globals_names`, loaded only if present; may be omitted from releases) |
+| `--tmp-layouts <dir>` | $Globals layout table directory (default `data/tmp_layouts`) |
+| `--no-tmp-layout` | Don't use layout tables (TMP row indices stay numeric) |
+| `--builtin-index <f>` | Built-in shader name list (default `data/unity_builtin_shaders.txt`) |
+| `--matrix-names <f>` | float4x4 name list (default `data/unity_matrix_names.txt`) |
+| `--glsl2cg <file>` | Back-translate a single GLSL file to Cg (debug; combine with `--asm` to show original lines) |
+| `--disasm <file>` | Disassemble a single program file (DXBC/DXIL/d3d9 tokens) |
+| `--selftest-d3d9` | Run the d3d9 disassembler self-test |
+| `--lang <en\|zh>` | UI language; follows the system by default |
+| `-h, --help` | Help |
 
-## 限制
+## Limitations
 
-- Metal / Vulkan（SMOL-V 压缩 SPIR-V）只存参考文件，不回译
-- 纯 console 平台（PS/Switch）无可读产物
-- d3d9 / d3d12 只出反汇编，不回译 Cg
+- Metal / Vulkan (SMOL-V compressed SPIR-V) are saved as reference files only, no back-translation
+- Pure console platforms (PS/Switch) have no readable output
+- d3d9 / d3d12 only produce disassembly, not translated Cg
