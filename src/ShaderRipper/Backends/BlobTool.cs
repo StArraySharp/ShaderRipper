@@ -6,16 +6,9 @@ using K4os.Compression.LZ4;
 
 namespace ShaderRipper
 {
-    /// <summary>LZ4 stage decode + DXBC carve + native D3DDisassemble.</summary>
+    /// <summary>LZ4 stage decode + DXBC carve + 反汇编（统一走 dxcompiler，全平台）。</summary>
     internal static class BlobTool
     {
-        // ---- native ----
-        [DllImport("d3dcompiler_47", CharSet = CharSet.Ansi, ExactSpelling = true)]
-        private static extern int D3DDisassemble(
-            IntPtr pSrcData, uint bytecodeLength, uint flags,
-            [MarshalAs(UnmanagedType.LPStr)] string szComments, out IntPtr ppDisassembly);
-
-        // d3d12.dll 没有独立导出的 D3DDisassemble；DXIL 反汇编走 dxcompiler.dll（见 DxcDisassemble）
 
         [UnmanagedFunctionPointer(CallingConvention.StdCall)]
         private delegate IntPtr GetBufferPointerFn(IntPtr self);
@@ -358,13 +351,14 @@ namespace ShaderRipper
             return -1;
         }
 
-    /// <summary>Disassemble one DXBC container; null on failure.
-    /// Windows：d3dcompiler_47（SM4/5）优先，DXIL 退回 dxcompiler.dll（COM）。
-    /// Linux/macOS：没有 d3dcompiler，直接走 dxcompiler（libdxcompiler.so，
-    /// 微软 DXC 官方 Linux 发行版）；它的 Disassemble 同样接受普通 DXBC。
-    /// d3d9（SM2/3）走 D3D9Asm 的纯托管实现，全平台可用。</summary>
+    /// <summary>Disassemble one DXBC/DXIL container; null on failure.
+    /// 统一走 dxcompiler（COM）：Windows = dxcompiler.dll，Linux = libdxcompiler.so
+    /// （微软 DXC 官方发行版，随发布包携带）。d3d9（SM2/3）走 D3D9Asm 纯托管实现。</summary>
     public static string Disassemble(byte[] container)
     {
+        // SM4/5 DXBC 只有 d3dcompiler 认（dxc 拒收："missing DXIL part"）；
+        // DXIL（D3D12）只有 dxcompiler 认。两个都试，Linux 上 d3dcompiler 缺席时
+        // 仅 DXIL 可反汇编（SM4/5 无任何原生替代，GLSL 路径不受影响）。
         string s = null;
         if (OperatingSystem.IsWindows())
         {
@@ -376,9 +370,14 @@ namespace ShaderRipper
         return s;
     }
 
-    private delegate int DisasmFn(IntPtr data, uint size, uint flags, string comment, out IntPtr blob);
+    // ---- d3dcompiler（Windows 内嵌解压，仅用于 SM4/5 DXBC）----
 
-    private static string DisassembleWith(byte[] container, DisasmFn fn)
+    [DllImport("d3dcompiler_47", CharSet = CharSet.Ansi, ExactSpelling = true)]
+    private static extern int D3DDisassemble(
+        IntPtr pSrcData, uint bytecodeLength, uint flags,
+        [MarshalAs(UnmanagedType.LPStr)] string szComments, out IntPtr ppDisassembly);
+
+    private static string DisassembleWith(byte[] container, DisasmFnX fn)
     {
         IntPtr p = Marshal.AllocHGlobal(container.Length);
         try
@@ -405,26 +404,8 @@ namespace ShaderRipper
         finally { Marshal.FreeHGlobal(p); }
     }
 
-    /// <summary>读取 ID3DBlob 的数据指针与长度（供自测等复用）。</summary>
-    public static IntPtr BlobData(IntPtr blob, out int len)
-    {
-        IntPtr vtbl = Marshal.ReadIntPtr(blob);
-        var gbp = (GetBufferPointerFn)Marshal.GetDelegateForFunctionPointer(
-            Marshal.ReadIntPtr(vtbl, 3 * IntPtr.Size), typeof(GetBufferPointerFn));
-        var gbs = (GetBufferSizeFn)Marshal.GetDelegateForFunctionPointer(
-            Marshal.ReadIntPtr(vtbl, 4 * IntPtr.Size), typeof(GetBufferSizeFn));
-        len = (int)gbs(blob);
-        return gbp(blob);
-    }
+    private delegate int DisasmFnX(IntPtr data, uint size, uint flags, string comment, out IntPtr blob);
 
-    /// <summary>释放 ID3DBlob。</summary>
-    public static void BlobRelease(IntPtr blob)
-    {
-        IntPtr vtbl = Marshal.ReadIntPtr(blob);
-        var rel = (ReleaseFn)Marshal.GetDelegateForFunctionPointer(
-            Marshal.ReadIntPtr(vtbl, 2 * IntPtr.Size), typeof(ReleaseFn));
-        rel(blob);
-    }
 
     /// <summary>DXBC 容器里有没有 DXIL chunk（= D3D12/SM6 程序）。</summary>
     public static bool HasDxilChunk(byte[] container)
@@ -494,8 +475,10 @@ namespace ShaderRipper
             catch { }
             return IntPtr.Zero;
         }
-        // Linux/macOS：dxcompiler 的 DxcCreateInstance 导出同样存在
-        if (NativeLibrary.TryLoad("libdxcompiler.so", out IntPtr hSo) ||
+        // Linux/macOS：裸 soname 不会搜 exe 目录，先显式试 exe 同目录（发布包自带）
+        string so = Path.Combine(AppContext.BaseDirectory, "libdxcompiler.so");
+        if (NativeLibrary.TryLoad(so, out IntPtr hSo)) return hSo;
+        if (NativeLibrary.TryLoad("libdxcompiler.so", out hSo) ||
             NativeLibrary.TryLoad("dxcompiler", out hSo))
             return hSo;
         return IntPtr.Zero;

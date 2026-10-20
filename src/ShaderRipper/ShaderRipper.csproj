@@ -24,9 +24,18 @@
     <None Update="data/*.tpk" CopyToOutputDirectory="PreserveNewest" />
     <None Remove="data/globals_names/**" />
     <None Update="schema/*.json" CopyToOutputDirectory="PreserveNewest" />
-    <!-- d3dcompiler 内嵌进主程序集，运行时解压加载（NativeLibLoader）；发布目录不带 -->
+    <!-- d3dcompiler 仅 Windows、仅 SM4/5 DXBC 需要；内嵌进主程序集运行时解压（NativeLibLoader） -->
     <EmbeddedResource Include="NativeLibs/D3Dcompiler_47.dll"
                       LogicalName="ShaderRipper.Native.D3Dcompiler_47.dll" />
+    <!-- 反汇编统一走 DXC（dxcompiler）：按 RID 复制对应原生库到输出目录 -->
+    <None Update="NativeLibs/win-x64/dxcompiler.dll" CopyToOutputDirectory="PreserveNewest"
+          Condition="'$(RuntimeIdentifier)' == 'win-x64' Or '$(RuntimeIdentifier)' == ''" />
+    <None Update="NativeLibs/win-x64/dxil.dll" CopyToOutputDirectory="PreserveNewest"
+          Condition="'$(RuntimeIdentifier)' == 'win-x64' Or '$(RuntimeIdentifier)' == ''" />
+    <None Update="NativeLibs/linux-x64/libdxcompiler.so" CopyToOutputDirectory="PreserveNewest"
+          Condition="'$(RuntimeIdentifier)' == 'linux-x64'" />
+    <None Update="NativeLibs/linux-x64/libdxil.so" CopyToOutputDirectory="PreserveNewest"
+          Condition="'$(RuntimeIdentifier)' == 'linux-x64'" />
   </ItemGroup>
   <ItemGroup>
     <PackageReference Include="AssetRipper.Tpk" Version="2.0.0" />

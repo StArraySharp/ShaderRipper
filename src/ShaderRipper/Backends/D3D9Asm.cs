@@ -321,44 +321,15 @@ namespace ShaderRipper
             return s;
         }
 
-        // ---------------- 自测：用 d3dcompiler 真编 SM2/3，再反汇编 ----------------
+        // ---------------- 自测：预编译 fixture（见 D3D9Fixtures.cs），跨平台无依赖 ----------------
 
-        [System.Runtime.InteropServices.DllImport("d3dcompiler_47", CharSet = System.Runtime.InteropServices.CharSet.Ansi, ExactSpelling = true)]
-        private static extern int D3DCompile(
-            IntPtr srcData, IntPtr srcSize, [System.Runtime.InteropServices.MarshalAs(System.Runtime.InteropServices.UnmanagedType.LPStr)] string sourceName,
-            IntPtr defines, IntPtr include, [System.Runtime.InteropServices.MarshalAs(System.Runtime.InteropServices.UnmanagedType.LPStr)] string entryPoint,
-            [System.Runtime.InteropServices.MarshalAs(System.Runtime.InteropServices.UnmanagedType.LPStr)] string target, uint flags1, uint flags2,
-            out IntPtr codeBlob, out IntPtr errorBlob);
-
-        /// <summary>--selftest-d3d9：编译已知 HLSL 到 SM2/SM3，反汇编并做基本校验。
+        /// <summary>--selftest-d3d9：对预编译的 SM2/SM3 fixture 跑反汇编并做基本校验。
         /// 返回 0 = 全部通过。</summary>
         public static int Selftest()
         {
-            if (!OperatingSystem.IsWindows())
-            {
-                Console.Error.WriteLine("[!] --selftest-d3d9 needs d3dcompiler_47 (Windows only).");
-                return 1;
-            }
-            NativeLibLoader.EnsureD3DCompiler();   // 从内嵌资源解压后再 DllImport
-            var cases = new (string hlsl, string entry, string target)[]
-            {
-                ("float4 main(float4 p:SV_Position):SV_Position { return mul(p, float4x4(1,0,0,0, 0,2,0,0, 0,0,3,0, 0,0,0,1)); }",
-                 "main", "vs_3_0"),
-                ("sampler2D S; float4 main(float2 uv:TEXCOORD0):SV_Target { float4 t = tex2D(S, uv); return t * clamp(uv.x,0,1) + lerp(t, float4(1,1,1,1), 0.5); }",
-                 "main", "ps_3_0"),
-                ("sampler2D S; float4 main(float2 uv:TEXCOORD0):COLOR { return tex2D(S, uv); }",
-                 "main", "ps_2_0"),
-                ("float4 main(float4 c:COLOR0):COLOR { float4 r = c; if (c.x > 0.5) r = c.yzwx; return r * 2; }",
-                 "main", "ps_2_0"),
-                ("float4 c[4]; float4 main(float4 p:SV_Position):SV_Position { float4 r = p; for (int i=0;i<4;i++) r += p*c[i]; return r; }",
-                 "main", "vs_3_0"),
-            };
-
             int failures = 0;
-            foreach (var (hlsl, entry, target) in cases)
+            foreach (var (target, code) in D3D9Fixtures.Cases)
             {
-                byte[] code = Compile(hlsl, entry, target);
-                if (code == null) { Console.WriteLine($"[FAIL] {target}: compile failed"); failures++; continue; }
                 string asm = Disassemble(code, 0, code.Length);
                 if (asm == null)
                 {
@@ -387,26 +358,6 @@ namespace ShaderRipper
             }
             Console.WriteLine(failures == 0 ? "selftest: all passed" : $"selftest: {failures} problem(s)");
             return failures == 0 ? 0 : 1;
-        }
-
-        private static byte[] Compile(string hlsl, string entry, string target)
-        {
-            byte[] bytes = System.Text.Encoding.ASCII.GetBytes(hlsl);
-            IntPtr p = System.Runtime.InteropServices.Marshal.AllocHGlobal(bytes.Length);
-            try
-            {
-                System.Runtime.InteropServices.Marshal.Copy(bytes, 0, p, bytes.Length);
-                int hr = D3DCompile(p, (IntPtr)bytes.Length, "test.hlsl", IntPtr.Zero, IntPtr.Zero,
-                                    entry, target, 0, 0, out var code, out var err);
-                if (hr != 0 || code == IntPtr.Zero) return null;
-                IntPtr buf = BlobTool.BlobData(code, out int len);
-                var res = new byte[len];
-                System.Runtime.InteropServices.Marshal.Copy(buf, res, 0, len);
-                BlobTool.BlobRelease(code);
-                if (err != IntPtr.Zero) BlobTool.BlobRelease(err);
-                return res;
-            }
-            finally { System.Runtime.InteropServices.Marshal.FreeHGlobal(p); }
         }
     }
 }
