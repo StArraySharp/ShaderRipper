@@ -357,8 +357,10 @@ namespace ShaderRipper
     /// DXIL（D3D12）只有 dxcompiler 认，仍走 DxcDisassemble。</summary>
     public static string Disassemble(byte[] container)
     {
+        // SHADERRIP_FORCE_MANAGED=1 跳过 d3dcompiler，直接走托管反汇编（跨平台一致性验证用）
+        bool forceManaged = Environment.GetEnvironmentVariable("SHADERRIP_FORCE_MANAGED") == "1";
         string s = null;
-        if (OperatingSystem.IsWindows())
+        if (!forceManaged && OperatingSystem.IsWindows())
         {
             NativeLibLoader.EnsureD3DCompiler();
             s = DisassembleWith(container, D3DDisassemble);
@@ -415,7 +417,7 @@ namespace ShaderRipper
 
             IntPtr buf = gbp(blob);
             ulong len = (ulong)gbs(blob);
-            string text = Marshal.PtrToStringAnsi(buf, (int)len);
+            string text = Marshal.PtrToStringAnsi(buf, (int)len)?.Replace("\0", "");   // 缓冲区偶带 NUL 残留
             rel(blob);
             return text;
         }
