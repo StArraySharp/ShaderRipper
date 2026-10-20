@@ -339,6 +339,7 @@ namespace ShaderRipper
                 Console.Error.WriteLine("[!] --selftest-d3d9 needs d3dcompiler_47 (Windows only).");
                 return 1;
             }
+            NativeLibLoader.EnsureD3DCompiler();   // 从内嵌资源解压后再 DllImport
             var cases = new (string hlsl, string entry, string target)[]
             {
                 ("float4 main(float4 p:SV_Position):SV_Position { return mul(p, float4x4(1,0,0,0, 0,2,0,0, 0,0,3,0, 0,0,0,1)); }",

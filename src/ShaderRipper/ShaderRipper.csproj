@@ -24,10 +24,9 @@
     <None Update="data/*.tpk" CopyToOutputDirectory="PreserveNewest" />
     <None Remove="data/globals_names/**" />
     <None Update="schema/*.json" CopyToOutputDirectory="PreserveNewest" />
-    <!-- d3dcompiler 仅 Windows 使用；linux 发布不带 -->
-    <None Update="NativeLibs/D3Dcompiler_47.dll"
-          CopyToOutputDirectory="PreserveNewest"
-          Condition="'$(RuntimeIdentifier)' != 'linux-x64'" />
+    <!-- d3dcompiler 内嵌进主程序集，运行时解压加载（NativeLibLoader）；发布目录不带 -->
+    <EmbeddedResource Include="NativeLibs/D3Dcompiler_47.dll"
+                      LogicalName="ShaderRipper.Native.D3Dcompiler_47.dll" />
   </ItemGroup>
   <ItemGroup>
     <PackageReference Include="AssetRipper.Tpk" Version="2.0.0" />

@@ -20,8 +20,11 @@ dotnet publish src/ShaderRipper/ShaderRipper.csproj -c Release -r linux-x64 \
   --self-contained -p:PublishSingleFile=true -p:PublishTrimmed=true -o publish/linux-x64
 ```
 
-Linux 上 d3d11/d3d9/D3D12 反汇编不可用（无 d3dcompiler/dxcompiler，会提示一次）；
-GLES3/GLES2/OpenGLCore 的 GLSL 回译路径纯托管，全平台可用。
+Linux / macOS：
+- **d3d9（SM2/3）反汇编是纯托管实现，全平台开箱即用**，无需任何原生库
+- **DXBC / DXIL 反汇编**走 `libdxcompiler.so`（微软 [DirectXShaderCompiler](https://github.com/microsoft/DirectXShaderCompiler) 官方 Linux 发行版），放到 PATH 或 exe 同目录即可
+- `d3dcompiler_47.dll` 已内嵌进主程序集（仅 Windows 加载时解压到临时目录），发布目录不携带任何原生库
+- GLES3 / GLES2 / OpenGLCore 的 GLSL 回译路径纯托管，全平台可用
 
 ## 使用
 

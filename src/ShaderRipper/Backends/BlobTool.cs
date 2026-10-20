@@ -359,26 +359,22 @@ namespace ShaderRipper
         }
 
     /// <summary>Disassemble one DXBC container; null on failure.
-    /// DXBC+DXIL（D3D12/SM6 路径）d3dcompiler 认不了，退回 dxcompiler.dll（COM）。
-    /// d3dcompiler/dxcompiler 只在 Windows 上存在；Linux 上返回 null（一次性提示）。</summary>
+    /// Windows：d3dcompiler_47（SM4/5）优先，DXIL 退回 dxcompiler.dll（COM）。
+    /// Linux/macOS：没有 d3dcompiler，直接走 dxcompiler（libdxcompiler.so，
+    /// 微软 DXC 官方 Linux 发行版）；它的 Disassemble 同样接受普通 DXBC。
+    /// d3d9（SM2/3）走 D3D9Asm 的纯托管实现，全平台可用。</summary>
     public static string Disassemble(byte[] container)
     {
-        if (!OperatingSystem.IsWindows())
+        string s = null;
+        if (OperatingSystem.IsWindows())
         {
-            if (!_warnedNoD3D)
-            {
-                _warnedNoD3D = true;
-                Console.Error.WriteLine("[!] DXBC/DXIL disassembly requires Windows (d3dcompiler_47 / dxcompiler). GLSL platforms still work.");
-            }
-            return null;
+            NativeLibLoader.EnsureD3DCompiler();
+            s = DisassembleWith(container, D3DDisassemble);
         }
-        string s = DisassembleWith(container, D3DDisassemble);
-        if (s == null && HasDxilChunk(container))
+        if (s == null)
             s = DxcDisassemble(container);
         return s;
     }
-
-    private static bool _warnedNoD3D;
 
     private delegate int DisasmFn(IntPtr data, uint size, uint flags, string comment, out IntPtr blob);
 
@@ -468,31 +464,40 @@ namespace ShaderRipper
 
     private static IntPtr LoadDxcCompiler()
     {
-        // 1) exe 同目录；2) PATH；3) 注册表定位 Unity 安装目录 → Editor/Data/Tools
-        IntPtr h = LoadLibrary("dxcompiler");
-        if (h != IntPtr.Zero) return h;
-        try
+        // 跨平台：Windows 找 dxcompiler.dll（exe 目录/PATH/注册表定位的 Unity 安装目录），
+        // Linux 找 libdxcompiler.so（微软 DXC 官方有 Linux 发行版；同一条 COM vtable 调用序列）。
+        if (OperatingSystem.IsWindows())
         {
-            using var base_ = Microsoft.Win32.RegistryKey.OpenBaseKey(
-                Microsoft.Win32.RegistryHive.LocalMachine, Microsoft.Win32.RegistryView.Registry64);
-            using var inst = base_.OpenSubKey(@"SOFTWARE\Unity Technologies\Installer");
-            if (inst == null) return IntPtr.Zero;
-            foreach (var keyName in inst.GetSubKeyNames())
+            IntPtr h = LoadLibrary("dxcompiler");
+            if (h != IntPtr.Zero) return h;
+            try
             {
-                using var k = inst.OpenSubKey(keyName);
-                if (k == null) continue;
-                foreach (var vn in k.GetValueNames())
+                using var base_ = Microsoft.Win32.RegistryKey.OpenBaseKey(
+                    Microsoft.Win32.RegistryHive.LocalMachine, Microsoft.Win32.RegistryView.Registry64);
+                using var inst = base_.OpenSubKey(@"SOFTWARE\Unity Technologies\Installer");
+                if (inst == null) return IntPtr.Zero;
+                foreach (var keyName in inst.GetSubKeyNames())
                 {
-                    if (!vn.Contains("Location")) continue;
-                    if (k.GetValue(vn) is not string dir) continue;
-                    string dll = Path.Combine(dir, "Editor", "Data", "Tools", "dxcompiler.dll");
-                    if (!File.Exists(dll)) continue;
-                    h = LoadLibrary(dll);
-                    if (h != IntPtr.Zero) return h;
+                    using var k = inst.OpenSubKey(keyName);
+                    if (k == null) continue;
+                    foreach (var vn in k.GetValueNames())
+                    {
+                        if (!vn.Contains("Location")) continue;
+                        if (k.GetValue(vn) is not string dir) continue;
+                        string dll = Path.Combine(dir, "Editor", "Data", "Tools", "dxcompiler.dll");
+                        if (!File.Exists(dll)) continue;
+                        h = LoadLibrary(dll);
+                        if (h != IntPtr.Zero) return h;
+                    }
                 }
             }
+            catch { }
+            return IntPtr.Zero;
         }
-        catch { }
+        // Linux/macOS：dxcompiler 的 DxcCreateInstance 导出同样存在
+        if (NativeLibrary.TryLoad("libdxcompiler.so", out IntPtr hSo) ||
+            NativeLibrary.TryLoad("dxcompiler", out hSo))
+            return hSo;
         return IntPtr.Zero;
     }
 
@@ -503,7 +508,9 @@ namespace ShaderRipper
         {
             IntPtr h = LoadDxcCompiler();
             if (h == IntPtr.Zero) { Console.Error.WriteLine("[dxc] dxcompiler.dll not found"); return null; }
-            IntPtr create = GetProcAddress(h, "DxcCreateInstance");
+            IntPtr create = OperatingSystem.IsWindows()
+                ? GetProcAddress(h, "DxcCreateInstance")
+                : NativeLibrary.GetExport(h, "DxcCreateInstance");
             if (create == IntPtr.Zero) return null;
             var createFn = (DxcCreateInstanceFn)Marshal.GetDelegateForFunctionPointer(create, typeof(DxcCreateInstanceFn));
 
