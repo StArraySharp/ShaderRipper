@@ -66,7 +66,11 @@ namespace ShaderRipper
             bool have = false;
             foreach (var kv in info.Classes)
             {
-                if (!have || (kv.Key <= want && (best.Key > want || kv.Key > best.Key)))
+                // Only consider type trees not newer than the file. If the
+                // database has no entry old enough, return null instead of
+                // silently parsing with an incompatible (too new) layout.
+                if (kv.Key > want) continue;
+                if (!have || kv.Key > best.Key)
                 {
                     best = kv;
                     have = true;

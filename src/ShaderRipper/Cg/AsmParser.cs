@@ -358,7 +358,7 @@ namespace ShaderRipper.Cg
             if (v == "null") { o.Kind = "null"; return o; }
 
             if (v.StartsWith("-")) { o.Negate = true; v = v.Substring(1); }
-            if (v.StartsWith("|") && v.EndsWith("|")) v = v.Substring(1, v.Length - 2);
+            if (v.StartsWith("|") && v.EndsWith("|") && v.Length > 1) { o.Abs = true; v = v.Substring(1, v.Length - 2); }
             if (v.StartsWith("|")) { o.Negate = true; v = v.Substring(1).TrimEnd('|'); }
             if (v.StartsWith("+")) v = v.Substring(1);
             if (v.StartsWith("-")) { o.Negate = !o.Negate; v = v.Substring(1); }

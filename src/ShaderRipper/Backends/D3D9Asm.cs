@@ -224,7 +224,7 @@ namespace ShaderRipper
         private static uint RegType(uint w) => ((w >> 28) & 0x7) | (((w >> 11) & 0x3) << 3);
 
         /// <summary>格式化一个操作数 token（bit31=1）；相对寻址（bit13）时再吃一个地址 token。</summary>
-        private static string FmtOperand(byte[] b, ref int p, int end, bool isDest, bool isVs)
+        private static string FmtOperand(byte[] b, ref int p, int end, bool isDest, bool isVs, uint major = 3)
         {
             if (p + 4 > end) return null;
             uint w = BitConverter.ToUInt32(b, p);
@@ -243,7 +243,8 @@ namespace ShaderRipper
                 case 3: reg = isVs ? "a" + num : "t" + num; break;
                 case 4: reg = num == 0 ? "oPos" : num == 1 ? "oFog" : "oPts"; break;
                 case 5: reg = "oD" + num; break;
-                case 6: reg = isVs ? "o" + num : "oT" + num; break;
+                // SM3 merged texcrdout into the generic o# registers; SM2 uses oT#.
+                case 6: reg = (isVs && major < 3) ? "oT" + num : isVs ? "o" + num : "oT" + num; break;
                 case 7: reg = "i" + num; break;
                 case 8: reg = "oC" + num; break;
                 case 9: reg = "oDepth"; break;

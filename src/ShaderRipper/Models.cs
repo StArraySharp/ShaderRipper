@@ -5,7 +5,8 @@ namespace ShaderRipper
     internal sealed class Shader
     {
         public long PathId;
-        public uint Offset, Size;
+        public long Offset;
+        public uint Size;
         public string Name;
         public ParsedForm ParsedForm;
         public uint[] Platforms = System.Array.Empty<uint>();

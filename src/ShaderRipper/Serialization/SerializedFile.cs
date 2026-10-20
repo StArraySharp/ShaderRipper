@@ -82,18 +82,22 @@ namespace ShaderRipper
             if (version >= 7 && version < 14) r.ReadI32();
 
             int objectCount = r.ReadI32();
-            var entries = new List<(long pathId, uint off, uint size, int typeId)>(objectCount);
+            // Offsets are kept as long and validated: v22 stores 64-bit
+            // byteStart, and a corrupt entry must not wrap into a bogus offset.
+            var entries = new List<(long pathId, long off, uint size, int typeId)>(objectCount);
             for (int o = 0; o < objectCount; o++)
             {
                 r.Align4();
                 long pathId = version < 14 ? r.ReadI32() : r.ReadI64();
-                uint byteStart = version >= 22 ? (uint)r.ReadI64() : r.ReadU32();
+                long byteStart = version >= 22 ? r.ReadI64() : r.ReadU32();
                 uint byteSize = r.ReadU32();
                 int typeId = r.ReadI32();
                 if (version < 16) r.ReadU16();
                 if (version >= 11 && version < 17) r.ReadI16();
                 if (version < 11) r.ReadU16();
-                entries.Add((pathId, byteStart + dataOffset, byteSize, typeId));
+                long off = byteStart + dataOffset;
+                if (off < 0 || byteSize > 0 && (ulong)off + byteSize > (ulong)b.Length) continue;
+                entries.Add((pathId, off, byteSize, typeId));
             }
 
             foreach (var e in entries)
@@ -118,7 +122,10 @@ namespace ShaderRipper
             if (version >= 11)
             {
                 int st = r.ReadI32();
-                if (st > 0 && st < 1_000_000) r.Skip(st * 12);
+                // ScriptType = classID (i32) + PPtr(m_FileID i32, m_PathID).
+                // m_PathID is 64-bit from v14, so the stride grows 12 -> 16.
+                int stride = version >= 14 ? 16 : 12;
+                if (st > 0 && st < 1_000_000) r.Skip(st * stride);
             }
 
             int extCount = r.ReadI32();
@@ -144,7 +151,7 @@ namespace ShaderRipper
         /// <see cref="TpkSchema"/> (the JSON schema never carried Material), so
         /// this works for every Unity generation the tpk covers.
         /// </summary>
-        private static MaterialAsset ParseMaterial(SerializedFile sf, long pathId, uint off, uint size)
+        private static MaterialAsset ParseMaterial(SerializedFile sf, long pathId, long off, uint size)
         {
             var mat = new MaterialAsset { PathId = pathId };
             var sr = new SchemaReader(sf.Raw, (int)off, (int)(off + size), sf.MaterialSchema);
@@ -237,7 +244,7 @@ namespace ShaderRipper
             return classId;
         }
 
-        private static Shader ParseShader(SerializedFile sf, long pathId, uint off, uint size)
+        private static Shader ParseShader(SerializedFile sf, long pathId, long off, uint size)
         {
             var sh = new Shader { PathId = pathId, Offset = off, Size = size };
             var sr = new SchemaReader(sf.Raw, (int)off, (int)(off + size), sf.Schema);

@@ -204,8 +204,12 @@ namespace ShaderRipper.Cg
                     return "0.0";
                 case "cb":
                     {
+                        // Only use a per-component name when the swizzle picks
+                        // exactly that one component; a multi-component swizzle
+                        // on the scalar name would emit illegal "_Time.x.xy".
                         if (o.ArrayIndex >= 0 && Cb != null &&
-                            Cb.CompExpr.TryGetValue((o.Index, o.ArrayIndex, CompIndex(FirstSwz(o.Swizzle))), out var cn))
+                            Cb.CompExpr.TryGetValue((o.Index, o.ArrayIndex, CompIndex(FirstSwz(o.Swizzle))), out var cn) &&
+                            (o.Swizzle == null || o.Swizzle.Length <= 1))
                         {
                             s = cn;
                             if (o.Swizzle != null && o.Swizzle.Length <= 1) swizzled = true;
@@ -230,8 +234,9 @@ namespace ShaderRipper.Cg
                     s = RegName(o);
                     break;
             }
-            if (o.Negate) s = "-(" + s + ")";
             if (!swizzled && !string.IsNullOrEmpty(o.Swizzle)) s = s + "." + o.Swizzle;
+            if (o.Abs) s = "abs(" + s + ")";
+            if (o.Negate) s = "-(" + s + ")";
             return s;
         }
 
@@ -277,11 +282,11 @@ namespace ShaderRipper.Cg
                 for (int i = 0; i < want; i++)
                 {
                     int k = laneIdx[i];
-                    string s = srcSw;
-                    if (string.IsNullOrEmpty(s)) s = dstSw;
-                    if (!string.IsNullOrEmpty(s))
+                    // No source swizzle: absolute destination lane L reads literal
+                    // component L — do NOT re-map through dstSw again (double map).
+                    if (!string.IsNullOrEmpty(srcSw))
                     {
-                        char c = s.Length == 1 ? s[0] : s[Math.Min(k, s.Length - 1)];
+                        char c = srcSw.Length == 1 ? srcSw[0] : srcSw[Math.Min(k, srcSw.Length - 1)];
                         k = c switch { 'x' => 0, 'y' => 1, 'z' => 2, 'w' => 3, _ => i };
                     }
                     res.Add(F(o.Imm[Math.Min(k, o.Imm.Length - 1)]));
@@ -319,10 +324,12 @@ namespace ShaderRipper.Cg
                 if (o.Kind == "cb" && o.ArrayIndex >= 0 && Cb != null &&
                     Cb.CompExpr.TryGetValue((o.Index, o.ArrayIndex, CompIndex(c)), out var cn))
                 {
-                    res.Add(o.Negate ? "-(" + cn + ")" : cn);
+                    res.Add(o.Abs ? "abs(" + (o.Negate ? "-(" + cn + ")" : cn) + ")"
+                                  : o.Negate ? "-(" + cn + ")" : cn);
                     continue;
                 }
                 string e = baseName + "." + c;
+                if (o.Abs) e = "abs(" + e + ")";
                 if (o.Negate) e = "-(" + e + ")";
                 res.Add(e);
             }
@@ -387,7 +394,7 @@ namespace ShaderRipper.Cg
                 case "ieq": ICmp(o, "=="); break;
                 case "ine": ICmp(o, "!="); break;
                 case "ishl": IBin(o, "<<"); break;
-                case "ushr": IBin(o, ">>"); break;
+                case "ushr": IUshr(o); break;
                 case "imax": Fn2(o, "max"); break;
                 case "imin": Fn2(o, "min"); break;
                 case "udiv": UDiv(o); break;
@@ -401,6 +408,9 @@ namespace ShaderRipper.Cg
                 case "frc": Un(o, "frac"); break;
                 case "round_ni": Un(o, "floor"); break;
                 case "round_pi": Un(o, "ceil"); break;
+                // NOTE: DXBC round_ne is round-half-to-even; HLSL round() is
+                // round-half-away-from-zero. They differ only at exact .5
+                // boundaries — accepted divergence, flagged here for clarity.
                 case "round_ne": Un(o, "round"); break;
                 case "round_z": Un(o, "trunc"); break;
                 case "sincos": Sincos(o); break;
@@ -542,21 +552,22 @@ namespace ShaderRipper.Cg
             value = 0f;
             if (o == null || o.Kind != "l" || o.Imm == null || o.Imm.Length == 0) return false;
 
-            int shift = 0;
-            if (!string.IsNullOrEmpty(o.Swizzle) && !string.IsNullOrEmpty(dstSw) && dstSw.Length < 4)
-            {
-                int li = "xyzw".IndexOf(dstSw[0]);
-                if (li > 0) shift = li;
-            }
-            string effSw = !string.IsNullOrEmpty(o.Swizzle) ? o.Swizzle : (dstSw ?? "xyzw");
+            // Absolute destination lane: dstSw[lane] (dstSw length always equals
+            // the requested lane count for register destinations).
+            int abs = lane;
+            if (!string.IsNullOrEmpty(dstSw) && dstSw.Length > lane)
+                abs = dstSw[lane] switch { 'x' => 0, 'y' => 1, 'z' => 2, 'w' => 3, _ => lane };
 
-            int k = lane;
-            if (effSw.Length > 0)
+            // Then apply the literal's own swizzle, if any. No shift/modulo
+            // wrapping — non-contiguous masks must not fold back around.
+            int k = abs;
+            if (!string.IsNullOrEmpty(o.Swizzle))
             {
-                char c = effSw[(shift + lane) % effSw.Length];
+                char c = o.Swizzle.Length == 1 ? o.Swizzle[0] : o.Swizzle[Math.Min(abs, o.Swizzle.Length - 1)];
                 k = c switch { 'x' => 0, 'y' => 1, 'z' => 2, 'w' => 3, _ => lane };
             }
             value = o.Imm[Math.Min(k, o.Imm.Length - 1)];
+            if (o.Abs) value = Math.Abs(value);
             if (o.Negate) value = -value;
             return true;
         }
@@ -586,11 +597,15 @@ namespace ShaderRipper.Cg
                 int ab = BitConverter.SingleToInt32Bits(av);
                 int bb = BitConverter.SingleToInt32Bits(bv);
 
+                // Real bitwise operation when the literal mask is neither a
+                // bool-false (±0.0) nor a bool-true (1.0 / all-ones) pattern.
                 if (isAnd)
                 {
                     if (am && bm) r.Add(F(BitConverter.Int32BitsToSingle(ab & bb)));
                     else if (bm && bv == 0f) r.Add("0.0");
                     else if (am && av == 0f) r.Add("0.0");
+                    else if (bm && !BoolLike(bv)) r.Add($"((float)((int)({a[i]}) & (int)({b[i]})))");
+                    else if (am && !BoolLike(av)) r.Add($"((float)((int)({a[i]}) & (int)({b[i]})))");
                     else if (bm) r.Add($"((({a[i]}) != 0.0) ? {F(bv)} : 0.0)");
                     else if (am) r.Add($"((({b[i]}) != 0.0) ? {F(av)} : 0.0)");
                     else r.Add($"(((({a[i]}) != 0.0) && (({b[i]}) != 0.0)) ? 1.0 : 0.0)");
@@ -600,10 +615,20 @@ namespace ShaderRipper.Cg
                     if (am && bm) r.Add(F(BitConverter.Int32BitsToSingle(ab | bb)));
                     else if (bm && bv == 0f) r.Add($"(({a[i]}) != 0.0 ? 1.0 : 0.0)");
                     else if (am && av == 0f) r.Add($"(({b[i]}) != 0.0 ? 1.0 : 0.0)");
+                    else if (bm && !BoolLike(bv)) r.Add($"((float)((int)({a[i]}) | (int)({b[i]})))");
+                    else if (am && !BoolLike(av)) r.Add($"((float)((int)({a[i]}) | (int)({b[i]})))");
                     else r.Add($"(((({a[i]}) != 0.0) || (({b[i]}) != 0.0)) ? 1.0 : 0.0)");
                 }
             }
             Assign(o[0], r);
+        }
+
+        /// <summary>True when the literal is a bool-like pattern: ±0.0, 1.0, or the all-ones bit pattern.</summary>
+        private static bool BoolLike(float v)
+        {
+            if (v == 0f || v == 1f) return true;
+            int bits = BitConverter.SingleToInt32Bits(v);
+            return bits == -1 || bits == unchecked((int)0x80000000);
         }
 
         private void Mad(List<Operand> o)
@@ -624,6 +649,18 @@ namespace ShaderRipper.Cg
             var b = Comps(o[2], n, o[0].Swizzle);
             var r = new List<string>();
             for (int i = 0; i < n; i++) r.Add($"((int)({a[i]}) {op} (int)({b[i]}))");
+            Assign(o[0], r);
+        }
+
+        /// <summary>ushr is a logical (unsigned) shift — shifting through a signed int
+        /// would sign-extend the high bits. Cast to uint for the shift itself.</summary>
+        private void IUshr(List<Operand> o)
+        {
+            int n = N(o[0]);
+            var a = Comps(o[1], n, o[0].Swizzle);
+            var b = Comps(o[2], n, o[0].Swizzle);
+            var r = new List<string>();
+            for (int i = 0; i < n; i++) r.Add($"((int)((uint)({a[i]}) >> (int)({b[i]})))");
             Assign(o[0], r);
         }
 

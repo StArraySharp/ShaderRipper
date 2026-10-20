@@ -18,6 +18,7 @@ namespace ShaderRipper
             "--data", "--out", "--root", "--bundles", "--names", "--builtin-index",
             "--matrix-names", "--schema", "--tmp-layouts", "--only", "--dump",
             "--list-shaders", "--platform", "--glsl2cg", "--disasm", "--lang",
+            "--mat-check", "--file",
         };
 
         private readonly Dictionary<string, string> _values = new(StringComparer.OrdinalIgnoreCase);

@@ -113,7 +113,7 @@ namespace ShaderRipper
                     int size = BitConverter.ToInt32(buf, 4 + e * 12 + 4);
                     if (off < 0 || size < 0x20 || (long)off + size > buf.Length) continue;
                     int at = FindMagic(buf, off, off + size);
-                    if (at < 0) continue;
+                    if (at < 0 || at + 0x1C > buf.Length) continue;
                     int total = BitConverter.ToInt32(buf, at + 0x18);
                     if (total <= 0x40 || (long)at + total > buf.Length) total = off + size - at;
                     res.Add(new BlobSlot(e, at, total));
@@ -535,44 +535,80 @@ namespace ShaderRipper
                 return null;
             }
 
-            IntPtr buf = Marshal.AllocHGlobal(container.Length);
-            Marshal.Copy(container, 0, buf, container.Length);
-            IntPtr dxcBuf = Marshal.AllocHGlobal(24);
-            Marshal.WriteIntPtr(dxcBuf, 0, buf);
-            Marshal.WriteIntPtr(dxcBuf, 8, (IntPtr)container.Length);
-            Marshal.WriteInt32(dxcBuf, 16, 0);
+            IntPtr buf = IntPtr.Zero, dxcBuf = IntPtr.Zero;
+            try
+            {
+                buf = Marshal.AllocHGlobal(container.Length);
+                Marshal.Copy(container, 0, buf, container.Length);
+                dxcBuf = Marshal.AllocHGlobal(24);
+                Marshal.WriteIntPtr(dxcBuf, 0, buf);
+                Marshal.WriteIntPtr(dxcBuf, 8, (IntPtr)container.Length);
+                Marshal.WriteInt32(dxcBuf, 16, 0);
 
-            IntPtr vtbl = Marshal.ReadIntPtr(compiler);
-            var disasm = (Disassemble3Fn)Marshal.GetDelegateForFunctionPointer(
-                Marshal.ReadIntPtr(vtbl, 4 * IntPtr.Size), typeof(Disassemble3Fn));
+                IntPtr vtbl = Marshal.ReadIntPtr(compiler);
+                var disasm = (Disassemble3Fn)Marshal.GetDelegateForFunctionPointer(
+                    Marshal.ReadIntPtr(vtbl, 4 * IntPtr.Size), typeof(Disassemble3Fn));
 
-            Guid iidResult = IID_IDxcResult;
-            int hr = disasm(compiler, dxcBuf, ref iidResult, out IntPtr result);
-            if (hr != 0)
-                Console.Error.WriteLine($"[dxc] Disassemble hr=0x{hr:X8}");
+                Guid iidResult = IID_IDxcResult;
+                int hr = disasm(compiler, dxcBuf, ref iidResult, out IntPtr result);
+                if (hr != 0)
+                    Console.Error.WriteLine($"[dxc] Disassemble hr=0x{hr:X8}");
 
-            var relC = (ReleaseFn)Marshal.GetDelegateForFunctionPointer(
-                Marshal.ReadIntPtr(vtbl, 2 * IntPtr.Size), typeof(ReleaseFn));
-            relC(compiler);
-            if (hr != 0 || result == IntPtr.Zero) return null;
+                var relC = (ReleaseFn)Marshal.GetDelegateForFunctionPointer(
+                    Marshal.ReadIntPtr(vtbl, 2 * IntPtr.Size), typeof(ReleaseFn));
+                relC(compiler);
+                compiler = IntPtr.Zero;
+                if (hr != 0 || result == IntPtr.Zero) return null;
 
-            IntPtr rvtbl = Marshal.ReadIntPtr(result);
-            hr = ((GetResultFn)Marshal.GetDelegateForFunctionPointer(
-                Marshal.ReadIntPtr(rvtbl, 4 * IntPtr.Size), typeof(GetResultFn)))(result, out IntPtr blob);
-            if (hr != 0 || blob == IntPtr.Zero) return null;
+                string text = null;
+                try
+                {
+                    IntPtr rvtbl = Marshal.ReadIntPtr(result);
+                    hr = ((GetResultFn)Marshal.GetDelegateForFunctionPointer(
+                        Marshal.ReadIntPtr(rvtbl, 4 * IntPtr.Size), typeof(GetResultFn)))(result, out IntPtr blob);
+                    if (hr != 0 || blob == IntPtr.Zero) return null;
 
-            IntPtr bvtbl = Marshal.ReadIntPtr(blob);
-            var gbp = (GetBufferPointerFn)Marshal.GetDelegateForFunctionPointer(
-                Marshal.ReadIntPtr(bvtbl, 3 * IntPtr.Size), typeof(GetBufferPointerFn));
-            var gbs = (GetBufferSizeFn)Marshal.GetDelegateForFunctionPointer(
-                Marshal.ReadIntPtr(bvtbl, 4 * IntPtr.Size), typeof(GetBufferSizeFn));
-            IntPtr textPtr = gbp(blob);
-            int textLen = (int)gbs(blob);
-            string text = Marshal.PtrToStringAnsi(textPtr, textLen);
-            var relB = (ReleaseFn)Marshal.GetDelegateForFunctionPointer(
-                Marshal.ReadIntPtr(bvtbl, 2 * IntPtr.Size), typeof(ReleaseFn));
-            relB(blob);
-            return text;
+                    try
+                    {
+                        IntPtr bvtbl = Marshal.ReadIntPtr(blob);
+                        var gbp = (GetBufferPointerFn)Marshal.GetDelegateForFunctionPointer(
+                            Marshal.ReadIntPtr(bvtbl, 3 * IntPtr.Size), typeof(GetBufferPointerFn));
+                        var gbs = (GetBufferSizeFn)Marshal.GetDelegateForFunctionPointer(
+                            Marshal.ReadIntPtr(bvtbl, 4 * IntPtr.Size), typeof(GetBufferSizeFn));
+                        IntPtr textPtr = gbp(blob);
+                        int textLen = (int)gbs(blob);
+                        text = Marshal.PtrToStringAnsi(textPtr, textLen);
+                    }
+                    finally
+                    {
+                        var relB = (ReleaseFn)Marshal.GetDelegateForFunctionPointer(
+                            Marshal.ReadIntPtr(Marshal.ReadIntPtr(blob), 2 * IntPtr.Size), typeof(ReleaseFn));
+                        relB(blob);
+                    }
+                    return text;
+                }
+                finally
+                {
+                    var relR = (ReleaseFn)Marshal.GetDelegateForFunctionPointer(
+                        Marshal.ReadIntPtr(Marshal.ReadIntPtr(result), 2 * IntPtr.Size), typeof(ReleaseFn));
+                    relR(result);
+                }
+            }
+            finally
+            {
+                if (buf != IntPtr.Zero) Marshal.FreeHGlobal(buf);
+                if (dxcBuf != IntPtr.Zero) Marshal.FreeHGlobal(dxcBuf);
+                if (compiler != IntPtr.Zero)
+                {
+                    try
+                    {
+                        var relC2 = (ReleaseFn)Marshal.GetDelegateForFunctionPointer(
+                            Marshal.ReadIntPtr(Marshal.ReadIntPtr(compiler), 2 * IntPtr.Size), typeof(ReleaseFn));
+                        relC2(compiler);
+                    }
+                    catch { }
+                }
+            }
         }
         catch (Exception e) { Console.Error.WriteLine("[dxc] " + e.Message); return null; }
     }
@@ -663,7 +699,7 @@ namespace ShaderRipper
                 }
                 if (b[i] == (byte)'#' && i + 8 < end)
                 {
-                    string h = System.Text.Encoding.ASCII.GetString(b, i, 16);
+                    string h = System.Text.Encoding.ASCII.GetString(b, i, Math.Min(16, b.Length - i));
                     if (h.StartsWith("#version") || h.StartsWith("#ifdef") || h.StartsWith("#define"))
                         return (BlobFormat.Glsl, i);
                 }

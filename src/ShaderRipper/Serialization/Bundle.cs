@@ -98,11 +98,16 @@ namespace ShaderRipper
             long sp = -1;
             if (blocks.Length > 0)
             {
-                long basePos = infoAt + compressedInfoSize;
+                // Normal layout: block data follows the block table. With the
+                // BlocksInfoAtEnd flag (0x80) the data sits right after the header.
+                var bases = new List<long>();
+                if ((flags & FlagBlocksInfoAtEnd) != 0) bases.Add(p);
+                bases.Add(infoAt + compressedInfoSize);
+                foreach (var basePos in bases)
                 for (int shift = 0; shift <= 160 && sp < 0; shift++)
                 {
                     long cand = basePos + shift;
-                    if (cand + blocks[0].comp > buf.Length) break;
+                    if (cand < 0 || cand + blocks[0].comp > buf.Length) break;
                     if (blocks[0].comp == blocks[0].raw) { sp = cand; break; }
                     try
                     {

@@ -244,6 +244,7 @@ namespace ShaderRipper.Cg
             var seenTex = new HashSet<string>();
             var seenCb = new Dictionary<int, int>();
             var seenXt = new HashSet<int>();
+            var seenSb = new HashSet<int>();
             bool icbDone = false;
 
             foreach (var (p, res) in new[] { (vs, vsCb), (ps, psCb) })
@@ -263,9 +264,13 @@ namespace ShaderRipper.Cg
                     }
                     else if (d.Kind == "structured")
                     {
-                        int n = Math.Max(1, d.Stride / 4);
-                        sb.AppendLine($"struct SB{d.Register} {{ float v[{n}]; }};");
-                        sb.AppendLine($"StructuredBuffer<SB{d.Register}> t{d.Register};");
+                        // vs and ps often share the same buffer register — emit once.
+                        if (seenSb.Add(d.Register))
+                        {
+                            int n = Math.Max(1, d.Stride / 4);
+                            sb.AppendLine($"struct SB{d.Register} {{ float v[{n}]; }};");
+                            sb.AppendLine($"StructuredBuffer<SB{d.Register}> t{d.Register};");
+                        }
                     }
                     else if (d.Kind == "constbuffer")
                     {

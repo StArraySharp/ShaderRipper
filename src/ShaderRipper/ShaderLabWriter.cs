@@ -60,7 +60,7 @@ namespace ShaderRipper
             if (mainFormat != "dxbc")
                 sb.AppendLine($"// main program source: {Platforms.Describe(mainPlatform)} "
                               + "(not DXBC — see Disassembly/ for the original source)");
-            sb.AppendLine($"Shader \"{name}\"");
+            sb.AppendLine($"Shader \"{Esc(name)}\"");
             sb.AppendLine("{");
 
             sb.AppendLine("\tProperties");
@@ -82,7 +82,7 @@ namespace ShaderRipper
                     sb.AppendLine($"\t\tPass");
                     sb.AppendLine("\t\t{");
                     if (!string.IsNullOrEmpty(pass.StateName))
-                        sb.AppendLine($"\t\t\tName \"{pass.StateName}\"");
+                        sb.AppendLine($"\t\t\tName \"{Esc(pass.StateName)}\"");
                     WritePassTags(sb, pass);
                     WriteState(sb, pass);
 
@@ -133,6 +133,9 @@ namespace ShaderRipper
                             sb.AppendLine("\t\t\t#pragma vertex vert");
                             sb.AppendLine("\t\t\t#pragma fragment frag");
                             sb.AppendLine("\t\t\t#pragma target 3.0");
+                            // Builtin uniforms are stripped from the emitted declarations
+                            // (GlslToCg) — the cginc must supply them.
+                            sb.AppendLine("\t\t\t#include \"UnityCG.cginc\"");
                             foreach (var g in groups)
                                 sb.AppendLine("\t\t\t" + Cg.VariantPlan.Pragma(g));
                             sb.AppendLine($"\t\t\t// {keys.Count} keyword variant(s), {groups.Count} independent toggle(s)");
@@ -240,7 +243,7 @@ namespace ShaderRipper
             foreach (var kv in PropFlag)
                 if ((p.Flags & kv.Key) != 0) flags += kv.Value + " ";
 
-            string nm = p.Name, desc = p.Description;
+            string nm = p.Name, desc = Esc(p.Description);
             float[] d = p.DefValue;
             string v4 = $"({N(d[0])},{N(d[1])},{N(d[2])},{N(d[3])})";
 
@@ -257,6 +260,10 @@ namespace ShaderRipper
             string def = string.IsNullOrEmpty(p.DefTextureName) ? "white" : p.DefTextureName;
             return $"{flags}{nm} (\"{desc}\", {dim}) = \"{def}\" {{}}";
         }
+
+        /// <summary>Escape a string for embedding inside a ShaderLab double-quoted literal.</summary>
+        private static string Esc(string s) =>
+            string.IsNullOrEmpty(s) ? s : s.Replace("\\", "\\\\").Replace("\"", "\\\"");
 
         /// <summary>
         /// Unity normalises tag keys to upper case inside the serialized file

@@ -14,6 +14,7 @@ namespace ShaderRipper.Cg
         public string ArrayExpr;
         public string Swizzle = "";
         public bool Negate;
+        public bool Abs;
         public float[] Imm;
         public string Raw;
 

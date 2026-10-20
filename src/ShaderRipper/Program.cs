@@ -34,10 +34,28 @@ namespace ShaderRipper
             if (!string.IsNullOrWhiteSpace(rootArg) && !Directory.Exists(rootArg))
                 Console.Error.WriteLine(Strings.F("RootDirMissing", rootArg));
 
+            // --list-shaders works standalone: it takes a file directly and
+            // must not require --data/--file.
+            string listPath = cli.Value("--list-shaders");
+            if (listPath != null && !File.Exists(listPath) && cli.Bare.Count > 0 && File.Exists(cli.Bare[0]))
+                listPath = cli.Bare[0];
+            if (listPath != null)
+            {
+                if (!File.Exists(listPath)) { Console.Error.WriteLine(Strings.F("ResourcesAssetsMissing", listPath)); return 2; }
+                Paths.SetRoot(cli.Value("--root"));
+                var listRoot = TypeNode.LoadSchema(Paths.Schema(
+                    ReadSerializedFileVersion(listPath) >= 22 ? "shader_typetypes_6000.json" : "shader_typetypes.json",
+                    cli.Value("--schema")));
+                if (listRoot == null) { Console.Error.WriteLine("schema not found"); return 3; }
+                Func<string, int, TypeNode> listTpk = (ver, classId) =>
+                    TpkSchema.Available ? TpkSchema.BuildClass(classId, ver) : null;
+                return ListShaders(listPath, listRoot, listTpk);
+            }
+
             string dataDir = FirstNonEmpty(cli.Value("--data"),
                                            Environment.GetEnvironmentVariable("SHADERRIPPER_DATA") ?? Environment.GetEnvironmentVariable("SHADERRIP_DATA"),
                                            cli.Bare.Count > 0 ? cli.Bare[0] : null);
-            if (dataDir == null)
+            if (dataDir == null && cli.Value("--file") == null)
             {
                 Console.Error.WriteLine(Strings.Get("NoDataDir"));
                 Console.Error.WriteLine();
@@ -45,10 +63,27 @@ namespace ShaderRipper
                 return 2;
             }
 
+            string singleFile = cli.Value("--file");
+            if (singleFile == null && dataDir != null && File.Exists(dataDir))
+                singleFile = dataDir;          // a bare arg pointing at a file
+            bool fileMode = singleFile != null;
+            bool singleBundle = false;
+
+            if (fileMode)
+            {
+                singleFile = Path.GetFullPath(singleFile);
+                if (!File.Exists(singleFile)) { Console.Error.WriteLine(Strings.F("ResourcesAssetsMissing", singleFile)); return 2; }
+                string ext = Path.GetExtension(singleFile).ToLowerInvariant();
+                singleBundle = ext is ".bundle" or ".assetbundle" or ".unity3d";
+                if (dataDir == null) dataDir = Path.GetDirectoryName(singleFile);
+            }
             dataDir = Path.GetFullPath(dataDir);
-            dataDir = Path.GetFullPath(dataDir);
-            string assets = Path.Combine(dataDir, "resources.assets");
-            if (!File.Exists(assets)) { Console.Error.WriteLine(Strings.F("ResourcesAssetsMissing", assets)); return 2; }
+            string assets = singleFile;
+            if (!fileMode)
+            {
+                assets = Path.Combine(dataDir, "resources.assets");
+                if (!File.Exists(assets)) { Console.Error.WriteLine(Strings.F("ResourcesAssetsMissing", assets)); return 2; }
+            }
 
             GlobalsNames.TableDir = cli.Value("--names")
                                 ?? Paths.FindDir(Path.Combine("data", "globals_names"))
@@ -77,16 +112,35 @@ namespace ShaderRipper
             int tmpLayoutCount = Cg.TmpLayouts.Load(cli.Value("--tmp-layouts"));
             if (cli.Has("--no-tmp-layout")) Cg.TmpLayouts.Enabled = false;
 
-            uint sfVersion = ReadSerializedFileVersion(assets);
+            List<Bundle.Node> preNodes = null;
+            uint sfVersion;
+            if (fileMode && singleBundle)
+            {
+                // Bundle layout: read once up front and probe the first node's
+                // SerializedFile header to pick the right schema.
+                preNodes = Bundle.Read(singleFile);
+                sfVersion = 0;
+                foreach (var nd in preNodes)
+                {
+                    uint v = ReadVersionFromBytes(nd.Data);
+                    if (v > 10 && v < 1000) { sfVersion = v; break; }
+                }
+            }
+            else
+            {
+                sfVersion = ReadSerializedFileVersion(assets);
+            }
             string schemaName = sfVersion >= 22 ? "shader_typetypes_6000.json" : "shader_typetypes.json";
-            string schema = Paths.Schema(schemaName, null);
+            string schema = Paths.Schema(schemaName, cli.Value("--schema"));
             if (schema == null)
             {
                 Console.Error.WriteLine(Strings.F("SchemaNotFound", schemaName));
                 return 3;
             }
 
-            string gameName = ReadProductName(dataDir);
+            string gameName = fileMode
+                ? SanitizeName(Path.GetFileNameWithoutExtension(singleFile))
+                : ReadProductName(dataDir);
             if (gameName == null)
             {
                 string dn = Path.GetFileName(dataDir.TrimEnd('/', '\\'));
@@ -107,9 +161,43 @@ namespace ShaderRipper
             var root = TypeNode.LoadSchema(schema);
             Func<string, int, TypeNode> tpkClass = (ver, classId) =>
                 TpkSchema.Available ? TpkSchema.BuildClass(classId, ver) : null;
-            var sf = SerializedFile.Load(assets, root, tpkClass);
-            Console.WriteLine(Strings.F("Unity_Shaders", sf.UnityVersion, sf.Shaders.Count)
-                              + (TpkSchema.Available ? "  tpk=on" : "  tpk=off (data/sourcetpk.tpk missing)"));
+
+            var allShaders = new List<Shader>();
+            SerializedFile sf = null;
+            string shownVersion = null;
+            if (fileMode && singleBundle)
+            {
+                int nodes = 0, found = 0;
+                var seen = new HashSet<string>(StringComparer.Ordinal);
+                foreach (var nd in preNodes)
+                {
+                    if (nd.Path.EndsWith(".resS", StringComparison.OrdinalIgnoreCase) ||
+                        nd.Path.EndsWith(".resource", StringComparison.OrdinalIgnoreCase)) continue;
+                    SerializedFile inner;
+                    try { inner = SerializedFile.Load(nd.Data, root, tpkClass); }
+                    catch (Exception e) { Console.Error.WriteLine($"    node {nd.Path}: {e.Message}"); continue; }
+                    shownVersion ??= inner.UnityVersion;
+                    if (inner.Shaders.Count == 0) continue;
+                    nodes++;
+                    foreach (var sh in inner.Shaders)
+                    {
+                        string nm = !string.IsNullOrEmpty(sh.Name) ? sh.Name : sh.ParsedForm?.Name ?? "";
+                        if (!string.IsNullOrEmpty(nm) && !seen.Add(nm)) continue;
+                        allShaders.Add(sh);
+                        found++;
+                    }
+                }
+                Console.WriteLine(Strings.F("Unity_Shaders", shownVersion ?? "?", found)
+                                  + (TpkSchema.Available ? "  tpk=on" : "  tpk=off (data/sourcetpk.tpk missing)"));
+                Console.WriteLine(Strings.F("BundlesScanned", 1, nodes, found));
+            }
+            else
+            {
+                sf = SerializedFile.Load(assets, root, tpkClass);
+                Console.WriteLine(Strings.F("Unity_Shaders", sf.UnityVersion, sf.Shaders.Count)
+                                  + (TpkSchema.Available ? "  tpk=on" : "  tpk=off (data/sourcetpk.tpk missing)"));
+                allShaders.AddRange(sf.Shaders);
+            }
             if (indexCount > 0)
                 Console.WriteLine(Strings.F("BuiltinIndex", indexCount, BuiltinIndex.ResolvedPath));
             if (matrixCount > 0)
@@ -121,14 +209,19 @@ namespace ShaderRipper
             if (indexCount <= 0)
                 Console.Error.WriteLine(Strings.Get("BuiltinIndexMissing"));
 
-            var allShaders = new List<Shader>(sf.Shaders);
+            if (!fileMode)
             {
                 int bundleFiles = 0, nodes = 0, found = 0, skippedSources = 0;
                 var seen = new HashSet<string>(StringComparer.Ordinal);
                 foreach (var sh in sf.Shaders)
                     seen.Add(!string.IsNullOrEmpty(sh.Name) ? sh.Name : sh.ParsedForm?.Name ?? "");
 
-                foreach (var path in Directory.EnumerateFiles(bundleDir, "*", SearchOption.AllDirectories))
+                var enumOpts = new EnumerationOptions
+                {
+                    RecurseSubdirectories = true,
+                    IgnoreInaccessible = true,
+                };
+                foreach (var path in Directory.EnumerateFiles(bundleDir, "*", enumOpts))
                 {
                     if (!path.EndsWith(".bundle", StringComparison.OrdinalIgnoreCase)) continue;
                     if (BuiltinSource.IsBuiltin(path))
@@ -174,6 +267,11 @@ namespace ShaderRipper
 
             if (matCheck)
             {
+                if (fileMode)
+                {
+                    Console.Error.WriteLine(Strings.Get("MatCheckNeedsGameDir") ?? "--mat-check requires a game data directory, not a single file.");
+                    return 2;
+                }
                 string report = cli.Value("--mat-check");
                 if (string.IsNullOrWhiteSpace(report)) report = "mat_check.json";
                 return MatCheck.Run(Path.GetDirectoryName(Path.GetFullPath(assets)), root, tpkClass, report);
@@ -182,7 +280,7 @@ namespace ShaderRipper
             if (dumpMode)
             {
                 string filter = dumpFilter;
-                foreach (var dsh in sf.Shaders)
+                foreach (var dsh in allShaders)
                 {
                     string dn = dsh.ParsedForm?.Name ?? dsh.Name ?? "";
                     if (!dn.Contains(filter)) continue;
@@ -375,6 +473,14 @@ namespace ShaderRipper
                 string safe = name;
                 foreach (char c in Path.GetInvalidFileNameChars()) safe = safe.Replace(c, '_');
                 safe = safe.Replace(' ', '_');
+                // Deduplicate before anything is written: the Disassembly/<name>/
+                // directory is created below, so a late rename would make two
+                // same-named shaders overwrite each other's disassembly.
+                if (!usedNames.Add(safe))
+                {
+                    safe = safe + "_" + sh.PathId;
+                    usedNames.Add(safe);
+                }
 
                 try
                 {
@@ -460,13 +566,6 @@ namespace ShaderRipper
                             opStats[ins.Opcode] = c + 1;
                         }
                         progs[slot.BlobIndex] = prog;
-                    }
-
-                    string baseName = safe;
-                    if (!usedNames.Add(safe))
-                    {
-                        safe = safe + "_" + sh.PathId;
-                        usedNames.Add(safe);
                     }
 
                     ExportOtherPlatforms(sh, mainPlat, safe, outDir, only);
@@ -688,6 +787,51 @@ namespace ShaderRipper
                 return (uint)((h[8] << 24) | (h[9] << 16) | (h[10] << 8) | h[11]);
             }
             catch { return 0; }
+        }
+
+        /// <summary>SerializedFile version from an in-memory header (bundle node data).</summary>
+        private static uint ReadVersionFromBytes(byte[] b)
+        {
+            if (b == null || b.Length < 12) return 0;
+            return (uint)((b[8] << 24) | (b[9] << 16) | (b[10] << 8) | b[11]);
+        }
+
+        /// <summary>--list-shaders: print every shader name in a SerializedFile or bundle.</summary>
+        private static int ListShaders(string path, TypeNode root, Func<string, int, TypeNode> tpkClass)
+        {
+            try
+            {
+                string ext = Path.GetExtension(path).ToLowerInvariant();
+                var names = new List<string>();
+                if (ext is ".bundle" or ".assetbundle" or ".unity3d")
+                {
+                    foreach (var nd in Bundle.Read(path))
+                    {
+                        if (nd.Path.EndsWith(".resS", StringComparison.OrdinalIgnoreCase) ||
+                            nd.Path.EndsWith(".resource", StringComparison.OrdinalIgnoreCase)) continue;
+                        try
+                            {
+                                foreach (var sh in SerializedFile.Load(nd.Data, root, tpkClass).Shaders)
+                                    names.Add(!string.IsNullOrEmpty(sh.Name) ? sh.Name : sh.ParsedForm?.Name ?? "");
+                            }
+                        catch (Exception e) { Console.Error.WriteLine($"    node {nd.Path}: {e.Message}"); }
+                    }
+                }
+                else
+                {
+                    foreach (var sh in SerializedFile.Load(path, root, tpkClass).Shaders)
+                        names.Add(!string.IsNullOrEmpty(sh.Name) ? sh.Name : sh.ParsedForm?.Name ?? "");
+                }
+                foreach (var n in names.Where(n => !string.IsNullOrEmpty(n)).Distinct().OrderBy(n => n, StringComparer.Ordinal))
+                    Console.WriteLine(n);
+                Console.Error.WriteLine($"({names.Count} shader object(s))");
+                return 0;
+            }
+            catch (Exception e)
+            {
+                Console.Error.WriteLine("[list-shaders] " + e.Message);
+                return 2;
+            }
         }
     }
 }
