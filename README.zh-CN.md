@@ -112,7 +112,7 @@ ShaderRipper.exe --data "游戏名_Data" --out D:\out --only Floor --asm
 
 ## 正确性验证
 
-验证用文件见 [`docs/verification/`](docs/verification/)（上游原始源码 × 2、AR 导出的带源码 shader、本工具反编译产物、208 个变体的 DXBC 反汇编合集）。以 ADOFAI 3.3.1（Mono 版游戏本体）中最大的 shader `Hidden/BlendModes/SpritesDefault/OverlayMasked`（714 KB / 208 个 keyword 变体）为样本，与该混合模式资产的上游开源源码做三方对照（原始 HLSL → DXBC 编译产物 → 本工具反编译 CG）。DARKEN 模式片段：
+验证用文件见 [`docs/verification/`](docs/verification/)（按 shader 分子目录：上游原始源码 × 2、AR 导出的带源码 shader、本工具反编译产物（含/不含逐指令注释两版）、DXBC 反汇编合集）。以 ADOFAI 3.3.1（Mono 版游戏本体）中最大的 shader `Hidden/BlendModes/SpritesDefault/OverlayMasked`（714 KB / 208 个 keyword 变体）为样本，与该混合模式资产的上游开源源码做三方对照（原始 HLSL → DXBC 编译产物 → 本工具反编译 CG）。DARKEN 模式片段：
 
 原始源码（上游 `BlendFunctions.cginc`）：
 
