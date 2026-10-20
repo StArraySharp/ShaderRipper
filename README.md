@@ -1,20 +1,60 @@
-# ShaderRipper — Unity assets → DXBC 反汇编 → ShaderLab（纯 C#）
+# ShaderRipper — Unity assets → DXBC / GLSL → ShaderLab（纯 C#）
 
 一个自包含的 C# 工具：读取 Unity `SerializedFile`、提取每个 Shader 的编译产物、
-LZ4 解压、定位 DXBC、调用原生 `D3DDisassemble` 反汇编，最后按 Unity
-`SerializedShader` 字段语义重建 ShaderLab 文本。
+LZ4 解压后按后端分流——**d3d11 的 DXBC** 调原生 `D3DDisassemble` 反汇编再直译 Cg；
+**GLES3 / GLES2 / OpenGLCore 的 GLSL 源码**（HLSLcc 输出）由内置翻译器回译成同样的
+CGPROGRAM；**Metal** 落 MSL 参考。最后按 Unity `SerializedShader` 字段语义重建
+ShaderLab 文本。
+
+## 输入后端一览
+
+| 平台（`--platform`） | 资产里的产物 | 处理 |
+|---|---|---|
+| `d3d11`（4，默认） | DXBC（SM4/5） | `D3DDisassemble` → 逐条直译 Cg（主路径）；同 id 下出现 **DXIL chunk 即 D3D12/SM6**，走 dxcompiler 反汇编，只落参考 |
+| `gles3`(9) / `gles20`(5) / `openglcore`(15) / `opengl`(1) | HLSLcc 的 **GLSL 源码** | `Cg/GlslToCg.cs` 回译成 CGPROGRAM，与 d3d11 产物同形态（含变体 `#if` 链） |
+| `d3d9`(2) | SM2/SM3 裸 token 流 | `D3D9Asm.cs` 自研 token 反汇编（fxc 风格文本），只落 `Disassembly/` 参考 |
+| `metal`(14) | MSL 归档（`0xF00DCAFE`） | 落 `Disassembly/<shader>/*.metal` 参考 |
+| `vulkan`(18) | SMOL-V 压缩的 SPIR-V | 只落 `.smolv.txt` 说明（无魔数，本工具不解压） |
+
+没有 d3d11 时自动退到 GLSL 源码（比汇编直译更接近作者原意），也可用
+`--platform gles3` 强制；细节见下文「多平台：GLSL / Vulkan / Metal」。
+
+## 目录结构
+
+```
+ShaderRipper/
+├── ShaderRipper.slnx          解决方案（Rider / VS / dotnet CLI 均可直接打开）
+├── src/ShaderRipper/          唯一项目：全部源码 + 运行时资源
+│   ├── ShaderRipper.csproj
+│   ├── Cg/                    DXBC 汇编 → Cg、GLSL → Cg 翻译层
+│   ├── data/                  运行时数据（名单、$Globals 布局表、sourcetpk.tpk）
+│   └── schema/                Unity 类型树 JSON
+├── README.md / CG_TRANSLATOR.md / 会话总结.md
+└── publish/win-x64/           单文件发布产物（已在 .gitignore 中）
+```
 
 ## 运行
 
 ```
-cd ShaderRipper
-dotnet build -c Release
+# 在仓库根目录（ShaderRipper.slnx 所在处）
+dotnet build ShaderRipper.slnx -c Release
 
+# 或直接从源码跑
+dotnet run --project src/ShaderRipper -- --data <游戏>_Data --out D:\out
+```
+
+构建产物在 `src/ShaderRipper/bin/Release/net10.0/`，`data/`、`schema/`、
+`D3Dcompiler_47.dll` 会随构建自动复制到 exe 同目录（见 `Paths.cs`）。
+
+```
 # 推荐：全用命名参数
 ShaderRipper.exe --data <游戏>_Data --out D:\out
 
 # 位置参数仍可用（等价写法）
 ShaderRipper.exe <游戏>_Data D:\out
+
+# 从 GLSL 出发：Android / GL 包的程序块本来就是 HLSLcc 的 GLSL 源码
+ShaderRipper.exe --data <游戏>_Data --out D:\out --platform gles3
 ```
 
 没有默认游戏目录——`--data` 也可以改用环境变量 `SHADERRIP_DATA`。所有路径都有
@@ -49,14 +89,20 @@ done: ok=256  noDxbc=2  failed=0
 
 | 文件 | 职责 |
 |---|---|
-| `Program.cs` | 入口：编排解析→解码→反汇编→生成 |
+| `Program.cs` | 入口：编排解析→解码→按后端分流（DXBC 直译 / GLSL 回译）→生成 |
 | `SerializedFile.cs` | Unity SerializedFile (v21) 头/类型表/对象表 + Shader 主体映射 |
 | `SchemaReader.cs` | 按类型树（schema）驱动读取，忠实还原二进制布局 |
 | `EndianReader.cs` | 小端游标（对齐字符串 / 数组） |
-| `BlobTool.cs` | 分块 LZ4 解码 + DXBC 定位 + `D3DDisassemble` P/Invoke |
+| `BlobTool.cs` | 分块 LZ4 解码 + DXBC 定位 + `D3DDisassemble` P/Invoke；DXIL 走 dxcompiler COM |
+| `D3D9Asm.cs` | **D3D9 SM2/SM3 token 反汇编器**（自研，fxc 风格输出，`--selftest-d3d9` 自测） |
+| `ProgramSource.cs` | 从 slot 里切出 HLSLcc 的 GLSL / Metal / d3d9 程序（按签名识别） |
+| `Cg/GlslToCg.cs` | **GLSL → Cg 回译**（GLES3/GLES2/OpenGLCore 主路径） |
+| `Cg/CgTranslator.cs` | DXBC 汇编 → Cg 直译 + 变体组织（d3d11 主路径） |
+| `Cg/CbResolver.cs` | 常量缓冲 / `$Globals` 成员命名与矩阵展开 |
 | `ShaderLabWriter.cs` | ShaderLab 文本生成（属性/状态/Pass/CGPROGRAM） |
 | `Models.cs` | 数据模型 |
 | `schema/shader_typetypes.json` | Shader 类型树（由游戏自身的类型定义导出） |
+| `schema/shader_typetypes_6000.json` | Unity 6 生成（`SerializedFile >= 22`）的类型树 |
 
 ## 关键技术点（踩过的坑）
 
@@ -92,8 +138,9 @@ walk 后 `delta = 0`，确认布局完全一致。
 
 ## 产物
 
-- `ShaderRipper/` — 工具源码（6 个 .cs + 类型树 schema）
-- `game_shaderlab_cs/*.shader` — 258 个重建的 ShaderLab
+- `src/ShaderRipper/` — 工具源码 + `data/`、`schema/`（`ShaderRipper.slnx` 为解决方案）
+- `game_shaderlab_cs/*.shader` — 258 个重建的 ShaderLab（d3d11 直译路径）
+- `game_shaderlab_cg/*.shader` / `_cg/*.cg` — 带完整 Cg 的 ShaderLab（d3d11 直译路径的产线）
 - `tools/walk_schema.py` — 参考遍历器（验证用）
 - `tools/typetree_to_schema.py` — 类型树导出
 
@@ -280,7 +327,8 @@ Surface 的分片程序常常连参数块都没有、name table 只剩 `_LightCo
 `UnityEditor.Rendering.ShaderCompilerPlatform`：D3D=4、GLES3=9、Metal=14、
 OpenGLCore=15、Vulkan=18（用编辑器反射枚举实测导出，见
 `_uproj/Assets/Editor/DumpPlatforms.cs`）。选错下标拿到的就是另一种后端的字节，
-所以平台选择是显式的：默认挑 d3d11（唯一能直译 Cg 的），`--platform` 可强制。
+所以平台选择是显式的：默认挑 d3d11（唯一能直译成 Cg 的汇编后端），包里没有 d3d11 时
+自动退到 GLSL 源码，`--platform` 可强制指定。
 
 每个 slot = `0x0C0A75BA` 头 + 常量缓冲名表 + 编译产物；产物的格式只有看签名才知道：
 
@@ -294,10 +342,11 @@ OpenGLCore=15、Vulkan=18（用编辑器反射枚举实测导出，见
 GLSL → Cg 翻译要点：HLSLcc 的 GLSL 本身就是寄存器风格直译（`u_xlatN` 临时量），
 逐行重写即可保真；矩阵保持「4 个 vec4 行」的存储（`unity_ObjectToWorld[4]`），
 代数一字不改；与 CGPROGRAM 前端自动注入的 uniform（`unity_MatrixVP`、
-`_ScreenParams`…）撞名的加 `xlat` 前缀；语义全部来自 HLSLcc 的命名约定
-（`in_POSITION0` → POSITION0，`vs_TEXCOORD1` → TEXCOORD1，`SV_Target0` 原样）。
-`#version` 必须提升到分支外、GLSL 允许的单参向量构造（`float4(x)`）要展开、
-GLSL 的 `return;` 带着半成品结果返回。
+`_ScreenParams`…）撞名时**不能改名**（早期 `xlat_` 前缀版本会让矩阵永远不绑定，
+整只网格消失），正确做法是丢掉自己那份声明、直接用 cginc 里的同名变量；
+语义全部来自 HLSLcc 的命名约定（`in_POSITION0` → POSITION0，
+`vs_TEXCOORD1` → TEXCOORD1，`SV_Target0` 原样）。`#version` / `precision` 行不进 CG；
+GLSL 允许的单参向量构造（`float4(x)`）要展开、GLSL 的 `return;` 带着半成品结果返回。
 
 用真实样本端到端验证过：把 TMP 着色器分别打成 Windows(Vulkan+D3D11) 和
 Android(GLES3+Vulkan) 的 Player（`_uproj/Assets/Editor/BuildPlayerProbe.cs`），
@@ -306,10 +355,19 @@ d3d11 主路径产物逐字节不变。
 
 ## 限制（如实说明）
 
-- `CGPROGRAM` 内是 **HLSL 汇编（注释形式）**，不是原始 HLSL 源码 ——
-  原始源码不在包内，且汇编→HLSL 需要完整翻译器（DevX 本身也不做）。
-- 本游戏是 d3d11，程序块是 DXBC。若遇到 GL/Metal/SPIR-V 平台，
-  需要相应的反汇编后端（本工具目前只接 `D3DDisassemble`）。
+- **d3d11 路径**的 `CGPROGRAM` 内是汇编逐条直译出的 Cg（每条指令上方带原始反汇编
+  注释），不是作者手写的 HLSL —— 原始源码不在包内。
+- **GLSL 路径**拿到的是 Unity 自己的 HLSLcc 输出（`--platform gles3/gles20/openglcore`，
+  或包里没有 d3d11 时自动选中），逐行回译保真度更高；但它是**编译后**的形态：
+  宏展开、结构体名、注释都无法还原，仍是 `u_xlatN` 这类寄存器风格命名。
+- **d3d9 / D3D12(DXIL) 路径只做反汇编**（`Disassembly/<shader>/*.d3d9.asm` /
+  `*.dxil.asm`），不回译 Cg —— SM2/3 与 DXBC、LLVM IR 与 Cg 的方言差距太大；
+  ShaderLab 结构（属性/状态/Pass）照常输出，程序体位置有指引注释。
+  DXIL 反汇编需要 dxcompiler.dll（自动从注册表定位的 Unity 安装目录加载）。
+- Metal 只有 MSL 文本、ShaderLab 没有对应块，落 `Disassembly/` 参考；
+  Vulkan 是 SMOL-V 压缩的 SPIR-V（无 `0x07230203` 魔数），本工具不解压。
+- 只有 console（PS4/PS5/Switch）程序的包没有可读产物，`--platform` 指定到这些
+  平台时不会产出可用的 `CGPROGRAM`。
 - ShaderLab 的状态枚举映射按 Unity 通行取值推断；`Stencil` 默认值抑制按
   「Comp=Always / ops=Keep 且无属性名」判定，已由 Unity batchmode Import 验证
   （420/420，仅剩 20 条编译器 hint，全是 `rsqrt` 常量传播与整数除法）。

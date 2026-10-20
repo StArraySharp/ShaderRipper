@@ -1,0 +1,55 @@
+// ADOFAI/MergeSprite
+// This shader compiles its keyword variants into TWO different $Globals packings:
+//
+//   Layout A -- 272 B and 288 B programs.  Matches the asset's constant-buffer
+//   reflection exactly (T1..T5 groups at 64..184, five _Xxx_ST at 192..272; the
+//   288 B variant just carries 16 more bytes nobody reads).  The reflection names
+//   are CORRECT here -- in particular r11 = _Texture5Rot | _DisableTexture5 | pad,
+//   which the code confirms: rot = cb0[11].x * -0.017453 (pi/180), and the
+//   out-of-bounds test reads cb0[11].y as the disable flag.  r11.z/.w are never
+//   read in layout A.  No curated rows needed.
+//
+//   Layout B -- the 336 B programs (param blob records $Globals:336).  The whole
+//   T1..T5 group shifts +64 B: each texture owns 24 B (scale.xy, pos.xy, rot,
+//   disable), T1 at 128 .. T5 ending at 248, and the _ST block moves to 256..336.
+//   The parameter blob names r8..r10 and r12..r15 correctly there, but row 11 --
+//   T3's scale.xy | pos.xy at offset 176..192 -- has no member recorded, so it
+//   stays bare.  Every fragment variant that reads cb0[11] in layout B uses it
+//   with the exact getTextureSample shape:
+//       div rX.yz, cb0[11].zzwz, cb0[11].xxyx   // pos/scale
+//       div rX.xy, l(0.5,0.5), cb0[11].xyxx     // center = 0.5/scale
+//       mul rX.z, cb0[12].x, l(-0.017453)       // rot = _Texture3Rot (r12.x)
+//       mul rX.yz, rX.yz, cb0[11].xxyx          // * scale
+//   and its texture id is t2 = _Texture3 (the rot anchor sits between the t2 and
+//   t3 samples).  So r11.xy = _Texture3Scale, r11.zw = _Texture3Pos -- the same
+//   members the reflection lists at 112/120 for layout A, shifted to 176/184.
+//
+//   (An earlier revision of this table overrode row 11 to 'float4 _StartTileSize',
+//   inferred from '_StartTileSize'/'_EndTileSize' strings in Assembly-CSharp.dll.
+//   That was wrong: those strings belong to the floorIcon atlas system, and layout
+//   A's r11.x is the T5 rotation angle -- a scale cannot be multiplied by pi/180.
+//   The shape evidence above pins row 11 to T3's scale/pos in layout B.)
+//
+//   POSTSCRIPT: the shape evidence is now moot -- UnityPlayer reverse engineering
+//   showed the blob's own 336 B member table carries all 19 T-group members
+//   (_Texture3Scale @176, _Texture3Pos @184 included); CbResolver now prefers it
+//   whenever its size matches the program.  This table stays as a redundant
+//   cross-check: every row it lists must agree with the blob-derived name.
+//
+//   Row 12 is deliberately NOT covered: layout A's vertex programs read r12..r16
+//   as the five _Xxx_ST pairs (strong evidence), and layout A's fragment reads
+//   cb0[12].x as the T5 rotation -- i.e. the game carries that angle in
+//   _Texture1_ST.x.  Both programs agree on row 12, so nothing to override.
+{
+  "source": "resources.assets (ADOFAI/MergeSprite); row assignment derived from the getTextureSample shape in every fragment variant",
+  "$Globals@336": {
+    "size": 336,
+
+// layout B (336 B) only: div rX.yz, cb0[11].zzwz, cb0[11].xxyx + div l(0.5,0.5),cb0[11].xyxx
+// + rot=cb0[12].x*(-0.017453) + mul cb0[11].xxyx, between the t2 and t3 samples <->
+// getTextureSample(_Texture3, uv, _Texture3Scale, _Texture3Pos, rot, dis) with the T-group
+// shifted +64 B, so xy=_Texture3Scale zw=_Texture3Pos
+    "11.xy": "float2 _Texture3Scale",
+    "11.zw": "float2 _Texture3Pos"
+  }
+}

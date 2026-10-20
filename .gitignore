@@ -1,0 +1,17 @@
+# 构建产物
+[Bb]in/
+[Oo]bj/
+publish/
+
+# IDE
+.vs/
+.idea/
+*.user
+*.suo
+
+# 输出（工具生成的 ShaderLab）
+game_shaderlab_*/
+
+# 会话/缓存
+.temp/
+.workbuddy/

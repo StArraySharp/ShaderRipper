@@ -1,0 +1,30 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <OutputType>Exe</OutputType>
+    <TargetFramework>net10.0</TargetFramework>
+    <Nullable>disable</Nullable>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <AssemblyName>ShaderRipper</AssemblyName>
+    <RootNamespace>ShaderRipper</RootNamespace>
+    <PlatformTarget>x64</PlatformTarget>
+    <AllowUnsafeBlocks>true</AllowUnsafeBlocks>
+    <!-- 只带 en/zh-Hans 卫星语言包，避免发布目录被框架自带的全套语言刷屏 -->
+    <SatelliteResourceLanguages>en;zh-Hans</SatelliteResourceLanguages>
+  </PropertyGroup>
+  <ItemGroup>
+    <!-- 帮助文本在 Strings.resx / Strings.zh-Hans.resx（自动嵌入并生成卫星程序集） -->
+  </ItemGroup>
+  <ItemGroup>
+    <!-- 资源随构建复制到输出目录：exe 单独拷走也能找到 schema/ 与 data/（见 Paths.cs） -->
+    <None Update="data\**\*.txt" CopyToOutputDirectory="PreserveNewest" />
+    <None Update="data\*.tpk" CopyToOutputDirectory="PreserveNewest" />
+    <None Update="schema\*.json" CopyToOutputDirectory="PreserveNewest" />
+    <None Update="D3Dcompiler_47.dll" CopyToOutputDirectory="PreserveNewest" />
+  </ItemGroup>
+  <ItemGroup>
+    <PackageReference Include="AssetRipper.Tpk" Version="2.0.0" />
+    <PackageReference Include="AssetRipper.IO.Endian" Version="2.1.0" />
+    <PackageReference Include="AssetRipper.Primitives" Version="3.2.0" />
+    <PackageReference Include="K4os.Compression.LZ4" Version="1.3.8" />
+  </ItemGroup>
+</Project>

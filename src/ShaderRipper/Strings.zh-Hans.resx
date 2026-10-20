@@ -1,0 +1,116 @@
+<?xml version="1.0" encoding="utf-8"?>
+<root>
+  <xsd:schema id="root" xmlns="" xmlns:xsd="http://www.w3.org/2001/XMLSchema" xmlns:msdata="urn:schemas-microsoft-com:xml-msdata">
+    <xsd:element name="root" msdata:IsDataSet="true">
+      <xsd:complexType>
+        <xsd:choice maxOccurs="unbounded">
+          <xsd:element name="data">
+            <xsd:complexType>
+              <xsd:sequence>
+                <xsd:element name="value" type="xsd:string" minOccurs="0" msdata:Ordinal="1" />
+                <xsd:element name="comment" type="xsd:string" minOccurs="0" msdata:Ordinal="2" />
+              </xsd:sequence>
+              <xsd:attribute name="name" type="xsd:string" msdata:Ordinal="1" />
+              <xsd:attribute name="type" type="xsd:string" msdata:Ordinal="3" />
+              <xsd:attribute name="mimetype" type="xsd:string" msdata:Ordinal="4" />
+            </xsd:complexType>
+          </xsd:element>
+          <xsd:element name="resheader">
+            <xsd:complexType>
+              <xsd:sequence>
+                <xsd:element name="value" type="xsd:string" minOccurs="0" msdata:Ordinal="1" />
+              </xsd:sequence>
+              <xsd:attribute name="name" type="xsd:string" use="required" />
+            </xsd:complexType>
+          </xsd:element>
+        </xsd:choice>
+      </xsd:complexType>
+    </xsd:element>
+  </xsd:schema>
+  <resheader name="resmimetype"><value>text/microsoft-resx</value></resheader>
+  <resheader name="version"><value>2.0</value></resheader>
+  <resheader name="reader"><value>System.Resources.ResXResourceReader, System.Windows.Forms, Version=4.0.0.0, Culture=neutral, PublicKeyToken=b77a5c561934e089</value></resheader>
+  <resheader name="writer"><value>System.Resources.ResXResourceWriter, System.Windows.Forms, Version=4.0.0.0, Culture=neutral, PublicKeyToken=b77a5c561934e089</value></resheader>
+
+  <data name="HelpText" xml:space="preserve">
+    <value>ShaderRipper — DXBC 汇编 / GLSL 源码 -&gt; ShaderLab/CG
+
+用法:
+  ShaderRipper.exe --data &lt;游戏 _Data 目录&gt; [--out &lt;输出目录&gt;] [选项]
+  ShaderRipper.exe &lt;游戏 _Data 目录&gt; &lt;输出目录&gt; [选项]        （位置参数写法，兼容旧用法）
+
+必填:
+  --data &lt;dir&gt;          游戏数据目录（含 resources.assets）；也可用环境变量 SHADERRIPPER_DATA
+
+输出:
+  --out &lt;dir&gt;           输出目录；默认 当前目录/&lt;游戏名&gt;_ShaderLabs（游戏名取 app.info）
+            也可用环境变量 SHADERRIPPER_OUT
+
+资源（schema/data 的根目录）:
+  --root &lt;dir&gt;          显式指定；默认从 exe 目录、再从当前工作目录向上找
+            含 schema/ 或 data/ 的目录（或 ShaderRipper.csproj）
+            也可用环境变量 SHADERRIPPER_ROOT
+  --schema &lt;file|dir&gt;   指定 shader 类型树（默认按 SerializedFile 版本自动选）
+  --names &lt;dir&gt;         $Globals 修复表目录（默认不加载；仅在成员行名残缺时按需指定）
+  --builtin-index &lt;f&gt;   内建着色器名单（默认 data/unity_builtin_shaders.txt）
+  --matrix-names &lt;f&gt;    float4x4 名单（默认 data/unity_matrix_names.txt）
+  --tmp-layouts &lt;dir&gt;   $Globals 布局表目录（默认 data/tmp_layouts）
+
+过滤/调试:
+  --only &lt;子串&gt;         只处理名字包含该子串的 shader
+  --dump [子串]         只打印 blob/参数块信息，不写产物
+  --list-shaders &lt;file&gt; 列出某个 SerializedFile 里的全部 shader 名
+  --bundles [dir]       扫 bundle，可指定目录（默认同 --data）
+  --platform &lt;id|名&gt;    强制选某个后端（d3d11/d3d9/gles3/gles20/openglcore/metal/vulkan…）；
+            默认挑 d3d11（汇编直译 Cg）；GLES3/GLES2/OpenGLCore/旧GL 的 GLSL
+            源码由内置翻译器回译成 CGPROGRAM，包里没有 d3d11 时自动选中；
+            d3d9（SM2/3）与 D3D12（DXIL）只做原生反汇编，落 Disassembly/；
+            Metal/Vulkan 同样只落参考
+  --asm                 生成逐指令反汇编注释（默认关）；
+            d3d11=DXBC 指令注释，glsl/gles=原 GLSL 行注释，
+            d3d9/d3d12=原生反汇编（写入 CGPROGRAM 注释与 Disassembly/）
+  --no-tmp-layout       不用 $Globals 布局表（TMP 行号会保持数字）
+
+诊断:
+  --selftest-d3d9       编译已知 HLSL 到 SM2/3 并反汇编自测
+  --disasm &lt;file&gt;       反汇编单个程序文件（DXBC/DXIL 容器或 d3d9 token 流）
+  --glsl2cg &lt;file&gt;      单个 GLSL 文件回译成 Cg（配合 --asm 加原行注释）
+  --lang &lt;en|zh&gt;        界面语言（默认跟随系统 UI 语言）
+  -h, --help            显示本帮助
+</value>
+  </data>
+
+  <data name="Banner" xml:space="preserve"><value>== ShaderRipper (asm -&gt; CG) ==</value></data>
+  <data name="SFV_Schema" xml:space="preserve"><value>serializedFileVersion={0}  schema={1}</value></data>
+  <data name="Unity_Shaders" xml:space="preserve"><value>unity={0}  shaders={1}</value></data>
+  <data name="BuiltinIndex" xml:space="preserve"><value>built-in index: {0} name(s)  {1}</value></data>
+  <data name="MatrixNames" xml:space="preserve"><value>matrix names: {0} float4x4 name(s)  {1}</value></data>
+  <data name="TmpLayouts" xml:space="preserve"><value>$Globals layout tables: {0} layout(s)  {1}</value></data>
+  <data name="TmpLayoutsMissing" xml:space="preserve"><value>[!] $Globals 布局表缺失：TMP 系的行号会保持数字</value></data>
+  <data name="BuiltinIndexMissing" xml:space="preserve"><value>[!] built-in index not found: built-in shaders will not be filtered</value></data>
+  <data name="BundlesScanned" xml:space="preserve"><value>bundles scanned={0}  serialized nodes={1}  extra shaders={2}</value></data>
+  <data name="Output" xml:space="preserve"><value>output={0}</value></data>
+  <data name="RootDirMissing" xml:space="preserve"><value>[!] --root 指向的目录不存在，改用自动发现: {0}</value></data>
+  <data name="NoDataDir" xml:space="preserve"><value>找不到游戏数据目录：用 --data 指定，或设置环境变量 SHADERRIPPER_DATA，或作为第一个参数传入。</value></data>
+  <data name="ResourcesAssetsMissing" xml:space="preserve"><value>resources.assets not found: {0}</value></data>
+  <data name="SchemaNotFound" xml:space="preserve"><value>schema not found: {0}（用 --schema 指定文件或目录，或用 --root 指定含 schema/ 的目录）</value></data>
+  <data name="PlatformNotPresent" xml:space="preserve"><value>  [!] platform {0} not present; falling back</value></data>
+  <data name="ShaderFailed" xml:space="preserve"><value>  [!] {0}: {1}</value></data>
+  <data name="Done" xml:space="preserve"><value>done: shaders={0}</value></data>
+  <data name="DoneSkippedSuffix" xml:space="preserve"><value>, skipped built-in={0}</value></data>
+  <data name="OpcodeCoverage" xml:space="preserve"><value>=== opcode coverage (top 40) ===</value></data>
+  <data name="DistinctOpcodes" xml:space="preserve"><value>distinct opcodes: {0}, untranslated instructions: {1}</value></data>
+  <data name="BuiltinSourceSkipped" xml:space="preserve"><value>  built-in source skipped: {0}</value></data>
+  <data name="BundleSkipped" xml:space="preserve"><value>  bundle skipped: {0}: {1}</value></data>
+
+  <data name="DxbcContainerDxil" xml:space="preserve"><value>// DXBC 容器，含 DXIL（D3D12/SM6）</value></data>
+  <data name="DxbcContainerSm45" xml:space="preserve"><value>// DXBC 容器，SM4/5</value></data>
+  <data name="DisasmFailed" xml:space="preserve"><value>反汇编失败</value></data>
+  <data name="D3d9DisasmFailed" xml:space="preserve"><value>d3d9 反汇编失败</value></data>
+  <data name="UnrecognizedFormat" xml:space="preserve"><value>无法识别的程序格式（不是 DXBC/DXIL，也不是 d3d9 token 流）</value></data>
+
+  <data name="D3d9Note" xml:space="preserve"><value>d3d9 SM2/SM3 原生程序——二进制 token，未回译 Cg。</value></data>
+  <data name="D3d9NoteDir" xml:space="preserve"><value>完整反汇编：Disassembly/{0}/</value></data>
+  <data name="DxilNote" xml:space="preserve"><value>d3d12 DXIL 程序——LLVM 位码，未回译 Cg。</value></data>
+  <data name="DxilNoteDir" xml:space="preserve"><value>完整反汇编：Disassembly/{0}/</value></data>
+</root>

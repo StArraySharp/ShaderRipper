@@ -1,6 +1,8 @@
-# ShaderRipper — DXBC 汇编 → CG/HLSL 翻译器
+# ShaderRipper — DXBC 汇编 / GLSL 源码 → CG/HLSL 翻译器
 
-在原有「assets → DXBC → 反汇编 → ShaderLab」链路上，新增**汇编→CG 源码翻译**层。
+在「assets → DXBC → 反汇编 → ShaderLab」链路上，新增**汇编→CG 源码翻译**层；
+GL 平台（GLES3/GLES2/OpenGLCore）则直接拿 HLSLcc 的 GLSL 源码回译成 Cg，
+两条路径产出同形态的 `CGPROGRAM`（见文末「GLSL 输入」）。
 258 个 Shader 的汇编指令 **100% 翻译完成，零 TODO**。
 
 ## 结果
@@ -107,12 +109,37 @@ for (;;) {
 
 | 路径 | 说明 |
 |---|---|
-| `ShaderRipper/Cg/AsmModel.cs` | 操作数/指令模型 |
-| `ShaderRipper/Cg/AsmParser.cs` | 汇编文本解析器 |
-| `ShaderRipper/Cg/CgTranslator.cs` | 汇编→CG 翻译器 |
-| `ShaderRipper/Program.cs` | 编排（解析→翻译→输出） |
+| `src/ShaderRipper/Cg/AsmModel.cs` | 操作数/指令模型 |
+| `src/ShaderRipper/Cg/AsmParser.cs` | 汇编文本解析器 |
+| `src/ShaderRipper/Cg/CgTranslator.cs` | 汇编→CG 翻译器 |
+| `src/ShaderRipper/Cg/GlslToCg.cs` | GLSL→CG 回译器（GLES3/GLES2/OpenGLCore 输入） |
+| `src/ShaderRipper/Program.cs` | 编排（解析→翻译→输出） |
 | `game_shaderlab_cg/_cg/*.cg` | 258 份翻译后的 CG |
 | `game_shaderlab_cg/*.shader` | 含 CG 的 ShaderLab |
+
+## GLSL 输入（GLES3 / GLES2 / OpenGLCore）
+
+`--platform gles3`（或包里没有 d3d11 时自动选中）走的是另一条翻译链路：
+GL 平台上 Unity 存的就是 HLSLcc 输出的**GLSL 源码**，所以不需要反汇编，
+`Cg/GlslToCg.cs` 逐行重写回 Cg 即可，产物与 DXBC 路径同形态
+（CGPROGRAM + appdata/v2f + 同样的变体 `#if` 链）。
+
+| | DXBC 路径 | GLSL 路径 |
+|---|---|---|
+| 输入 | `D3DDisassemble` 的汇编文本 | HLSLcc 的 GLSL 源码 |
+| 翻译器 | `CgTranslator.cs`，逐条指令映射 | `GlslToCg.cs`，逐行重写 |
+| 变量名 | `r0` / `cb0[2].x`，靠常量缓冲反射命名 | `u_xlat0` 这类 HLSLcc 临时量，保留原名 |
+| 矩阵 | 按 `MatrixNames` 展开成 `m[row]` 成员 | GLSL 原生 `mat4`，仍存成 4 个 vec4 行 |
+| 语义 | 从 DXBC 签名推断 | HLSLcc 命名约定（`in_POSITION0`→POSITION0、`vs_TEXCOORD1`→TEXCOORD1） |
+| 变体 | 每个 blob 一个子程序，按关键字拼 `#if` | 一个 slot 就是整个 pass（自带 VERTEX/FRAGMENT 分支），先切分支再翻 |
+
+四个坑：与 CGPROGRAM 前端自动注入的 uniform（`unity_MatrixVP`、`_ScreenParams`…）
+撞名时**不能改名**——早期 `xlat_` 前缀版本让矩阵永远不绑定，整只网格在游戏里消失；
+正确做法是丢掉自己的声明、直接用 `UnityShaderVariables.cginc` 里的同名变量。
+另外 `#version` / `precision` 行不进 CG；GLSL 的单参向量构造（`float4(x)`）
+要展开成 `float4(x,x,x,x)`；GLSL 的 `return;` 是「带着已写入的结果返回」，
+翻译时不能直接 `return` 掉。
+
 
 ## 已知限制（如实说明）
 
@@ -125,5 +152,5 @@ for (;;) {
 3. **类型系统是弱化的** —— 一律用 `float4` 临时寄存器 + `(int)` 强制转换，
    没有区分 int/uint/half。
 4. **未在 Unity 里编译验证** —— 生成的 CG 语法自洽，但没有实际 Import 测试。
-5. 本游戏是 d3d11；若目标是 GL/Metal/SPIR-V，需要各自的汇编→CG 映射
-   （不过 `CgTranslator` 的指令表对 GLSL 汇编也大体适用）。
+5. 本游戏是 d3d11；GL 平台走 `Cg/GlslToCg.cs` 的源码回译（见上），
+   Metal / SPIR-V 没有对应翻译路径。
