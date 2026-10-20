@@ -24,7 +24,10 @@
     <None Update="data/*.tpk" CopyToOutputDirectory="PreserveNewest" />
     <None Remove="data/globals_names/**" />
     <None Update="schema/*.json" CopyToOutputDirectory="PreserveNewest" />
-    <None Update="NativeLibs/D3Dcompiler_47.dll" CopyToOutputDirectory="PreserveNewest" />
+    <!-- d3dcompiler 仅 Windows 使用；linux 发布不带 -->
+    <None Update="NativeLibs/D3Dcompiler_47.dll"
+          CopyToOutputDirectory="PreserveNewest"
+          Condition="'$(RuntimeIdentifier)' != 'linux-x64'" />
   </ItemGroup>
   <ItemGroup>
     <PackageReference Include="AssetRipper.Tpk" Version="2.0.0" />
