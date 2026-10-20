@@ -1,0 +1,34 @@
+ShaderRipper — DXBC 汇编 -> ShaderLab/CG
+
+用法:
+  ShaderRipper.exe --data <游戏 _Data 目录> [--out <输出目录>] [选项]
+  ShaderRipper.exe <游戏 _Data 目录> <输出目录> [选项]        （位置参数写法，兼容旧用法）
+
+必填:
+  --data <dir>          游戏数据目录（含 resources.assets）；也可用环境变量 SHADERRIPPER_DATA
+
+输出:
+  --out <dir>           输出目录；默认 当前目录/<游戏名>_ShaderLabs（游戏名取 app.info）
+            也可用环境变量 SHADERRIPPER_OUT
+
+资源（schema/data 的根目录）:
+  --root <dir>          显式指定；默认从 exe 目录、再从当前工作目录向上找
+            含 schema/ 或 data/ 的目录（或 ShaderRipper.csproj）
+            也可用环境变量 SHADERRIPPER_ROOT
+  --schema <file|dir>   指定 shader 类型树（默认按 SerializedFile 版本自动选）
+  --names <dir>         $Globals 修复表目录（默认 ShaderLabRef/globals_names；现存仅 MergeSprite）
+  --builtin-index <f>   内建着色器名单（默认 data/unity_builtin_shaders.txt）
+  --matrix-names <f>    float4x4 名单（默认 data/unity_matrix_names.txt）
+  --tmp-layouts <dir>   $Globals 布局表目录（默认 data/tmp_layouts）
+
+过滤/调试:
+  --only <子串>         只处理名字包含该子串的 shader
+  --dump [子串]         只打印 blob/参数块信息，不写产物
+  --list-shaders <file> 列出某个 SerializedFile 里的全部 shader 名
+  --bundles [dir]       扫 bundle，可指定目录（默认同 --data）
+  --platform <id|名>    强制选某个后端（d3d11/gles3/vulkan/metal…）；
+            默认挑 d3d11（唯一能直译 Cg 的），其它平台落 Disassembly/
+  --asm                 生成逐指令反汇编注释（默认关）
+  --no-tmp-layout       不用 $Globals 布局表（TMP 行号会保持数字）
+  --trace               异常时打印调用栈
+  -h, --help            显示本帮助

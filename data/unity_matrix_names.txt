@@ -1,0 +1,38 @@
+# Unity 内置 float4x4 矩阵名 —— 从 Unity 安装目录的 CGIncludes/*.cginc 提取
+# 来源：D:/Softwares/Unity/6000.3.10f1/Editor/Data/Resources/CGIncludes
+# 提取命令：grep -rhoE '^\s*(static\s+)?(const\s+)?float4x4\s+[A-Za-z_][A-Za-z0-9_]*' *.cginc
+# 用途：$Globals 里这类成员占连续 4 行，param blob 只记了起始 offset，
+#       靠这张表把后续 3 行也命名成 name[1..3]（而不是留成 cb0[row]）。
+
+_CameraToWorld
+_TerrainEngineBendTree
+glstate_matrix_projection
+glstate_matrix_transpose_modelview0
+unity_CameraInvProjection
+unity_CameraProjection
+unity_CameraToWorld
+unity_MatrixITMV
+unity_MatrixITMV_Instanced
+unity_MatrixInvV
+unity_MatrixMV
+unity_MatrixMVP
+unity_MatrixMVP_Instanced
+unity_MatrixMV_Instanced
+unity_MatrixTMV
+unity_MatrixTMV_Instanced
+unity_MatrixV
+unity_MatrixVP
+unity_ObjectToWorld
+unity_ProbeVolumeWorldToObject
+unity_StereoCameraInvProjection
+unity_StereoCameraProjection
+unity_StereoCameraToWorld
+unity_StereoMatrixInvV
+unity_StereoMatrixP
+unity_StereoMatrixV
+unity_StereoMatrixVP
+unity_StereoWorldToCamera
+unity_WorldToCamera
+unity_WorldToLight
+unity_WorldToObject
+unity_WorldToShadow
