@@ -381,7 +381,7 @@ namespace ShaderRipper
         try
         {
             var bc = new DXDecompiler.BytecodeContainer(container);
-            string s = bc.ToString();
+            string s = NormalizeLiterals(bc.ToString());
             return string.IsNullOrEmpty(s) ? null : s;
         }
         catch (Exception e)
@@ -389,6 +389,33 @@ namespace ShaderRipper
             Console.Error.WriteLine("[dxbc] DXDecompiler: " + e.Message);
             return null;
         }
+    }
+
+    // ---- 浮点字面量归一化：DXDecompiler 用最短表示（0.15 / 0.3333333），
+    // d3dcompiler 固定 6 位小数（0.150000 / 0.333333）。统一成 d3dcompiler 风格，
+    // 使两个平台的反汇编文本（进而 CGPROGRAM）逐字节一致。只处理 l(...) 字面量组，
+    // 不碰寄存器名/语义标记。 ----
+
+    private static readonly System.Text.RegularExpressions.Regex LiteralGroup =
+        new(@"l\(([^()]*)\)");
+    private static readonly System.Text.RegularExpressions.Regex NumberToken =
+        new(@"(?<![\w.])-?\d+(\.\d+)?([eE][+-]?\d+)?(?![\w.])");
+
+    private static string NormalizeLiterals(string asm)
+    {
+        if (string.IsNullOrEmpty(asm) || !asm.Contains("l(")) return asm;
+        return LiteralGroup.Replace(asm, m =>
+            "l(" + NumberToken.Replace(m.Groups[1].Value, t =>
+            {
+                if (!float.TryParse(t.Value, System.Globalization.NumberStyles.Float,
+                        System.Globalization.CultureInfo.InvariantCulture, out float v))
+                    return t.Value;
+                if (v == 0) return "0.000000";
+                double a = Math.Abs(v);
+                if (a >= 1e7f || a < 1e-6f)
+                    return v.ToString("0.000000e+000", System.Globalization.CultureInfo.InvariantCulture);
+                return v.ToString("0.000000", System.Globalization.CultureInfo.InvariantCulture);
+            }) + ")");
     }
 
     // ---- d3dcompiler（Windows 内嵌解压，仅用于 SM4/5 DXBC）----
