@@ -359,14 +359,26 @@ namespace ShaderRipper
         }
 
     /// <summary>Disassemble one DXBC container; null on failure.
-    /// DXBC+DXIL（D3D12/SM6 路径）d3dcompiler 认不了，退回 dxcompiler.dll（COM）。</summary>
+    /// DXBC+DXIL（D3D12/SM6 路径）d3dcompiler 认不了，退回 dxcompiler.dll（COM）。
+    /// d3dcompiler/dxcompiler 只在 Windows 上存在；Linux 上返回 null（一次性提示）。</summary>
     public static string Disassemble(byte[] container)
     {
+        if (!OperatingSystem.IsWindows())
+        {
+            if (!_warnedNoD3D)
+            {
+                _warnedNoD3D = true;
+                Console.Error.WriteLine("[!] DXBC/DXIL disassembly requires Windows (d3dcompiler_47 / dxcompiler). GLSL platforms still work.");
+            }
+            return null;
+        }
         string s = DisassembleWith(container, D3DDisassemble);
         if (s == null && HasDxilChunk(container))
             s = DxcDisassemble(container);
         return s;
     }
+
+    private static bool _warnedNoD3D;
 
     private delegate int DisasmFn(IntPtr data, uint size, uint flags, string comment, out IntPtr blob);
 

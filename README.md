@@ -6,15 +6,22 @@
 
 ## 编译
 
-需要 .NET 10 SDK（Windows，反汇编用到 d3dcompiler/dxcompiler）。
+需要 .NET 10 SDK。Windows 上反汇编用到 d3dcompiler/dxcompiler（AOT 链接需要 MSVC + Windows SDK 库路径）。
 
 ```bash
 dotnet build ShaderRipper.slnx -c Release
 
-# 单文件发布
-dotnet publish src/ShaderRipper/ShaderRipper.csproj -c Release -r win-x64 \
-  --self-contained -p:PublishSingleFile=true -o publish/win-x64
+# Windows NativeAOT（约 5 MB 单文件）
+dotnet publish src/ShaderRipper/ShaderRipper.csproj -c Release -r win-x64 -p:PublishAot=true -o publish/aot-win-x64
+
+# Linux：AOT 不能跨 OS 编译，linux 包需在 Linux 上构建；
+# Windows 交叉打包用 self-contained（约 16 MB）
+dotnet publish src/ShaderRipper/ShaderRipper.csproj -c Release -r linux-x64 \
+  --self-contained -p:PublishSingleFile=true -p:PublishTrimmed=true -o publish/linux-x64
 ```
+
+Linux 上 d3d11/d3d9/D3D12 反汇编不可用（无 d3dcompiler/dxcompiler，会提示一次）；
+GLES3/GLES2/OpenGLCore 的 GLSL 回译路径纯托管，全平台可用。
 
 ## 使用
 
@@ -53,7 +60,7 @@ ShaderRipper.exe --data "游戏名_Data" --out D:\out --only Floor --asm
 | `--list-shaders <f>` | 列出 SerializedFile 里的 shader 清单 |
 | `--dump [子串]` | 只打印 blob/参数块信息，不写文件 |
 | `--schema <f\|dir>` | 指定类型树（默认按文件版本自动选） |
-| `--names <dir>` | $Globals 修复表目录（默认不加载） |
+| `--names <dir>` | $Globals 修复表目录（默认 `data/globals_names`，存在才加载；发布包可不带） |
 | `--tmp-layouts <dir>` | $Globals 布局表目录（默认 `data/tmp_layouts`） |
 | `--no-tmp-layout` | 不用布局表（TMP 行号保持数字） |
 | `--builtin-index <f>` | 内置 shader 名单（默认 `data/unity_builtin_shaders.txt`） |

@@ -334,6 +334,11 @@ namespace ShaderRipper
         /// 返回 0 = 全部通过。</summary>
         public static int Selftest()
         {
+            if (!OperatingSystem.IsWindows())
+            {
+                Console.Error.WriteLine("[!] --selftest-d3d9 needs d3dcompiler_47 (Windows only).");
+                return 1;
+            }
             var cases = new (string hlsl, string entry, string target)[]
             {
                 ("float4 main(float4 p:SV_Position):SV_Position { return mul(p, float4x4(1,0,0,0, 0,2,0,0, 0,0,3,0, 0,0,0,1)); }",

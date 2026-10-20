@@ -14,26 +14,11 @@ namespace ShaderRipper
         {
             var cli = Argv.Parse(args);
 
-            // --lang en|zh：覆盖 UI 语言（默认跟随系统；Strings.resx 英文兜底，zh-Hans 中文）。
+            // --lang en|zh：覆盖 UI 语言（默认跟随系统；内嵌 strings.en/zh-Hans 文本，AOT 安全）。
             // 要放在 --help 之前，`--lang en -h` 才能出英文帮助。
             try { Console.OutputEncoding = System.Text.Encoding.UTF8; } catch { /* 重定向输出时可能失败 */ }
 
-            string lang = cli.Value("--lang");
-            if (!string.IsNullOrWhiteSpace(lang))
-            {
-                try
-                {
-                    // 常用别名：zh/chinese → zh-Hans（资源用 zh-Hans 命名，"zh" 直查会落回英文）
-                    var name = lang.Trim() switch
-                    {
-                        "zh" or "chinese" or "zh-cn" or "zh_CN" => "zh-Hans",
-                        "en" or "english" => "en",
-                        var v => v,
-                    };
-                    Strings.Culture = CultureInfo.GetCultureInfo(name);
-                }
-                catch { Console.Error.WriteLine($"[!] unknown language: {lang} (en, zh-Hans, ...)"); }
-            }
+            Strings.SetLang(cli.Value("--lang"));
 
             if (cli.Has("--help") || cli.Has("-h")) { Usage(); return 0; }
             if (cli.Has("--selftest-d3d9")) return D3D9Asm.Selftest();   // 诊断：SM2/3 反汇编自测
@@ -71,10 +56,11 @@ namespace ShaderRipper
             string assets = Path.Combine(dataDir, "resources.assets");
             if (!File.Exists(assets)) { Console.Error.WriteLine(Strings.F("ResourcesAssetsMissing", assets)); return 2; }
 
-            // $Globals 修复表：**只在显式 --names <dir> 时启用**，不再默认扫
-            // ShaderLabRef/globals_names。绝大多数 shader 的行名已由参数块/资产反射
-            // 覆盖，默默加载一个可能有歧义的修复表反而难排查。
-            GlobalsNames.TableDir = cli.Value("--names");
+            // $Globals 修复表：默认加载 data/globals_names（存在才加载，发布包可不带）；
+            // --names <dir> 可显式指定或指向别处的表。
+            GlobalsNames.TableDir = cli.Value("--names")
+                                ?? Paths.FindDir(Path.Combine("data", "globals_names"))
+                                ?? Paths.FindDir(Path.Combine("..", "data", "globals_names"));
 
             // --only <substring>: regenerate a single shader, for debugging.
             string only = cli.Value("--only");

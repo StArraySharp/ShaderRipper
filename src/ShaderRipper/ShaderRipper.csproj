@@ -8,18 +8,23 @@
     <RootNamespace>ShaderRipper</RootNamespace>
     <PlatformTarget>x64</PlatformTarget>
     <AllowUnsafeBlocks>true</AllowUnsafeBlocks>
-    <!-- 只带 en/zh-Hans 卫星语言包，避免发布目录被框架自带的全套语言刷屏 -->
-    <SatelliteResourceLanguages>en;zh-Hans</SatelliteResourceLanguages>
+    <InvariantGlobalization>true</InvariantGlobalization>
+    <!-- AOT 发布：dotnet publish -c Release -r win-x64 -p:PublishAot=true -->
+    <!-- Linux 同理 -r linux-x64（AOT 不能跨 OS，linux 包须在 Linux 上发布；非 AOT self-contained 可交叉） -->
+    <SatelliteResourceLanguages>en</SatelliteResourceLanguages>
   </PropertyGroup>
   <ItemGroup>
-    <!-- 帮助文本在 Strings.resx / Strings.zh-Hans.resx（自动嵌入并生成卫星程序集） -->
+    <!-- 双语文案编译进 StringsData.cs（由 Localization/strings.*.txt 生成），
+         不用 resx 卫星程序集（NativeAOT 不支持）；改文案后重跑生成脚本即可 -->
   </ItemGroup>
   <ItemGroup>
-    <!-- 资源随构建复制到输出目录：exe 单独拷走也能找到 schema/ 与 data/（见 Paths.cs） -->
-    <None Update="data\**\*.txt" CopyToOutputDirectory="PreserveNewest" />
-    <None Update="data\*.tpk" CopyToOutputDirectory="PreserveNewest" />
-    <None Update="schema\*.json" CopyToOutputDirectory="PreserveNewest" />
-    <None Update="D3Dcompiler_47.dll" CopyToOutputDirectory="PreserveNewest" />
+    <!-- 资源随构建复制到输出目录：exe 单独拷走也能找到 schema/ 与 data/（见 Paths.cs）。
+         globals_names 是针对特定游戏的修复表，刻意不进发布包；仓库内运行时 Paths 仍会找到它。 -->
+    <None Update="data/**/*.txt" CopyToOutputDirectory="PreserveNewest" />
+    <None Update="data/*.tpk" CopyToOutputDirectory="PreserveNewest" />
+    <None Remove="data/globals_names/**" />
+    <None Update="schema/*.json" CopyToOutputDirectory="PreserveNewest" />
+    <None Update="NativeLibs/D3Dcompiler_47.dll" CopyToOutputDirectory="PreserveNewest" />
   </ItemGroup>
   <ItemGroup>
     <PackageReference Include="AssetRipper.Tpk" Version="2.0.0" />
