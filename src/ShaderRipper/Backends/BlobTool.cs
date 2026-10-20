@@ -464,11 +464,18 @@ namespace ShaderRipper
 
     private static IntPtr LoadDxcCompiler()
     {
-        // 跨平台：Windows 找 dxcompiler.dll（exe 目录/PATH/注册表定位的 Unity 安装目录），
-        // Linux 找 libdxcompiler.so（微软 DXC 官方有 Linux 发行版；同一条 COM vtable 调用序列）。
+        // 跨平台：优先用内嵌解压的原生库（发布产物是单文件，磁盘上没有），
+        // 失败再走系统搜索路径；Windows 额外试注册表定位的 Unity 安装目录。
         if (OperatingSystem.IsWindows())
         {
-            IntPtr h = LoadLibrary("dxcompiler");
+            IntPtr h;
+            string embedded = NativeLibLoader.ExtractNative("dxcompiler.dll");
+            if (embedded != null)
+            {
+                h = LoadLibrary(embedded);
+                if (h != IntPtr.Zero) return h;
+            }
+            h = LoadLibrary("dxcompiler");
             if (h != IntPtr.Zero) return h;
             try
             {
@@ -494,9 +501,14 @@ namespace ShaderRipper
             catch { }
             return IntPtr.Zero;
         }
-        // Linux/macOS：裸 soname 不会搜 exe 目录，先显式试 exe 同目录（发布包自带）
-        string so = Path.Combine(AppContext.BaseDirectory, "libdxcompiler.so");
-        if (NativeLibrary.TryLoad(so, out IntPtr hSo)) return hSo;
+        // Linux/macOS：先解压内嵌的 .so（libdxil.so 预加载，让 dxc 后续 dlopen
+        // "libdxil.so" 时命中已加载的 soname），再试 exe 同目录，最后裸 soname。
+        string soC = NativeLibLoader.ExtractNative("libdxil.so");
+        if (soC != null && NativeLibrary.TryLoad(soC, out IntPtr hDxil)) { /* 预加载即可 */ }
+        string so = NativeLibLoader.ExtractNative("libdxcompiler.so");
+        if (so != null && NativeLibrary.TryLoad(so, out IntPtr hSo)) return hSo;
+        so = Path.Combine(AppContext.BaseDirectory, "libdxcompiler.so");
+        if (NativeLibrary.TryLoad(so, out hSo)) return hSo;
         if (NativeLibrary.TryLoad("libdxcompiler.so", out hSo) ||
             NativeLibrary.TryLoad("dxcompiler", out hSo))
             return hSo;

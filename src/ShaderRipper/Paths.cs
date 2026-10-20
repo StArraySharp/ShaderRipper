@@ -21,6 +21,68 @@ namespace ShaderRipper
     {
         private static string _root;
 
+        /// <summary>嵌入资源解压目录（%TEMP%\ShaderRipper\embed），懒创建。</summary>
+        private static string EmbedDir =>
+            _embedDir ??= TryCreateDir(Path.Combine(Path.GetTempPath(), "ShaderRipper", "embed"));
+        private static string _embedDir;
+
+        private static string TryCreateDir(string d)
+        {
+            try { Directory.CreateDirectory(d); return d; }
+            catch { return null; }
+        }
+
+        /// <summary>
+        /// 把嵌入资源 <c>ShaderRipper.Embed.&lt;relative&gt;</c> 解压到临时目录并返回路径；
+        /// 没有这个嵌入资源（或解压失败）返回 null。资源名分隔符在 Windows/Linux
+        /// 构建下分别是 '\'/'/'，两种都尝试。
+        /// </summary>
+        public static string ExtractEmbedded(string relative)
+        {
+            relative = relative.Replace('\\', '/');
+            string dir = EmbedDir;
+            if (dir == null) return null;
+            var asm = typeof(Paths).Assembly;
+            foreach (var sep in new[] { '/', '\\' })
+            {
+                string name = "ShaderRipper.Embed." + relative.Replace('/', sep);
+                using var src = asm.GetManifestResourceStream(name);
+                if (src == null) continue;
+                try
+                {
+                    string target = Path.Combine(dir, relative.Replace('/', Path.DirectorySeparatorChar));
+                    Directory.CreateDirectory(Path.GetDirectoryName(target));
+                    if (!File.Exists(target) || new FileInfo(target).Length != src.Length)
+                        using (var dst = File.Create(target)) src.CopyTo(dst);
+                    return target;
+                }
+                catch { return null; }
+            }
+            return null;
+        }
+
+        /// <summary>
+        /// 解压嵌入目录（形如 <c>data/tmp_layouts</c>）下的所有文件，返回解压后的目录；
+        /// 没有任何匹配的嵌入资源返回 null。
+        /// </summary>
+        public static string ExtractEmbeddedDir(string relative)
+        {
+            relative = relative.Replace('\\', '/').TrimEnd('/');
+            string prefix = "ShaderRipper.Embed." + relative + "/";
+            var asm = typeof(Paths).Assembly;
+            string dir = EmbedDir;
+            if (dir == null) return null;
+            int extracted = 0;
+            foreach (string full in asm.GetManifestResourceNames())
+            {
+                int at = full.IndexOf(prefix, System.StringComparison.Ordinal);
+                if (at != 0) continue;
+                string rel = full.Substring(prefix.Length).Replace('\\', '/');
+                if (ExtractEmbedded(relative + "/" + rel) != null) extracted++;
+            }
+            return extracted > 0 ? Path.Combine(dir, relative.Replace('/', Path.DirectorySeparatorChar)) : null;
+        }
+
         /// <summary>资源根目录（含 <c>schema/</c> 与 <c>data/</c>），可能为 null。</summary>
         public static string Root => _root ??= Discover();
 
@@ -33,10 +95,13 @@ namespace ShaderRipper
 
         /// <summary>
         /// 找一个资源文件（相对路径形如 <c>data/unity_builtin_shaders.txt</c>）。
-        /// 顺序：exe 同级（发布后的布局）→ 资源根 → null。
+        /// 顺序：嵌入资源（解压）→ exe 同级（发布后的布局）→ 资源根 → null。
         /// </summary>
         public static string Find(string relative)
         {
+            string emb = ExtractEmbedded(relative);
+            if (emb != null) return emb;
+
             string exeDir = AppContext.BaseDirectory;
             var probes = new List<string> { Path.Combine(exeDir, relative) };
             if (Root != null) probes.Add(Path.Combine(Root, relative));
@@ -48,6 +113,9 @@ namespace ShaderRipper
         /// <summary>找一个资源目录（如 <c>data/tmp_layouts</c>）。</summary>
         public static string FindDir(string relative)
         {
+            string emb = ExtractEmbeddedDir(relative);
+            if (emb != null) return emb;
+
             string exeDir = AppContext.BaseDirectory;
             var probes = new List<string> { Path.Combine(exeDir, relative) };
             if (Root != null) probes.Add(Path.Combine(Root, relative));

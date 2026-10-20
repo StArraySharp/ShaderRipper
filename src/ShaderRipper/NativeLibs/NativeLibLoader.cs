@@ -14,6 +14,49 @@ namespace ShaderRipper
         private static bool _done;
         private static readonly object Lock = new();
 
+        /// <summary>原生库解压目录（%TEMP%\ShaderRipper\native），不可用时为 null。</summary>
+        private static string NativeDir
+        {
+            get
+            {
+                if (_nativeDir == null)
+                {
+                    try
+                    {
+                        _nativeDir = Path.Combine(Path.GetTempPath(), "ShaderRipper", "native");
+                        Directory.CreateDirectory(_nativeDir);
+                    }
+                    catch { }
+                }
+                return _nativeDir;
+            }
+        }
+        private static string _nativeDir;
+
+        /// <summary>
+        /// 通用解压：把嵌入资源 <c>ShaderRipper.Native.&lt;fileName&gt;</c> 解压到
+        /// 原生库目录并返回完整路径；资源缺失或解压失败返回 null。
+        /// </summary>
+        public static string ExtractNative(string fileName)
+        {
+            string dir = NativeDir;
+            if (dir == null || string.IsNullOrEmpty(fileName)) return null;
+            try
+            {
+                string target = Path.Combine(dir, fileName);
+                var asm = typeof(NativeLibLoader).Assembly;
+                using var src = asm.GetManifestResourceStream("ShaderRipper.Native." + fileName);
+                if (src == null) return null;
+                if (!File.Exists(target) || new FileInfo(target).Length != src.Length)
+                {                                                     // 版本/大小变化才覆写，避免并发读写冲突
+                    using var dst = File.Create(target);
+                    src.CopyTo(dst);
+                }
+                return target;
+            }
+            catch { return null; }
+        }
+
         public static void EnsureD3DCompiler()
         {
             if (_done || !OperatingSystem.IsWindows()) return;
@@ -22,19 +65,9 @@ namespace ShaderRipper
                 if (_done) return;
                 try
                 {
-                    string dir = Path.Combine(Path.GetTempPath(), "ShaderRipper", "native");
-                    Directory.CreateDirectory(dir);
-                    string target = Path.Combine(dir, "D3Dcompiler_47.dll");
-
-                    var asm = typeof(NativeLibLoader).Assembly;
-                    using var src = asm.GetManifestResourceStream("ShaderRipper.Native.D3Dcompiler_47.dll");
-                    if (src == null) return;                       // 资源缺失（不该发生）
-                    if (!File.Exists(target) || new FileInfo(target).Length != src.Length)
-                    {                                                 // 版本/大小变化才覆写，避免并发读写冲突
-                        using var dst = File.Create(target);
-                        src.CopyTo(dst);
-                    }
-                    SetDllDirectory(dir);
+                    string target = ExtractNative("D3Dcompiler_47.dll");
+                    if (target != null && NativeDir != null)
+                        SetDllDirectory(NativeDir);                   // dxil.dll 也在这里，dxc 同目录即可找到
                 }
                 catch { /* 解压失败就让 DllImport 走系统搜索路径 */ }
                 _done = true;

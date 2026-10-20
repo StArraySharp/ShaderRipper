@@ -10,6 +10,8 @@ Extract Shaders from Unity game data and rebuild them as readable **ShaderLab + 
 
 Requires the .NET 10 SDK. Disassembly on Windows uses d3dcompiler/dxcompiler (NativeAOT linking needs MSVC + Windows SDK lib paths).
 
+All runtime resources — schema tables, fix-up data, TMP layouts, and the per-RID native libraries (d3dcompiler_47 / dxcompiler / dxil) — are **embedded in the executable** and extracted to `%TEMP%\ShaderRipper\` on first use: the published artifact is a single file with no companions.
+
 ```bash
 dotnet build ShaderRipper.slnx -c Release
 

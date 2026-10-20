@@ -18,24 +18,29 @@
          不用 resx 卫星程序集（NativeAOT 不支持）；改文案后重跑生成脚本即可 -->
   </ItemGroup>
   <ItemGroup>
-    <!-- 资源随构建复制到输出目录：exe 单独拷走也能找到 schema/ 与 data/（见 Paths.cs）。
-         globals_names 是针对特定游戏的修复表，刻意不进发布包；仓库内运行时 Paths 仍会找到它。 -->
-    <None Update="data/**/*.txt" CopyToOutputDirectory="PreserveNewest" />
-    <None Update="data/*.tpk" CopyToOutputDirectory="PreserveNewest" />
+    <!-- 运行所需资源全部嵌入主程序集（发布产物只剩单个可执行）：
+         运行时由 Paths 解压到 %TEMP%\ShaderRipper\embed\，磁盘文件仍优先（开发仓库直读）。
+         globals_names 是针对特定游戏的修复表，刻意不嵌入。 -->
+    <EmbeddedResource Include="schema/*.json" LogicalName="ShaderRipper.Embed.%(Identity)" />
+    <EmbeddedResource Include="data/*.txt" LogicalName="ShaderRipper.Embed.%(Identity)" />
+    <EmbeddedResource Include="data/*.tpk" LogicalName="ShaderRipper.Embed.%(Identity)" />
+    <EmbeddedResource Include="data/tmp_layouts/*.txt" LogicalName="ShaderRipper.Embed.%(Identity)" />
     <None Remove="data/globals_names/**" />
-    <None Update="schema/*.json" CopyToOutputDirectory="PreserveNewest" />
-    <!-- d3dcompiler 仅 Windows、仅 SM4/5 DXBC 需要；内嵌进主程序集运行时解压（NativeLibLoader） -->
+    <!-- 原生库按 RID 嵌入（d3dcompiler 仅 Windows）：运行时解压到 %TEMP%\ShaderRipper\native\ -->
     <EmbeddedResource Include="NativeLibs/D3Dcompiler_47.dll"
                       LogicalName="ShaderRipper.Native.D3Dcompiler_47.dll" />
-    <!-- 反汇编统一走 DXC（dxcompiler）：按 RID 复制对应原生库到输出目录 -->
-    <None Update="NativeLibs/win-x64/dxcompiler.dll" CopyToOutputDirectory="PreserveNewest"
-          Condition="'$(RuntimeIdentifier)' == 'win-x64' Or '$(RuntimeIdentifier)' == ''" />
-    <None Update="NativeLibs/win-x64/dxil.dll" CopyToOutputDirectory="PreserveNewest"
-          Condition="'$(RuntimeIdentifier)' == 'win-x64' Or '$(RuntimeIdentifier)' == ''" />
-    <None Update="NativeLibs/linux-x64/libdxcompiler.so" CopyToOutputDirectory="PreserveNewest"
-          Condition="'$(RuntimeIdentifier)' == 'linux-x64'" />
-    <None Update="NativeLibs/linux-x64/libdxil.so" CopyToOutputDirectory="PreserveNewest"
-          Condition="'$(RuntimeIdentifier)' == 'linux-x64'" />
+    <EmbeddedResource Include="NativeLibs/win-x64/dxcompiler.dll"
+                      LogicalName="ShaderRipper.Native.dxcompiler.dll"
+                      Condition="'$(RuntimeIdentifier)' == 'win-x64' Or '$(RuntimeIdentifier)' == ''" />
+    <EmbeddedResource Include="NativeLibs/win-x64/dxil.dll"
+                      LogicalName="ShaderRipper.Native.dxil.dll"
+                      Condition="'$(RuntimeIdentifier)' == 'win-x64' Or '$(RuntimeIdentifier)' == ''" />
+    <EmbeddedResource Include="NativeLibs/linux-x64/libdxcompiler.so"
+                      LogicalName="ShaderRipper.Native.libdxcompiler.so"
+                      Condition="'$(RuntimeIdentifier)' == 'linux-x64'" />
+    <EmbeddedResource Include="NativeLibs/linux-x64/libdxil.so"
+                      LogicalName="ShaderRipper.Native.libdxil.so"
+                      Condition="'$(RuntimeIdentifier)' == 'linux-x64'" />
   </ItemGroup>
   <ItemGroup>
     <PackageReference Include="AssetRipper.Tpk" Version="2.0.0" />

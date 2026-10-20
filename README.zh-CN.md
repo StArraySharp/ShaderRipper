@@ -10,6 +10,8 @@ English | [简体中文](README.zh-CN.md)
 
 需要 .NET 10 SDK。Windows 上反汇编用到 d3dcompiler/dxcompiler（AOT 链接需要 MSVC + Windows SDK 库路径）。
 
+运行所需资源——schema 类型树、修复表、TMP 布局、按 RID 的原生库（d3dcompiler_47 / dxcompiler / dxil）——**全部嵌入可执行文件**，首次使用时解压到 `%TEMP%\ShaderRipper\`：发布产物就是单个文件，无任何伴生文件。
+
 ```bash
 dotnet build ShaderRipper.slnx -c Release
 
