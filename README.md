@@ -4,7 +4,7 @@ English | [简体中文](README.zh-CN.md)
 
 Extract Shaders from Unity game data and rebuild them as readable **ShaderLab + CGPROGRAM**. Pure C#, all runtime resources embedded, ready to run.
 
-> 💡 **This project's code is 100% AI-generated** (Claude / GLM collaboration), with human work limited to requirements, acceptance testing and release.
+> 💡 **This project's code is 100% AI-generated** (DeepSeek / GLM collaboration), with human work limited to requirements, acceptance testing and release.
 
 **Supported platforms**: d3d11 (instruction-by-instruction DXBC→Cg translation), GLES3 / GLES2 / OpenGLCore (GLSL back-translation to Cg), d3d9 (SM2/3, self-contained disassembler), D3D12 (DXIL via dxcompiler); Metal / Vulkan are exported as reference files only.
 
@@ -110,6 +110,32 @@ For more readable output, prefer game data that includes **GLES3 / OpenGLCore** 
 ## Roadmap
 
 - **APK support**: scan Android packages directly (unpack the APK and reuse the existing bundles scan path) — this is where GLES3 / GLES2 backends live, and the real fix for the readability problem of IL2CPP + D3D-only games
+
+## Correctness verification
+
+Using the largest shader from ADOFAI 3.3.1 (Mono build), `Hidden/BlendModes/SpritesDefault/OverlayMasked` (714 KB / 208 keyword variants), Verification files live in [`docs/verification/`](docs/verification/) (2 upstream original sources + this tool's rebuilt output). Using the largest shader against the blend-modes asset's upstream open-source code: original HLSL → compiled DXBC → CG rebuilt by this tool. The DARKEN mode fragment:
+
+Original source (upstream `BlendFunctions.cginc`):
+
+```csharp
+fixed3 Darken (fixed3 a, fixed3 b) { return min(a, b); }
+// Macro expansion:
+fixed4 overlayColor = tex2D(_BLENDMODES_OverlayTexture, uv) * _BLENDMODES_OverlayColor;
+fixed3 blendColor = Darken(color.rgb, overlayColor.rgb);
+color.rgb = lerp(color.rgb, blendColor, _BLENDMODES_OverlayColor.a);
+```
+
+CG rebuilt by this tool (variable names recovered from cbuffer reflection):
+
+```csharp
+r0.xyz = tex2D(t1, ...) * _BLENDMODES_OverlayColor.rgb;   // overlayColor
+r2.xyzw = tex2D(_MainTex, ...) * v1;                      // color
+r0.xyz = min(r0.xyz, r2.xyz);                             // Darken = min ✓
+r0.xyz = mad(-r1 * v1, r0);                               // first half of lerp (compiler rewrite)
+r0.xyz = mad(_BLENDMODES_OverlayColor.w, r0, r2);         // lerp(color, blend, a) ✓
+```
+
+The compiler rewrote `lerp` into two `mad`s; the instruction-by-instruction transliteration preserves both, semantically equivalent to the source. For the verified sample: all 208 variants / 12000 DXBC instructions translated, 0 untranslated, and every cbuffer field matched its original property name.
 
 ## Limitations
 

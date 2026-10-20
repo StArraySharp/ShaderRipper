@@ -15,4 +15,5 @@ game_shaderlab_*/
 # 会话/缓存
 .temp/
 .workbuddy/
-globals_names/           本地专用修复表，不入库
+# globals_names/ 本地专用修复表，不入库
+globals_names/

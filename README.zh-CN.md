@@ -4,7 +4,7 @@
 
 从 Unity 游戏数据中提取 Shader，重建为可读的 **ShaderLab + CGPROGRAM**。纯 C#，运行资源全部内嵌，下载即用。
 
-> 💡 **本项目代码 100% 由 AI 生成**（Claude / GLM 协作完成），人工负责需求、验收与发布。
+> 💡 **本项目代码 100% 由 AI 生成**（DeepSeek / GLM 协作完成），人工负责需求、验收与发布。
 
 **支持平台**：d3d11（DXBC 汇编逐条直译 Cg）、GLES3 / GLES2 / OpenGLCore（GLSL 回译 Cg）、d3d9（SM2/3 自研反汇编）、D3D12（DXIL，经 dxcompiler）；Metal / Vulkan 仅输出参考文件。
 
@@ -109,6 +109,32 @@ ShaderRipper.exe --data "游戏名_Data" --out D:\out --only Floor --asm
 ## 计划
 
 - **支持 APK**：直接扫描 Android 安装包（解包 APK 后走现有的 bundles 扫描路径），GLES3 / GLES2 后端的主阵地就在这里——这也是对 IL2CPP + 仅 D3D 游戏可读性问题的正解
+
+## 正确性验证
+
+验证用文件见 [`docs/verification/`](docs/verification/)（上游原始源码 × 2 + 本工具反编译产物）。以 ADOFAI 3.3.1（Mono 版游戏本体）中最大的 shader `Hidden/BlendModes/SpritesDefault/OverlayMasked`（714 KB / 208 个 keyword 变体）为样本，与该混合模式资产的上游开源源码做三方对照（原始 HLSL → DXBC 编译产物 → 本工具反编译 CG）。DARKEN 模式片段：
+
+原始源码（上游 `BlendFunctions.cginc`）：
+
+```csharp
+fixed3 Darken (fixed3 a, fixed3 b) { return min(a, b); }
+// 宏展开：
+fixed4 overlayColor = tex2D(_BLENDMODES_OverlayTexture, uv) * _BLENDMODES_OverlayColor;
+fixed3 blendColor = Darken(color.rgb, overlayColor.rgb);
+color.rgb = lerp(color.rgb, blendColor, _BLENDMODES_OverlayColor.a);
+```
+
+本工具反编译 CG（变量名从 cbuffer 反射还原）：
+
+```csharp
+r0.xyz = tex2D(t1, ...) * _BLENDMODES_OverlayColor.rgb;   // overlayColor
+r2.xyzw = tex2D(_MainTex, ...) * v1;                      // color
+r0.xyz = min(r0.xyz, r2.xyz);                             // Darken = min ✓
+r0.xyz = mad(-r1 * v1, r0);                               // lerp 前半（编译器改写）
+r0.xyz = mad(_BLENDMODES_OverlayColor.w, r0, r2);         // lerp(color, blend, a) ✓
+```
+
+编译器把 `lerp` 优化成两条 `mad`，直译逐条保留，语义与源码等价。对已验证样本：208 个变体、12000 行 DXBC 指令全部翻译，0 条未翻译指令，cbuffer 字段与原始属性一一对应。
 
 ## 限制
 
