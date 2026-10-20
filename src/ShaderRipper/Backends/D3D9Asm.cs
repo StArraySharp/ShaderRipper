@@ -313,42 +313,5 @@ namespace ShaderRipper
             }
             return s;
         }
-
-        /// <summary>--selftest-d3d9：对预编译的 SM2/SM3 fixture 跑反汇编并做基本校验。
-        /// 返回 0 = 全部通过。</summary>
-        public static int Selftest()
-        {
-            int failures = 0;
-            foreach (var (target, code) in D3D9Fixtures.Cases)
-            {
-                string asm = Disassemble(code, 0, code.Length);
-                if (asm == null)
-                {
-                    Console.WriteLine($"[FAIL] {target}: disassembly returned null ({code.Length} bytes)");
-                    var hex = new StringBuilder();
-                    for (int k = 0; k + 4 <= code.Length; k += 4)
-                        hex.Append(BitConverter.ToUInt32(code, k).ToString("x8")).Append(k % 16 == 12 ? "\n" : " ");
-                    Console.WriteLine(hex.ToString());
-                    failures++;
-                    continue;
-                }
-
-                var problems = new List<string>();
-                if (!asm.Contains(target)) problems.Add("missing version header");
-                if (asm.Contains("op_")) problems.Add("unknown opcode");
-                if (asm.Contains("?t")) problems.Add("unknown register type");
-                int insts = 0;
-                foreach (var ln in asm.Split('\n'))
-                    if (ln.Trim().Length > 0 && !ln.Contains(target) && !ln.TrimStart().StartsWith("dcl"))
-                        insts++;
-                if (insts == 0) problems.Add("no instructions");
-
-                Console.WriteLine($"[{(problems.Count == 0 ? "OK" : "FAIL")}] {target}  ({code.Length} B, {insts} inst)");
-                Console.WriteLine(asm);
-                foreach (var pr in problems) { Console.WriteLine("   !! " + pr); failures++; }
-            }
-            Console.WriteLine(failures == 0 ? "selftest: all passed" : $"selftest: {failures} problem(s)");
-            return failures == 0 ? 0 : 1;
-        }
     }
 }

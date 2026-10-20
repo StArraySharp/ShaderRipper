@@ -1,34 +1,43 @@
 # ShaderRipper
 
-[English](README.md) | [简体中文](README.zh-CN.md)
+English | [简体中文](README.zh-CN.md)
 
-Extract Shaders from Unity game data and rebuild them as readable **ShaderLab + CGPROGRAM**. Pure C#, no external dependencies.
+Extract Shaders from Unity game data and rebuild them as readable **ShaderLab + CGPROGRAM**. Pure C#, all runtime resources embedded, ready to run.
 
-**Supported platforms**: d3d11 (instruction-by-instruction DXBC→Cg translation), GLES3 / GLES2 / OpenGLCore (GLSL source back-translation to Cg), d3d9 (SM2/3, self-contained disassembler), D3D12 (DXIL via dxcompiler COM); Metal / Vulkan are exported as reference files only.
+> 💡 **This project's code is 100% AI-generated** (Claude / GLM collaboration), with human work limited to requirements, acceptance testing and release.
+
+**Supported platforms**: d3d11 (instruction-by-instruction DXBC→Cg translation), GLES3 / GLES2 / OpenGLCore (GLSL back-translation to Cg), d3d9 (SM2/3, self-contained disassembler), D3D12 (DXIL via dxcompiler); Metal / Vulkan are exported as reference files only.
 
 ## Build
 
-Requires the .NET 10 SDK. Disassembly on Windows uses d3dcompiler/dxcompiler (NativeAOT linking needs MSVC + Windows SDK lib paths).
-
-All runtime resources — schema tables, fix-up data, TMP layouts, and the per-RID native libraries (d3dcompiler_47 / dxcompiler / dxil) — are **embedded in the executable** and extracted to `%TEMP%\ShaderRipper\` on first use: the published artifact is a single file with no companions.
+Requires the .NET 10 SDK. NativeAOT linking on Windows needs MSVC + Windows SDK lib paths.
 
 ```bash
 dotnet build ShaderRipper.slnx -c Release
 
-# Windows NativeAOT (~5 MB single file)
+# Windows NativeAOT (~11 MB single file)
 dotnet publish src/ShaderRipper/ShaderRipper.csproj -c Release -r win-x64 -p:PublishAot=true -o publish/aot-win-x64
 
 # Linux: AOT cannot cross-compile across OSes — build the Linux AOT on Linux.
-# Cross-pack from Windows with self-contained + trimmed (~21 MB single file):
+# Cross-pack from Windows as a trimmed single-file with CLR host (~56 MB):
 dotnet publish src/ShaderRipper/ShaderRipper.csproj -c Release -r linux-x64 \
   --self-contained -p:PublishSingleFile=true -p:PublishTrimmed=true -o publish/linux-x64
 ```
 
-Linux / macOS:
-- **d3d9 (SM2/3) disassembly is fully managed and works everywhere** with no native libraries
-- **DXIL (D3D12/SM6) disassembly** uses `libdxcompiler.so` (official Linux builds of Microsoft's [DirectXShaderCompiler](https://github.com/microsoft/DirectXShaderCompiler)); put it in `/usr/lib` or next to the executable. `NativeLibs/linux-x64/` ships v1.8.2407 (glibc ≤ 2.34, compatible with Ubuntu 22.04)
-- **SM4/5 DXBC disassembly**: uses the embedded d3dcompiler_47 on Windows; when it is absent or fails (including Linux) it falls back to [DXDecompiler](https://github.com/AssetRipper/DXDecompiler) (fully managed NuGet, cross-platform) — so **Linux can now disassemble SM4/5 DXBC too**
-- The GLES3 / GLES2 / OpenGLCore GLSL back-translation path is fully managed and works everywhere
+The published artifact is a single executable with no companion files: schema trees, fix-up tables, TMP layouts and the per-RID native libraries are all embedded and extracted to `%TEMP%\ShaderRipper\` on first use.
+
+## Renderer support
+
+| Backend | Windows | Linux | macOS | Output |
+|---|---|---|---|---|
+| d3d11 | ✅ | ✅ | ⚠️ untested | ShaderLab + CGPROGRAM (assembly transliteration) |
+| GLES3 / GLES2 / OpenGLCore | ✅ | ✅ | ⚠️ untested | ShaderLab + CGPROGRAM (GLSL back-translation) |
+| d3d9 (SM2/3) | ✅ | ✅ | ⚠️ untested | Disassembly (Disassembly/) |
+| SM4/5 DXBC | ✅ | ✅ | ⚠️ untested | Disassembly (Disassembly/) |
+| D3D12 (DXIL) | ✅ | ✅ | ❌ no official macOS DXC | Disassembly (Disassembly/) |
+| Metal / Vulkan | ✅ | ✅ | ✅ | Reference files only, no back-translation |
+
+> macOS is untested: the managed paths should work (publish yourself with `-r osx-arm64`), but DXIL disassembly is unavailable since Microsoft ships no macOS DXC build.
 
 ## Usage
 
@@ -54,6 +63,16 @@ Output layout:
 
 Note: the CGPROGRAM body is a **translation of the compiled assembly**, not the author's source (source code is not shipped in game data); properties, render state, Pass structure, and variant `#if` chains are faithfully reconstructed.
 
+## ⚠️ Unfriendly to IL2CPP games shipping only D3D backends
+
+For games **packed with IL2CPP that only ship d3d9 / d3d11 / d3d12 graphics backends** (typical for Steam titles), output is limited:
+
+- **d3d9 / d3d12**: disassembly only, no CGPROGRAM reconstruction
+- **d3d11**: Cg is rebuilt, but as a direct assembly transliteration — far less readable than original source
+- Games without any GLES3 / OpenGLCore backend: assembly is mostly all you get
+
+For more readable output, prefer game data that includes **GLES3 / OpenGLCore** backends (mobile builds often have them).
+
 ## CLI options
 
 | Option | Description |
@@ -75,9 +94,22 @@ Note: the CGPROGRAM body is a **translation of the compiled assembly**, not the 
 | `--matrix-names <f>` | float4x4 name list (default `data/unity_matrix_names.txt`) |
 | `--glsl2cg <file>` | Back-translate a single GLSL file to Cg (debug; combine with `--asm` to show original lines) |
 | `--disasm <file>` | Disassemble a single program file (DXBC/DXIL/d3d9 tokens) |
-| `--selftest-d3d9` | Run the d3d9 disassembler self-test |
 | `--lang <en\|zh>` | UI language; follows the system by default |
 | `-h, --help` | Help |
+
+## Third-party libraries
+
+| Library | Purpose | License |
+|---|---|---|
+| [AssetRipper.Tpk](https://github.com/AssetRipper/Tpk) / [AssetRipper.IO.Endian](https://github.com/AssetRipper/IO.Endian) / [AssetRipper.Primitives](https://github.com/AssetRipper/Primitives) | Unity type-tree parsing / serialized file reading | LGPL-3.0 |
+| [K4os.Compression.LZ4](https://github.com/MiloszKrajewski/K4os.Compression.LZ4) | Unity LZ4 blob decompression | MIT |
+| [DXDecompiler-ly](https://github.com/AssetRipper/DXDecompiler) | Fully managed SM4/5 DXBC disassembly (cross-platform fallback) | MIT |
+| d3dcompiler_47.dll (Microsoft, shipped with Windows, embedded) | SM4/5 DXBC disassembly on Windows | Windows SDK license |
+| dxcompiler / dxil ([Microsoft DirectXShaderCompiler](https://github.com/microsoft/DirectXShaderCompiler), Linux builds embedded) | DXIL (D3D12/SM6) disassembly | Apache-2.0 (with LLVM exception) |
+
+## Roadmap
+
+- **APK support**: scan Android packages directly (unpack the APK and reuse the existing bundles scan path) — this is where GLES3 / GLES2 backends live, and the real fix for the readability problem of IL2CPP + D3D-only games
 
 ## Limitations
 

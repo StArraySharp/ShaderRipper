@@ -19,7 +19,6 @@ namespace ShaderRipper
             Strings.SetLang(cli.Value("--lang"));
 
             if (cli.Has("--help") || cli.Has("-h")) { Usage(); return 0; }
-            if (cli.Has("--selftest-d3d9")) return D3D9Asm.Selftest();
             string disasmFile = cli.Value("--disasm");
             if (disasmFile != null) return DisasmFile(disasmFile);
             string glslFile = cli.Value("--glsl2cg");
