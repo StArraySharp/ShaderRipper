@@ -448,7 +448,7 @@ namespace ShaderRipper.Cg
         /// Byte size of this program's own <c>$Globals</c>: the parameter blob
         /// records it per program, and that is what distinguishes keyword
         /// variants that packed the same properties differently (272 B vs 288 B
-        /// in ADOFAI's MergeSprite).  The asset reflection keeps only one copy.
+        /// in one commercial game's MergeSprite).  The asset reflection keeps only one copy.
         /// </summary>
         private int GlobalsSize()
         {
@@ -1051,7 +1051,7 @@ namespace ShaderRipper.Cg
         /// register straight out of the serialized program parameters -- the same
         /// table UnityPlayer's runtime consumes), falling back to property
         /// declaration order only when the asset kept no texture list.  Property
-        /// order is NOT register order: ADOFAI/FloorMesh declares _TileTex first but
+        /// order is NOT register order: one commercial title's FloorMesh declares _TileTex first but
         /// binds it to t2, which silently swapped three samplers and broke the look.
         /// </remarks>
         private void MapTextures(AsmParser.Program prog, IReadOnlyList<Property> props,

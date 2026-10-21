@@ -139,7 +139,7 @@ For more readable output, prefer game data that includes **GLES3 / OpenGLCore** 
 
 ## Correctness verification
 
-Verification files live in [`docs/verification/`](docs/verification/) (one sub-directory per shader: the original source (AR export / upstream repo), this tool's rebuilt output (with and without per-instruction comments), and the merged DXBC disassembly; the OverlayMasked directory also holds its upstream cginc includes). Using the largest shader of ADOFAI 3.3.1 (Mono build), `Hidden/BlendModes/SpritesDefault/OverlayMasked` (714 KB / 208 keyword variants), we did a three-way comparison against the blend-modes asset's upstream open-source code (original HLSL → compiled DXBC → CG rebuilt by this tool). The DARKEN mode fragment:
+Verification files live in [`docs/verification/`](docs/verification/) (one sub-directory per shader: the original source (AR export / upstream repo), this tool's rebuilt output (with and without per-instruction comments), and the merged DXBC disassembly; the OverlayMasked directory also holds its upstream cginc includes). Using the largest shader of an unnamed commercial Unity 6 game, `Hidden/BlendModes/SpritesDefault/OverlayMasked` (714 KB / 208 keyword variants), we did a three-way comparison against the blend-modes asset's upstream open-source code (original HLSL → compiled DXBC → CG rebuilt by this tool). The DARKEN mode fragment:
 
 Original source (upstream `BlendFunctions.cginc`):
 

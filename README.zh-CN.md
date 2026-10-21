@@ -134,7 +134,7 @@ ShaderRipper.exe --file "a.apk" --out D:\ExportedProject
 
 ## 正确性验证
 
-验证用文件见 [`docs/verification/`](docs/verification/)（按 shader 分子目录：原始源码（AR 导出/上游仓库）、本工具反编译产物（含/不含逐指令注释两版）、DXBC 反汇编合集；OverlayMasked 目录另含其上游 cginc）。以 ADOFAI 3.3.1（Mono 版游戏本体）中最大的 shader `Hidden/BlendModes/SpritesDefault/OverlayMasked`（714 KB / 208 个 keyword 变体）为样本，与该混合模式资产的上游开源源码做三方对照（原始 HLSL → DXBC 编译产物 → 本工具反编译 CG）。DARKEN 模式片段：
+验证用文件见 [`docs/verification/`](docs/verification/)（按 shader 分子目录：原始源码（AR 导出/上游仓库）、本工具反编译产物（含/不含逐指令注释两版）、DXBC 反汇编合集；OverlayMasked 目录另含其上游 cginc）。以某款 Unity 6 商业游戏（名称从略）中最大的 shader `Hidden/BlendModes/SpritesDefault/OverlayMasked`（714 KB / 208 个 keyword 变体）为样本，与该混合模式资产的上游开源源码做三方对照（原始 HLSL → DXBC 编译产物 → 本工具反编译 CG）。DARKEN 模式片段：
 
 原始源码（上游 `BlendFunctions.cginc`）：
 

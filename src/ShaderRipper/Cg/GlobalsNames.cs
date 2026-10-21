@@ -27,7 +27,7 @@ namespace ShaderRipper.Cg
     /// <c>//</c> comments allowed, and used for the per-row evidence):
     /// <code>
     /// {
-    ///   "shader": "ADOFAI/Frames",
+    ///   "shader": "Game/Frames",
     ///   "$Globals": {
     ///     "size": 64,
     ///
@@ -54,7 +54,7 @@ namespace ShaderRipper.Cg
         /// <summary>
         /// When true, sized rows REPLACE whatever the asset reflection already
         /// named (reflection can describe a compile other than the one in the
-        /// build -- ADOFAI's MergeSprite).  Default false: tables only fill gaps.
+        /// build -- one commercial game's MergeSprite).  Default false: tables only fill gaps.
         /// </summary>
         public bool Override;
 
@@ -184,7 +184,7 @@ namespace ShaderRipper.Cg
 
         /// <summary>
         /// <c>"$Globals@288"</c> style keys exist because one shader can compile its
-        /// keyword variants into differently packed <c>$Globals</c> blocks (ADOFAI's
+        /// keyword variants into differently packed <c>$Globals</c> blocks (a commercial title's
         /// MergeSprite: 272 B for the base variants, 288 B when the T5 group moves).
         /// Returns the size-specific table when present, else the unsized one.
         /// </summary>
