@@ -537,18 +537,20 @@ namespace ShaderRipper.Cg
             sb.AppendLine($"v2f vert ({args})");
             sb.AppendLine("{");
 
-            foreach (var line in iface.BindInputs(iface.VsInReg, "v", r => NeededComps(p, r)))
+            var binds = iface.BindInputs(iface.VsInReg, "v", r => NeededComps(p, r)).ToList();
+            foreach (var line in binds)
                 sb.AppendLine(line);
 
             foreach (int r in OutRegisters(p))
-                sb.AppendLine($"\tfloat4 o{r};" + Comment(iface, r));
+                sb.AppendLine($"\tfloat4 o{r} = 0;" + Comment(iface, r));
 
             DeclareRegisters(sb, p);
             sb.AppendLine();
 
             string vret = "new v2f { " + string.Join(", ", iface.BindOutputs(iface.VsOutReg, "o")
                 .Select(l => l.Trim().TrimEnd(';').Replace("o.", ""))) + " }";
-            sb.Append(CollapseMvp(new CgTranslator(p, 1) { Cb = cb, AnnotateAsm = AnnotateAsm, ReturnExpr = vret }.TranslateBody()));
+            sb.Append(CollapseMvp(new CgTranslator(p, 1) { Cb = cb, AnnotateAsm = AnnotateAsm, ReturnExpr = vret }.TranslateBody(),
+                                  string.Join("\n", binds)));
 
             sb.AppendLine();
             sb.AppendLine("\tv2f o;");
@@ -570,7 +572,7 @@ namespace ShaderRipper.Cg
 
             var oRegs = OutRegisters(p);
             int outReg = oRegs.Count > 0 ? oRegs[0] : 0;
-            foreach (int r in oRegs) sb.AppendLine($"\tfloat4 o{r};");
+            foreach (int r in oRegs) sb.AppendLine($"\tfloat4 o{r} = 0;");
 
             DeclareRegisters(sb, p);
             sb.AppendLine();
@@ -589,11 +591,11 @@ namespace ShaderRipper.Cg
         /// threw the whole mesh into a fan -- so collapse the pattern back to
         /// <c>UnityObjectToClipPos</c>.
         /// </summary>
-        private static string CollapseMvp(string body)
+        private static string CollapseMvp(string body, string binds)
         {
             var alias = new System.Collections.Generic.Dictionary<string, string>();
             foreach (System.Text.RegularExpressions.Match am in
-                     System.Text.RegularExpressions.Regex.Matches(body,
+                     System.Text.RegularExpressions.Regex.Matches(binds,
                          @"(?m)^\s*float([234])?\s+v(\d+)\s*=\s*v\.(\w+)\s*;"))
                 alias["v" + am.Groups[2].Value] = "v." + am.Groups[3].Value;
 
@@ -601,18 +603,46 @@ namespace ShaderRipper.Cg
                 @"(?ms)^\s*(\w+)\.xyzw = float4\(([^;\r\n]*?)\.y \* unity_ObjectToWorld\[1\]\.x[^;\r\n]*\);\r?\n" +
                 @".*?^\s*(\w+)\.xyzw = float4\([^;\r\n]*unity_MatrixVP\[3\]\.x[^;\r\n]*\);\r?\n");
 
+            // Output writes can sit inside the spanned lines -- a shader that also
+            // passes world position out (TEXCOORD1 = mul(unity_ObjectToWorld, v))
+            // lands there, and the span used to swallow it, leaving that member
+            // unassigned ("warning X3578: Output value 'vert' is not completely
+            // initialized" in Unity).  Only that one shape is understood; anything
+            // else means the span is not a plain MVP block and is left alone.
+            var worldPos = new System.Text.RegularExpressions.Regex(
+                @"(?m)^[ \t]*(o\d+)\.(\w+)[ \t]*=[ \t]*float3\(mad\(unity_ObjectToWorld\[3\]\.x[^\r\n]*\);");
+            var anyOutput = new System.Text.RegularExpressions.Regex(@"(?m)^[ \t]*(o\d+)\.");
+
             return re.Replace(body, m =>
             {
                 string dest = m.Groups[3].Value;
                 string reg = m.Groups[2].Value.Trim();
-                string field = alias.TryGetValue(reg, out var f) ? f : reg;
+                if (!alias.TryGetValue(reg, out var field)) return m.Value;
+
                 // The match starts at the line start, so it swallowed the
                 // indentation -- put it back, or the collapsed line lands in
                 // column 0 while every neighbour stays one level in.
                 int k = 0;
                 while (k < m.Value.Length && (m.Value[k] == ' ' || m.Value[k] == '\t')) k++;
                 string lead = m.Value.Substring(0, k);
-                return lead + $"{dest} = UnityObjectToClipPos({field}.xyz);" + Environment.NewLine;
+
+                var prefix = new StringBuilder();
+                foreach (System.Text.RegularExpressions.Match om in anyOutput.Matches(m.Value))
+                {
+                    if (om.Groups[1].Value == dest) continue;          // the clip position itself
+                    var wm = worldPos.Match(m.Value, om.Index);
+                    if (!wm.Success || wm.Groups[1].Value != om.Groups[1].Value) return m.Value;
+                    var sm = System.Text.RegularExpressions.Regex.Match(
+                        wm.Value, @"\bv(\d+)\.w\b");
+                    if (!sm.Success || !alias.TryGetValue("v" + sm.Groups[1].Value, out var src))
+                        return m.Value;
+                    prefix.Append(lead).Append(wm.Groups[1].Value).Append('.').Append(wm.Groups[2].Value)
+                          .Append(" = mul(unity_ObjectToWorld, float4(").Append(src).Append(".xyz, ")
+                          .Append(src).Append(".w)).").Append(wm.Groups[2].Value).Append(';')
+                          .Append(Environment.NewLine);
+                }
+
+                return prefix + lead + $"{dest} = UnityObjectToClipPos({field}.xyz);" + Environment.NewLine;
             }, 1);
         }
         private static List<int> OutRegisters(AsmParser.Program p) =>

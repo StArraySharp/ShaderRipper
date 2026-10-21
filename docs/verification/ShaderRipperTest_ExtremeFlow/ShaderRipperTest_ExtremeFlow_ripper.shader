@@ -146,14 +146,15 @@ Shader "ShaderRipperTest/ExtremeFlow"
 				float4 v0 = v.vertex;
 				float2 v1 = v.uv0;
 				float4 v2 = v.color;
-				float4 o0;  // -> o.pos
-				float4 o1;  // -> o.uv0
-				float4 o2;  // -> o.color0
-				float4 o3;  // -> o.uv1
+				float4 o0 = 0;  // -> o.pos
+				float4 o1 = 0;  // -> o.uv0
+				float4 o2 = 0;  // -> o.color0
+				float4 o3 = 0;  // -> o.uv1
 				float4 r0 = 0, r1 = 0;
 
 				// mul r0.xyzw, v0.yyyy, cb1[1].xyzw
-				o0 = UnityObjectToClipPos(v0.xyz);
+				o3.xyz = mul(unity_ObjectToWorld, float4(v.vertex.xyz, v.vertex.w)).xyz;
+				o0 = UnityObjectToClipPos(v.vertex.xyz);
 				// mad o1.xy, v1.xyxx, cb0[2].xyxx, cb0[2].zwzz
 				o1.xy = float2(mad(v1.x, _MainTex_ST.x, _MainTex_ST.z), mad(v1.y, _MainTex_ST.y, _MainTex_ST.w));
 				// mov o2.xyzw, v2.xyzw
@@ -172,7 +173,7 @@ Shader "ShaderRipperTest/ExtremeFlow"
 				float2 v1 = i.uv0;
 				float4 v2 = i.color0;
 				float3 v3 = i.uv1;
-				float4 o0;
+				float4 o0 = 0;
 				float4 r0 = 0, r1 = 0, r2 = 0, r3 = 0, r4 = 0, r5 = 0, r6 = 0, r7 = 0, r8 = 0;
 
 				// lt r0.x, l(0.500000), cb0[19].w
@@ -2471,14 +2472,15 @@ Shader "ShaderRipperTest/ExtremeFlow"
 				float4 v0 = v.vertex;
 				float2 v1 = v.uv0;
 				float4 v2 = v.color;
-				float4 o0;  // -> o.pos
-				float4 o1;  // -> o.uv0
-				float4 o2;  // -> o.color0
-				float4 o3;  // -> o.uv1
+				float4 o0 = 0;  // -> o.pos
+				float4 o1 = 0;  // -> o.uv0
+				float4 o2 = 0;  // -> o.color0
+				float4 o3 = 0;  // -> o.uv1
 				float4 r0 = 0, r1 = 0;
 
 				// mul r0.xyzw, v0.yyyy, cb1[1].xyzw
-				o0 = UnityObjectToClipPos(v0.xyz);
+				o3.xyz = mul(unity_ObjectToWorld, float4(v.vertex.xyz, v.vertex.w)).xyz;
+				o0 = UnityObjectToClipPos(v.vertex.xyz);
 				// mad o1.xy, v1.xyxx, cb0[2].xyxx, cb0[2].zwzz
 				o1.xy = float2(mad(v1.x, _MainTex_ST.x, _MainTex_ST.z), mad(v1.y, _MainTex_ST.y, _MainTex_ST.w));
 				// mov o2.xyzw, v2.xyzw
@@ -2497,7 +2499,7 @@ Shader "ShaderRipperTest/ExtremeFlow"
 				float2 v1 = i.uv0;
 				float4 v2 = i.color0;
 				float3 v3 = i.uv1;
-				float4 o0;
+				float4 o0 = 0;
 				float4 r0 = 0, r1 = 0, r2 = 0, r3 = 0, r4 = 0, r5 = 0, r6 = 0, r7 = 0, r8 = 0;
 
 				// lt r0.x, l(0.500000), cb0[19].w

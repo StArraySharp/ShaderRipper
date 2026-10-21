@@ -118,12 +118,12 @@ Shader "ShaderRipperTest/VariantMonster"
 				float4 v0 = v.vertex;
 				float2 v1 = v.uv0;
 				float4 v2 = v.color;
-				float4 o0;  // -> o.pos
-				float4 o1;  // -> o.uv0
-				float4 o2;  // -> o.color0
+				float4 o0 = 0;  // -> o.pos
+				float4 o1 = 0;  // -> o.uv0
+				float4 o2 = 0;  // -> o.color0
 				float4 r0 = 0, r1 = 0;
 
-				o0 = UnityObjectToClipPos(v0.xyz);
+				o0 = UnityObjectToClipPos(v.vertex.xyz);
 				o1.xy = float2(mad(v1.x, _MainTex_ST.x, _MainTex_ST.z), mad(v1.y, _MainTex_ST.y, _MainTex_ST.w));
 				o2.xyzw = float4(v2.x, v2.y, v2.z, v2.w);
 
@@ -138,7 +138,7 @@ Shader "ShaderRipperTest/VariantMonster"
 				float4 v0 = i.pos;
 				float2 v1 = i.uv0;
 				float4 v2 = i.color0;
-				float4 o0;
+				float4 o0 = 0;
 				float4 r0 = 0, r1 = 0, r2 = 0, r3 = 0, r4 = 0, r5 = 0, r6 = 0, r7 = 0, r8 = 0;
 
 				r0.xyzw = tex2D(_MaskTex, float2(v1.x, v1.y));
@@ -1090,12 +1090,12 @@ Shader "ShaderRipperTest/VariantMonster"
 				float4 v0 = v.vertex;
 				float2 v1 = v.uv0;
 				float4 v2 = v.color;
-				float4 o0;  // -> o.pos
-				float4 o1;  // -> o.uv0
-				float4 o2;  // -> o.color0
+				float4 o0 = 0;  // -> o.pos
+				float4 o1 = 0;  // -> o.uv0
+				float4 o2 = 0;  // -> o.color0
 				float4 r0 = 0, r1 = 0;
 
-				o0 = UnityObjectToClipPos(v0.xyz);
+				o0 = UnityObjectToClipPos(v.vertex.xyz);
 				o1.xy = float2(mad(v1.x, _MainTex_ST.x, _MainTex_ST.z), mad(v1.y, _MainTex_ST.y, _MainTex_ST.w));
 				o2.xyzw = float4(v2.x, v2.y, v2.z, v2.w);
 
@@ -1110,7 +1110,7 @@ Shader "ShaderRipperTest/VariantMonster"
 				float4 v0 = i.pos;
 				float2 v1 = i.uv0;
 				float4 v2 = i.color0;
-				float4 o0;
+				float4 o0 = 0;
 				float4 r0 = 0, r1 = 0, r2 = 0, r3 = 0, r4 = 0, r5 = 0, r6 = 0, r7 = 0, r8 = 0;
 
 				r0.xyzw = tex2D(_MaskTex, float2(v1.x, v1.y));
@@ -1886,12 +1886,12 @@ Shader "ShaderRipperTest/VariantMonster"
 				float4 v0 = v.vertex;
 				float2 v1 = v.uv0;
 				float4 v2 = v.color;
-				float4 o0;  // -> o.pos
-				float4 o1;  // -> o.uv0
-				float4 o2;  // -> o.color0
+				float4 o0 = 0;  // -> o.pos
+				float4 o1 = 0;  // -> o.uv0
+				float4 o2 = 0;  // -> o.color0
 				float4 r0 = 0, r1 = 0;
 
-				o0 = UnityObjectToClipPos(v0.xyz);
+				o0 = UnityObjectToClipPos(v.vertex.xyz);
 				o1.xy = float2(mad(v1.x, _MainTex_ST.x, _MainTex_ST.z), mad(v1.y, _MainTex_ST.y, _MainTex_ST.w));
 				o2.xyzw = float4(v2.x, v2.y, v2.z, v2.w);
 
@@ -1906,7 +1906,7 @@ Shader "ShaderRipperTest/VariantMonster"
 				float4 v0 = i.pos;
 				float2 v1 = i.uv0;
 				float4 v2 = i.color0;
-				float4 o0;
+				float4 o0 = 0;
 				float4 r0 = 0, r1 = 0, r2 = 0, r3 = 0, r4 = 0, r5 = 0, r6 = 0, r7 = 0, r8 = 0;
 
 				r0.xyzw = tex2D(_MaskTex, float2(v1.x, v1.y));
@@ -3329,12 +3329,12 @@ Shader "ShaderRipperTest/VariantMonster"
 				float4 v0 = v.vertex;
 				float2 v1 = v.uv0;
 				float4 v2 = v.color;
-				float4 o0;  // -> o.pos
-				float4 o1;  // -> o.uv0
-				float4 o2;  // -> o.color0
+				float4 o0 = 0;  // -> o.pos
+				float4 o1 = 0;  // -> o.uv0
+				float4 o2 = 0;  // -> o.color0
 				float4 r0 = 0, r1 = 0;
 
-				o0 = UnityObjectToClipPos(v0.xyz);
+				o0 = UnityObjectToClipPos(v.vertex.xyz);
 				o1.xy = float2(mad(v1.x, _MainTex_ST.x, _MainTex_ST.z), mad(v1.y, _MainTex_ST.y, _MainTex_ST.w));
 				o2.xyzw = float4(v2.x, v2.y, v2.z, v2.w);
 
@@ -3349,7 +3349,7 @@ Shader "ShaderRipperTest/VariantMonster"
 				float4 v0 = i.pos;
 				float2 v1 = i.uv0;
 				float4 v2 = i.color0;
-				float4 o0;
+				float4 o0 = 0;
 				float4 r0 = 0, r1 = 0, r2 = 0, r3 = 0, r4 = 0, r5 = 0, r6 = 0, r7 = 0, r8 = 0, r9 = 0;
 
 				r0.xyzw = tex2D(_MaskTex, float2(v1.x, v1.y));
@@ -5004,12 +5004,12 @@ Shader "ShaderRipperTest/VariantMonster"
 				float4 v0 = v.vertex;
 				float2 v1 = v.uv0;
 				float4 v2 = v.color;
-				float4 o0;  // -> o.pos
-				float4 o1;  // -> o.uv0
-				float4 o2;  // -> o.color0
+				float4 o0 = 0;  // -> o.pos
+				float4 o1 = 0;  // -> o.uv0
+				float4 o2 = 0;  // -> o.color0
 				float4 r0 = 0, r1 = 0;
 
-				o0 = UnityObjectToClipPos(v0.xyz);
+				o0 = UnityObjectToClipPos(v.vertex.xyz);
 				o1.xy = float2(mad(v1.x, _MainTex_ST.x, _MainTex_ST.z), mad(v1.y, _MainTex_ST.y, _MainTex_ST.w));
 				o2.xyzw = float4(v2.x, v2.y, v2.z, v2.w);
 
@@ -5024,7 +5024,7 @@ Shader "ShaderRipperTest/VariantMonster"
 				float4 v0 = i.pos;
 				float2 v1 = i.uv0;
 				float4 v2 = i.color0;
-				float4 o0;
+				float4 o0 = 0;
 				float4 r0 = 0, r1 = 0, r2 = 0, r3 = 0, r4 = 0, r5 = 0, r6 = 0, r7 = 0, r8 = 0, r9 = 0;
 
 				r0.xyzw = tex2D(_MaskTex, float2(v1.x, v1.y));
@@ -6697,12 +6697,12 @@ Shader "ShaderRipperTest/VariantMonster"
 				float4 v0 = v.vertex;
 				float2 v1 = v.uv0;
 				float4 v2 = v.color;
-				float4 o0;  // -> o.pos
-				float4 o1;  // -> o.uv0
-				float4 o2;  // -> o.color0
+				float4 o0 = 0;  // -> o.pos
+				float4 o1 = 0;  // -> o.uv0
+				float4 o2 = 0;  // -> o.color0
 				float4 r0 = 0, r1 = 0;
 
-				o0 = UnityObjectToClipPos(v0.xyz);
+				o0 = UnityObjectToClipPos(v.vertex.xyz);
 				o1.xy = float2(mad(v1.x, _MainTex_ST.x, _MainTex_ST.z), mad(v1.y, _MainTex_ST.y, _MainTex_ST.w));
 				o2.xyzw = float4(v2.x, v2.y, v2.z, v2.w);
 
@@ -6717,7 +6717,7 @@ Shader "ShaderRipperTest/VariantMonster"
 				float4 v0 = i.pos;
 				float2 v1 = i.uv0;
 				float4 v2 = i.color0;
-				float4 o0;
+				float4 o0 = 0;
 				float4 r0 = 0, r1 = 0, r2 = 0, r3 = 0, r4 = 0, r5 = 0, r6 = 0, r7 = 0, r8 = 0, r9 = 0;
 
 				r0.xyzw = tex2D(_MaskTex, float2(v1.x, v1.y));
@@ -8372,12 +8372,12 @@ Shader "ShaderRipperTest/VariantMonster"
 				float4 v0 = v.vertex;
 				float2 v1 = v.uv0;
 				float4 v2 = v.color;
-				float4 o0;  // -> o.pos
-				float4 o1;  // -> o.uv0
-				float4 o2;  // -> o.color0
+				float4 o0 = 0;  // -> o.pos
+				float4 o1 = 0;  // -> o.uv0
+				float4 o2 = 0;  // -> o.color0
 				float4 r0 = 0, r1 = 0;
 
-				o0 = UnityObjectToClipPos(v0.xyz);
+				o0 = UnityObjectToClipPos(v.vertex.xyz);
 				o1.xy = float2(mad(v1.x, _MainTex_ST.x, _MainTex_ST.z), mad(v1.y, _MainTex_ST.y, _MainTex_ST.w));
 				o2.xyzw = float4(v2.x, v2.y, v2.z, v2.w);
 
@@ -8392,7 +8392,7 @@ Shader "ShaderRipperTest/VariantMonster"
 				float4 v0 = i.pos;
 				float2 v1 = i.uv0;
 				float4 v2 = i.color0;
-				float4 o0;
+				float4 o0 = 0;
 				float4 r0 = 0, r1 = 0, r2 = 0, r3 = 0, r4 = 0, r5 = 0, r6 = 0, r7 = 0, r8 = 0, r9 = 0;
 
 				r0.xyzw = tex2D(_MaskTex, float2(v1.x, v1.y));
@@ -10065,12 +10065,12 @@ Shader "ShaderRipperTest/VariantMonster"
 				float4 v0 = v.vertex;
 				float2 v1 = v.uv0;
 				float4 v2 = v.color;
-				float4 o0;  // -> o.pos
-				float4 o1;  // -> o.uv0
-				float4 o2;  // -> o.color0
+				float4 o0 = 0;  // -> o.pos
+				float4 o1 = 0;  // -> o.uv0
+				float4 o2 = 0;  // -> o.color0
 				float4 r0 = 0, r1 = 0;
 
-				o0 = UnityObjectToClipPos(v0.xyz);
+				o0 = UnityObjectToClipPos(v.vertex.xyz);
 				o1.xy = float2(mad(v1.x, _MainTex_ST.x, _MainTex_ST.z), mad(v1.y, _MainTex_ST.y, _MainTex_ST.w));
 				o2.xyzw = float4(v2.x, v2.y, v2.z, v2.w);
 
@@ -10085,7 +10085,7 @@ Shader "ShaderRipperTest/VariantMonster"
 				float4 v0 = i.pos;
 				float2 v1 = i.uv0;
 				float4 v2 = i.color0;
-				float4 o0;
+				float4 o0 = 0;
 				float4 r0 = 0, r1 = 0, r2 = 0, r3 = 0, r4 = 0, r5 = 0, r6 = 0, r7 = 0, r8 = 0, r9 = 0;
 
 				r0.xyzw = tex2D(_MaskTex, float2(v1.x, v1.y));
@@ -11749,12 +11749,12 @@ Shader "ShaderRipperTest/VariantMonster"
 				float4 v0 = v.vertex;
 				float2 v1 = v.uv0;
 				float4 v2 = v.color;
-				float4 o0;  // -> o.pos
-				float4 o1;  // -> o.uv0
-				float4 o2;  // -> o.color0
+				float4 o0 = 0;  // -> o.pos
+				float4 o1 = 0;  // -> o.uv0
+				float4 o2 = 0;  // -> o.color0
 				float4 r0 = 0, r1 = 0;
 
-				o0 = UnityObjectToClipPos(v0.xyz);
+				o0 = UnityObjectToClipPos(v.vertex.xyz);
 				o1.xy = float2(mad(v1.x, _MainTex_ST.x, _MainTex_ST.z), mad(v1.y, _MainTex_ST.y, _MainTex_ST.w));
 				o2.xyzw = float4(v2.x, v2.y, v2.z, v2.w);
 
@@ -11769,7 +11769,7 @@ Shader "ShaderRipperTest/VariantMonster"
 				float4 v0 = i.pos;
 				float2 v1 = i.uv0;
 				float4 v2 = i.color0;
-				float4 o0;
+				float4 o0 = 0;
 				float4 r0 = 0, r1 = 0, r2 = 0, r3 = 0, r4 = 0, r5 = 0, r6 = 0, r7 = 0, r8 = 0, r9 = 0;
 
 				r0.xyzw = tex2D(_MaskTex, float2(v1.x, v1.y));
@@ -13451,12 +13451,12 @@ Shader "ShaderRipperTest/VariantMonster"
 				float4 v0 = v.vertex;
 				float2 v1 = v.uv0;
 				float4 v2 = v.color;
-				float4 o0;  // -> o.pos
-				float4 o1;  // -> o.uv0
-				float4 o2;  // -> o.color0
+				float4 o0 = 0;  // -> o.pos
+				float4 o1 = 0;  // -> o.uv0
+				float4 o2 = 0;  // -> o.color0
 				float4 r0 = 0, r1 = 0;
 
-				o0 = UnityObjectToClipPos(v0.xyz);
+				o0 = UnityObjectToClipPos(v.vertex.xyz);
 				o1.xy = float2(mad(v1.x, _MainTex_ST.x, _MainTex_ST.z), mad(v1.y, _MainTex_ST.y, _MainTex_ST.w));
 				o2.xyzw = float4(v2.x, v2.y, v2.z, v2.w);
 
@@ -13471,7 +13471,7 @@ Shader "ShaderRipperTest/VariantMonster"
 				float4 v0 = i.pos;
 				float2 v1 = i.uv0;
 				float4 v2 = i.color0;
-				float4 o0;
+				float4 o0 = 0;
 				float4 r0 = 0, r1 = 0, r2 = 0, r3 = 0, r4 = 0, r5 = 0, r6 = 0, r7 = 0, r8 = 0, r9 = 0;
 
 				r0.xyzw = tex2D(_MaskTex, float2(v1.x, v1.y));
@@ -15128,12 +15128,12 @@ Shader "ShaderRipperTest/VariantMonster"
 				float4 v0 = v.vertex;
 				float2 v1 = v.uv0;
 				float4 v2 = v.color;
-				float4 o0;  // -> o.pos
-				float4 o1;  // -> o.uv0
-				float4 o2;  // -> o.color0
+				float4 o0 = 0;  // -> o.pos
+				float4 o1 = 0;  // -> o.uv0
+				float4 o2 = 0;  // -> o.color0
 				float4 r0 = 0, r1 = 0;
 
-				o0 = UnityObjectToClipPos(v0.xyz);
+				o0 = UnityObjectToClipPos(v.vertex.xyz);
 				o1.xy = float2(mad(v1.x, _MainTex_ST.x, _MainTex_ST.z), mad(v1.y, _MainTex_ST.y, _MainTex_ST.w));
 				o2.xyzw = float4(v2.x, v2.y, v2.z, v2.w);
 
@@ -15148,7 +15148,7 @@ Shader "ShaderRipperTest/VariantMonster"
 				float4 v0 = i.pos;
 				float2 v1 = i.uv0;
 				float4 v2 = i.color0;
-				float4 o0;
+				float4 o0 = 0;
 				float4 r0 = 0, r1 = 0, r2 = 0, r3 = 0, r4 = 0, r5 = 0, r6 = 0, r7 = 0, r8 = 0, r9 = 0;
 
 				r0.xyzw = tex2D(_MaskTex, float2(v1.x, v1.y));
@@ -16823,12 +16823,12 @@ Shader "ShaderRipperTest/VariantMonster"
 				float4 v0 = v.vertex;
 				float2 v1 = v.uv0;
 				float4 v2 = v.color;
-				float4 o0;  // -> o.pos
-				float4 o1;  // -> o.uv0
-				float4 o2;  // -> o.color0
+				float4 o0 = 0;  // -> o.pos
+				float4 o1 = 0;  // -> o.uv0
+				float4 o2 = 0;  // -> o.color0
 				float4 r0 = 0, r1 = 0;
 
-				o0 = UnityObjectToClipPos(v0.xyz);
+				o0 = UnityObjectToClipPos(v.vertex.xyz);
 				o1.xy = float2(mad(v1.x, _MainTex_ST.x, _MainTex_ST.z), mad(v1.y, _MainTex_ST.y, _MainTex_ST.w));
 				o2.xyzw = float4(v2.x, v2.y, v2.z, v2.w);
 
@@ -16843,7 +16843,7 @@ Shader "ShaderRipperTest/VariantMonster"
 				float4 v0 = i.pos;
 				float2 v1 = i.uv0;
 				float4 v2 = i.color0;
-				float4 o0;
+				float4 o0 = 0;
 				float4 r0 = 0, r1 = 0, r2 = 0, r3 = 0, r4 = 0, r5 = 0, r6 = 0, r7 = 0, r8 = 0;
 
 				r0.xyzw = tex2D(_MaskTex, float2(v1.x, v1.y));
@@ -18276,12 +18276,12 @@ Shader "ShaderRipperTest/VariantMonster"
 				float4 v0 = v.vertex;
 				float2 v1 = v.uv0;
 				float4 v2 = v.color;
-				float4 o0;  // -> o.pos
-				float4 o1;  // -> o.uv0
-				float4 o2;  // -> o.color0
+				float4 o0 = 0;  // -> o.pos
+				float4 o1 = 0;  // -> o.uv0
+				float4 o2 = 0;  // -> o.color0
 				float4 r0 = 0, r1 = 0;
 
-				o0 = UnityObjectToClipPos(v0.xyz);
+				o0 = UnityObjectToClipPos(v.vertex.xyz);
 				o1.xy = float2(mad(v1.x, _MainTex_ST.x, _MainTex_ST.z), mad(v1.y, _MainTex_ST.y, _MainTex_ST.w));
 				o2.xyzw = float4(v2.x, v2.y, v2.z, v2.w);
 
@@ -18296,7 +18296,7 @@ Shader "ShaderRipperTest/VariantMonster"
 				float4 v0 = i.pos;
 				float2 v1 = i.uv0;
 				float4 v2 = i.color0;
-				float4 o0;
+				float4 o0 = 0;
 				float4 r0 = 0, r1 = 0, r2 = 0, r3 = 0, r4 = 0, r5 = 0, r6 = 0, r7 = 0, r8 = 0;
 
 				r0.xyzw = tex2D(_MaskTex, float2(v1.x, v1.y));
@@ -19292,12 +19292,12 @@ Shader "ShaderRipperTest/VariantMonster"
 				float4 v0 = v.vertex;
 				float2 v1 = v.uv0;
 				float4 v2 = v.color;
-				float4 o0;  // -> o.pos
-				float4 o1;  // -> o.uv0
-				float4 o2;  // -> o.color0
+				float4 o0 = 0;  // -> o.pos
+				float4 o1 = 0;  // -> o.uv0
+				float4 o2 = 0;  // -> o.color0
 				float4 r0 = 0, r1 = 0;
 
-				o0 = UnityObjectToClipPos(v0.xyz);
+				o0 = UnityObjectToClipPos(v.vertex.xyz);
 				o1.xy = float2(mad(v1.x, _MainTex_ST.x, _MainTex_ST.z), mad(v1.y, _MainTex_ST.y, _MainTex_ST.w));
 				o2.xyzw = float4(v2.x, v2.y, v2.z, v2.w);
 
@@ -19312,7 +19312,7 @@ Shader "ShaderRipperTest/VariantMonster"
 				float4 v0 = i.pos;
 				float2 v1 = i.uv0;
 				float4 v2 = i.color0;
-				float4 o0;
+				float4 o0 = 0;
 				float4 r0 = 0, r1 = 0, r2 = 0, r3 = 0, r4 = 0, r5 = 0, r6 = 0, r7 = 0, r8 = 0;
 
 				r0.xyzw = tex2D(_MaskTex, float2(v1.x, v1.y));
@@ -20318,12 +20318,12 @@ Shader "ShaderRipperTest/VariantMonster"
 				float4 v0 = v.vertex;
 				float2 v1 = v.uv0;
 				float4 v2 = v.color;
-				float4 o0;  // -> o.pos
-				float4 o1;  // -> o.uv0
-				float4 o2;  // -> o.color0
+				float4 o0 = 0;  // -> o.pos
+				float4 o1 = 0;  // -> o.uv0
+				float4 o2 = 0;  // -> o.color0
 				float4 r0 = 0, r1 = 0;
 
-				o0 = UnityObjectToClipPos(v0.xyz);
+				o0 = UnityObjectToClipPos(v.vertex.xyz);
 				o1.xy = float2(mad(v1.x, _MainTex_ST.x, _MainTex_ST.z), mad(v1.y, _MainTex_ST.y, _MainTex_ST.w));
 				o2.xyzw = float4(v2.x, v2.y, v2.z, v2.w);
 
@@ -20338,7 +20338,7 @@ Shader "ShaderRipperTest/VariantMonster"
 				float4 v0 = i.pos;
 				float2 v1 = i.uv0;
 				float4 v2 = i.color0;
-				float4 o0;
+				float4 o0 = 0;
 				float4 r0 = 0, r1 = 0, r2 = 0, r3 = 0, r4 = 0, r5 = 0, r6 = 0, r7 = 0, r8 = 0;
 
 				r0.xyzw = tex2D(_MaskTex, float2(v1.x, v1.y));
@@ -21334,12 +21334,12 @@ Shader "ShaderRipperTest/VariantMonster"
 				float4 v0 = v.vertex;
 				float2 v1 = v.uv0;
 				float4 v2 = v.color;
-				float4 o0;  // -> o.pos
-				float4 o1;  // -> o.uv0
-				float4 o2;  // -> o.color0
+				float4 o0 = 0;  // -> o.pos
+				float4 o1 = 0;  // -> o.uv0
+				float4 o2 = 0;  // -> o.color0
 				float4 r0 = 0, r1 = 0;
 
-				o0 = UnityObjectToClipPos(v0.xyz);
+				o0 = UnityObjectToClipPos(v.vertex.xyz);
 				o1.xy = float2(mad(v1.x, _MainTex_ST.x, _MainTex_ST.z), mad(v1.y, _MainTex_ST.y, _MainTex_ST.w));
 				o2.xyzw = float4(v2.x, v2.y, v2.z, v2.w);
 
@@ -21354,7 +21354,7 @@ Shader "ShaderRipperTest/VariantMonster"
 				float4 v0 = i.pos;
 				float2 v1 = i.uv0;
 				float4 v2 = i.color0;
-				float4 o0;
+				float4 o0 = 0;
 				float4 r0 = 0, r1 = 0, r2 = 0, r3 = 0, r4 = 0, r5 = 0, r6 = 0, r7 = 0, r8 = 0;
 
 				r0.xyzw = tex2D(_MaskTex, float2(v1.x, v1.y));
@@ -22360,12 +22360,12 @@ Shader "ShaderRipperTest/VariantMonster"
 				float4 v0 = v.vertex;
 				float2 v1 = v.uv0;
 				float4 v2 = v.color;
-				float4 o0;  // -> o.pos
-				float4 o1;  // -> o.uv0
-				float4 o2;  // -> o.color0
+				float4 o0 = 0;  // -> o.pos
+				float4 o1 = 0;  // -> o.uv0
+				float4 o2 = 0;  // -> o.color0
 				float4 r0 = 0, r1 = 0;
 
-				o0 = UnityObjectToClipPos(v0.xyz);
+				o0 = UnityObjectToClipPos(v.vertex.xyz);
 				o1.xy = float2(mad(v1.x, _MainTex_ST.x, _MainTex_ST.z), mad(v1.y, _MainTex_ST.y, _MainTex_ST.w));
 				o2.xyzw = float4(v2.x, v2.y, v2.z, v2.w);
 
@@ -22380,7 +22380,7 @@ Shader "ShaderRipperTest/VariantMonster"
 				float4 v0 = i.pos;
 				float2 v1 = i.uv0;
 				float4 v2 = i.color0;
-				float4 o0;
+				float4 o0 = 0;
 				float4 r0 = 0, r1 = 0, r2 = 0, r3 = 0, r4 = 0, r5 = 0, r6 = 0, r7 = 0, r8 = 0;
 
 				r0.xyzw = tex2D(_MaskTex, float2(v1.x, v1.y));
@@ -23385,12 +23385,12 @@ Shader "ShaderRipperTest/VariantMonster"
 				float4 v0 = v.vertex;
 				float2 v1 = v.uv0;
 				float4 v2 = v.color;
-				float4 o0;  // -> o.pos
-				float4 o1;  // -> o.uv0
-				float4 o2;  // -> o.color0
+				float4 o0 = 0;  // -> o.pos
+				float4 o1 = 0;  // -> o.uv0
+				float4 o2 = 0;  // -> o.color0
 				float4 r0 = 0, r1 = 0;
 
-				o0 = UnityObjectToClipPos(v0.xyz);
+				o0 = UnityObjectToClipPos(v.vertex.xyz);
 				o1.xy = float2(mad(v1.x, _MainTex_ST.x, _MainTex_ST.z), mad(v1.y, _MainTex_ST.y, _MainTex_ST.w));
 				o2.xyzw = float4(v2.x, v2.y, v2.z, v2.w);
 
@@ -23405,7 +23405,7 @@ Shader "ShaderRipperTest/VariantMonster"
 				float4 v0 = i.pos;
 				float2 v1 = i.uv0;
 				float4 v2 = i.color0;
-				float4 o0;
+				float4 o0 = 0;
 				float4 r0 = 0, r1 = 0, r2 = 0, r3 = 0, r4 = 0, r5 = 0, r6 = 0, r7 = 0, r8 = 0;
 
 				r0.xyzw = tex2D(_MaskTex, float2(v1.x, v1.y));
@@ -24420,12 +24420,12 @@ Shader "ShaderRipperTest/VariantMonster"
 				float4 v0 = v.vertex;
 				float2 v1 = v.uv0;
 				float4 v2 = v.color;
-				float4 o0;  // -> o.pos
-				float4 o1;  // -> o.uv0
-				float4 o2;  // -> o.color0
+				float4 o0 = 0;  // -> o.pos
+				float4 o1 = 0;  // -> o.uv0
+				float4 o2 = 0;  // -> o.color0
 				float4 r0 = 0, r1 = 0;
 
-				o0 = UnityObjectToClipPos(v0.xyz);
+				o0 = UnityObjectToClipPos(v.vertex.xyz);
 				o1.xy = float2(mad(v1.x, _MainTex_ST.x, _MainTex_ST.z), mad(v1.y, _MainTex_ST.y, _MainTex_ST.w));
 				o2.xyzw = float4(v2.x, v2.y, v2.z, v2.w);
 
@@ -24440,7 +24440,7 @@ Shader "ShaderRipperTest/VariantMonster"
 				float4 v0 = i.pos;
 				float2 v1 = i.uv0;
 				float4 v2 = i.color0;
-				float4 o0;
+				float4 o0 = 0;
 				float4 r0 = 0, r1 = 0, r2 = 0, r3 = 0, r4 = 0, r5 = 0, r6 = 0, r7 = 0, r8 = 0;
 
 				r0.xyzw = tex2D(_MaskTex, float2(v1.x, v1.y));
@@ -25438,12 +25438,12 @@ Shader "ShaderRipperTest/VariantMonster"
 				float4 v0 = v.vertex;
 				float2 v1 = v.uv0;
 				float4 v2 = v.color;
-				float4 o0;  // -> o.pos
-				float4 o1;  // -> o.uv0
-				float4 o2;  // -> o.color0
+				float4 o0 = 0;  // -> o.pos
+				float4 o1 = 0;  // -> o.uv0
+				float4 o2 = 0;  // -> o.color0
 				float4 r0 = 0, r1 = 0;
 
-				o0 = UnityObjectToClipPos(v0.xyz);
+				o0 = UnityObjectToClipPos(v.vertex.xyz);
 				o1.xy = float2(mad(v1.x, _MainTex_ST.x, _MainTex_ST.z), mad(v1.y, _MainTex_ST.y, _MainTex_ST.w));
 				o2.xyzw = float4(v2.x, v2.y, v2.z, v2.w);
 
@@ -25458,7 +25458,7 @@ Shader "ShaderRipperTest/VariantMonster"
 				float4 v0 = i.pos;
 				float2 v1 = i.uv0;
 				float4 v2 = i.color0;
-				float4 o0;
+				float4 o0 = 0;
 				float4 r0 = 0, r1 = 0, r2 = 0, r3 = 0, r4 = 0, r5 = 0, r6 = 0, r7 = 0, r8 = 0;
 
 				r0.xyzw = tex2D(_MaskTex, float2(v1.x, v1.y));
@@ -26466,12 +26466,12 @@ Shader "ShaderRipperTest/VariantMonster"
 				float4 v0 = v.vertex;
 				float2 v1 = v.uv0;
 				float4 v2 = v.color;
-				float4 o0;  // -> o.pos
-				float4 o1;  // -> o.uv0
-				float4 o2;  // -> o.color0
+				float4 o0 = 0;  // -> o.pos
+				float4 o1 = 0;  // -> o.uv0
+				float4 o2 = 0;  // -> o.color0
 				float4 r0 = 0, r1 = 0;
 
-				o0 = UnityObjectToClipPos(v0.xyz);
+				o0 = UnityObjectToClipPos(v.vertex.xyz);
 				o1.xy = float2(mad(v1.x, _MainTex_ST.x, _MainTex_ST.z), mad(v1.y, _MainTex_ST.y, _MainTex_ST.w));
 				o2.xyzw = float4(v2.x, v2.y, v2.z, v2.w);
 
@@ -26486,7 +26486,7 @@ Shader "ShaderRipperTest/VariantMonster"
 				float4 v0 = i.pos;
 				float2 v1 = i.uv0;
 				float4 v2 = i.color0;
-				float4 o0;
+				float4 o0 = 0;
 				float4 r0 = 0, r1 = 0, r2 = 0, r3 = 0, r4 = 0, r5 = 0, r6 = 0, r7 = 0, r8 = 0;
 
 				r0.xyzw = tex2D(_MaskTex, float2(v1.x, v1.y));
@@ -27281,12 +27281,12 @@ Shader "ShaderRipperTest/VariantMonster"
 				float4 v0 = v.vertex;
 				float2 v1 = v.uv0;
 				float4 v2 = v.color;
-				float4 o0;  // -> o.pos
-				float4 o1;  // -> o.uv0
-				float4 o2;  // -> o.color0
+				float4 o0 = 0;  // -> o.pos
+				float4 o1 = 0;  // -> o.uv0
+				float4 o2 = 0;  // -> o.color0
 				float4 r0 = 0, r1 = 0;
 
-				o0 = UnityObjectToClipPos(v0.xyz);
+				o0 = UnityObjectToClipPos(v.vertex.xyz);
 				o1.xy = float2(mad(v1.x, _MainTex_ST.x, _MainTex_ST.z), mad(v1.y, _MainTex_ST.y, _MainTex_ST.w));
 				o2.xyzw = float4(v2.x, v2.y, v2.z, v2.w);
 
@@ -27301,7 +27301,7 @@ Shader "ShaderRipperTest/VariantMonster"
 				float4 v0 = i.pos;
 				float2 v1 = i.uv0;
 				float4 v2 = i.color0;
-				float4 o0;
+				float4 o0 = 0;
 				float4 r0 = 0, r1 = 0, r2 = 0, r3 = 0, r4 = 0, r5 = 0, r6 = 0, r7 = 0, r8 = 0;
 
 				r0.xyzw = tex2D(_MaskTex, float2(v1.x, v1.y));
@@ -28048,12 +28048,12 @@ Shader "ShaderRipperTest/VariantMonster"
 				float4 v0 = v.vertex;
 				float2 v1 = v.uv0;
 				float4 v2 = v.color;
-				float4 o0;  // -> o.pos
-				float4 o1;  // -> o.uv0
-				float4 o2;  // -> o.color0
+				float4 o0 = 0;  // -> o.pos
+				float4 o1 = 0;  // -> o.uv0
+				float4 o2 = 0;  // -> o.color0
 				float4 r0 = 0, r1 = 0;
 
-				o0 = UnityObjectToClipPos(v0.xyz);
+				o0 = UnityObjectToClipPos(v.vertex.xyz);
 				o1.xy = float2(mad(v1.x, _MainTex_ST.x, _MainTex_ST.z), mad(v1.y, _MainTex_ST.y, _MainTex_ST.w));
 				o2.xyzw = float4(v2.x, v2.y, v2.z, v2.w);
 
@@ -28068,7 +28068,7 @@ Shader "ShaderRipperTest/VariantMonster"
 				float4 v0 = i.pos;
 				float2 v1 = i.uv0;
 				float4 v2 = i.color0;
-				float4 o0;
+				float4 o0 = 0;
 				float4 r0 = 0, r1 = 0, r2 = 0, r3 = 0, r4 = 0, r5 = 0, r6 = 0, r7 = 0, r8 = 0;
 
 				r0.xyzw = tex2D(_MaskTex, float2(v1.x, v1.y));
@@ -29462,12 +29462,12 @@ Shader "ShaderRipperTest/VariantMonster"
 				float4 v0 = v.vertex;
 				float2 v1 = v.uv0;
 				float4 v2 = v.color;
-				float4 o0;  // -> o.pos
-				float4 o1;  // -> o.uv0
-				float4 o2;  // -> o.color0
+				float4 o0 = 0;  // -> o.pos
+				float4 o1 = 0;  // -> o.uv0
+				float4 o2 = 0;  // -> o.color0
 				float4 r0 = 0, r1 = 0;
 
-				o0 = UnityObjectToClipPos(v0.xyz);
+				o0 = UnityObjectToClipPos(v.vertex.xyz);
 				o1.xy = float2(mad(v1.x, _MainTex_ST.x, _MainTex_ST.z), mad(v1.y, _MainTex_ST.y, _MainTex_ST.w));
 				o2.xyzw = float4(v2.x, v2.y, v2.z, v2.w);
 
@@ -29482,7 +29482,7 @@ Shader "ShaderRipperTest/VariantMonster"
 				float4 v0 = i.pos;
 				float2 v1 = i.uv0;
 				float4 v2 = i.color0;
-				float4 o0;
+				float4 o0 = 0;
 				float4 r0 = 0, r1 = 0, r2 = 0, r3 = 0, r4 = 0, r5 = 0, r6 = 0, r7 = 0, r8 = 0, r9 = 0;
 
 				r0.xyzw = tex2D(_MaskTex, float2(v1.x, v1.y));
@@ -31108,12 +31108,12 @@ Shader "ShaderRipperTest/VariantMonster"
 				float4 v0 = v.vertex;
 				float2 v1 = v.uv0;
 				float4 v2 = v.color;
-				float4 o0;  // -> o.pos
-				float4 o1;  // -> o.uv0
-				float4 o2;  // -> o.color0
+				float4 o0 = 0;  // -> o.pos
+				float4 o1 = 0;  // -> o.uv0
+				float4 o2 = 0;  // -> o.color0
 				float4 r0 = 0, r1 = 0;
 
-				o0 = UnityObjectToClipPos(v0.xyz);
+				o0 = UnityObjectToClipPos(v.vertex.xyz);
 				o1.xy = float2(mad(v1.x, _MainTex_ST.x, _MainTex_ST.z), mad(v1.y, _MainTex_ST.y, _MainTex_ST.w));
 				o2.xyzw = float4(v2.x, v2.y, v2.z, v2.w);
 
@@ -31128,7 +31128,7 @@ Shader "ShaderRipperTest/VariantMonster"
 				float4 v0 = i.pos;
 				float2 v1 = i.uv0;
 				float4 v2 = i.color0;
-				float4 o0;
+				float4 o0 = 0;
 				float4 r0 = 0, r1 = 0, r2 = 0, r3 = 0, r4 = 0, r5 = 0, r6 = 0, r7 = 0, r8 = 0, r9 = 0;
 
 				r0.xyzw = tex2D(_MaskTex, float2(v1.x, v1.y));
@@ -32774,12 +32774,12 @@ Shader "ShaderRipperTest/VariantMonster"
 				float4 v0 = v.vertex;
 				float2 v1 = v.uv0;
 				float4 v2 = v.color;
-				float4 o0;  // -> o.pos
-				float4 o1;  // -> o.uv0
-				float4 o2;  // -> o.color0
+				float4 o0 = 0;  // -> o.pos
+				float4 o1 = 0;  // -> o.uv0
+				float4 o2 = 0;  // -> o.color0
 				float4 r0 = 0, r1 = 0;
 
-				o0 = UnityObjectToClipPos(v0.xyz);
+				o0 = UnityObjectToClipPos(v.vertex.xyz);
 				o1.xy = float2(mad(v1.x, _MainTex_ST.x, _MainTex_ST.z), mad(v1.y, _MainTex_ST.y, _MainTex_ST.w));
 				o2.xyzw = float4(v2.x, v2.y, v2.z, v2.w);
 
@@ -32794,7 +32794,7 @@ Shader "ShaderRipperTest/VariantMonster"
 				float4 v0 = i.pos;
 				float2 v1 = i.uv0;
 				float4 v2 = i.color0;
-				float4 o0;
+				float4 o0 = 0;
 				float4 r0 = 0, r1 = 0, r2 = 0, r3 = 0, r4 = 0, r5 = 0, r6 = 0, r7 = 0, r8 = 0, r9 = 0;
 
 				r0.xyzw = tex2D(_MaskTex, float2(v1.x, v1.y));
@@ -34420,12 +34420,12 @@ Shader "ShaderRipperTest/VariantMonster"
 				float4 v0 = v.vertex;
 				float2 v1 = v.uv0;
 				float4 v2 = v.color;
-				float4 o0;  // -> o.pos
-				float4 o1;  // -> o.uv0
-				float4 o2;  // -> o.color0
+				float4 o0 = 0;  // -> o.pos
+				float4 o1 = 0;  // -> o.uv0
+				float4 o2 = 0;  // -> o.color0
 				float4 r0 = 0, r1 = 0;
 
-				o0 = UnityObjectToClipPos(v0.xyz);
+				o0 = UnityObjectToClipPos(v.vertex.xyz);
 				o1.xy = float2(mad(v1.x, _MainTex_ST.x, _MainTex_ST.z), mad(v1.y, _MainTex_ST.y, _MainTex_ST.w));
 				o2.xyzw = float4(v2.x, v2.y, v2.z, v2.w);
 
@@ -34440,7 +34440,7 @@ Shader "ShaderRipperTest/VariantMonster"
 				float4 v0 = i.pos;
 				float2 v1 = i.uv0;
 				float4 v2 = i.color0;
-				float4 o0;
+				float4 o0 = 0;
 				float4 r0 = 0, r1 = 0, r2 = 0, r3 = 0, r4 = 0, r5 = 0, r6 = 0, r7 = 0, r8 = 0, r9 = 0;
 
 				r0.xyzw = tex2D(_MaskTex, float2(v1.x, v1.y));
@@ -36086,12 +36086,12 @@ Shader "ShaderRipperTest/VariantMonster"
 				float4 v0 = v.vertex;
 				float2 v1 = v.uv0;
 				float4 v2 = v.color;
-				float4 o0;  // -> o.pos
-				float4 o1;  // -> o.uv0
-				float4 o2;  // -> o.color0
+				float4 o0 = 0;  // -> o.pos
+				float4 o1 = 0;  // -> o.uv0
+				float4 o2 = 0;  // -> o.color0
 				float4 r0 = 0, r1 = 0;
 
-				o0 = UnityObjectToClipPos(v0.xyz);
+				o0 = UnityObjectToClipPos(v.vertex.xyz);
 				o1.xy = float2(mad(v1.x, _MainTex_ST.x, _MainTex_ST.z), mad(v1.y, _MainTex_ST.y, _MainTex_ST.w));
 				o2.xyzw = float4(v2.x, v2.y, v2.z, v2.w);
 
@@ -36106,7 +36106,7 @@ Shader "ShaderRipperTest/VariantMonster"
 				float4 v0 = i.pos;
 				float2 v1 = i.uv0;
 				float4 v2 = i.color0;
-				float4 o0;
+				float4 o0 = 0;
 				float4 r0 = 0, r1 = 0, r2 = 0, r3 = 0, r4 = 0, r5 = 0, r6 = 0, r7 = 0, r8 = 0, r9 = 0;
 
 				r0.xyzw = tex2D(_MaskTex, float2(v1.x, v1.y));
@@ -37741,12 +37741,12 @@ Shader "ShaderRipperTest/VariantMonster"
 				float4 v0 = v.vertex;
 				float2 v1 = v.uv0;
 				float4 v2 = v.color;
-				float4 o0;  // -> o.pos
-				float4 o1;  // -> o.uv0
-				float4 o2;  // -> o.color0
+				float4 o0 = 0;  // -> o.pos
+				float4 o1 = 0;  // -> o.uv0
+				float4 o2 = 0;  // -> o.color0
 				float4 r0 = 0, r1 = 0;
 
-				o0 = UnityObjectToClipPos(v0.xyz);
+				o0 = UnityObjectToClipPos(v.vertex.xyz);
 				o1.xy = float2(mad(v1.x, _MainTex_ST.x, _MainTex_ST.z), mad(v1.y, _MainTex_ST.y, _MainTex_ST.w));
 				o2.xyzw = float4(v2.x, v2.y, v2.z, v2.w);
 
@@ -37761,7 +37761,7 @@ Shader "ShaderRipperTest/VariantMonster"
 				float4 v0 = i.pos;
 				float2 v1 = i.uv0;
 				float4 v2 = i.color0;
-				float4 o0;
+				float4 o0 = 0;
 				float4 r0 = 0, r1 = 0, r2 = 0, r3 = 0, r4 = 0, r5 = 0, r6 = 0, r7 = 0, r8 = 0, r9 = 0;
 
 				r0.xyzw = tex2D(_MaskTex, float2(v1.x, v1.y));
@@ -39416,12 +39416,12 @@ Shader "ShaderRipperTest/VariantMonster"
 				float4 v0 = v.vertex;
 				float2 v1 = v.uv0;
 				float4 v2 = v.color;
-				float4 o0;  // -> o.pos
-				float4 o1;  // -> o.uv0
-				float4 o2;  // -> o.color0
+				float4 o0 = 0;  // -> o.pos
+				float4 o1 = 0;  // -> o.uv0
+				float4 o2 = 0;  // -> o.color0
 				float4 r0 = 0, r1 = 0;
 
-				o0 = UnityObjectToClipPos(v0.xyz);
+				o0 = UnityObjectToClipPos(v.vertex.xyz);
 				o1.xy = float2(mad(v1.x, _MainTex_ST.x, _MainTex_ST.z), mad(v1.y, _MainTex_ST.y, _MainTex_ST.w));
 				o2.xyzw = float4(v2.x, v2.y, v2.z, v2.w);
 
@@ -39436,7 +39436,7 @@ Shader "ShaderRipperTest/VariantMonster"
 				float4 v0 = i.pos;
 				float2 v1 = i.uv0;
 				float4 v2 = i.color0;
-				float4 o0;
+				float4 o0 = 0;
 				float4 r0 = 0, r1 = 0, r2 = 0, r3 = 0, r4 = 0, r5 = 0, r6 = 0, r7 = 0, r8 = 0, r9 = 0;
 
 				r0.xyzw = tex2D(_MaskTex, float2(v1.x, v1.y));
@@ -41064,12 +41064,12 @@ Shader "ShaderRipperTest/VariantMonster"
 				float4 v0 = v.vertex;
 				float2 v1 = v.uv0;
 				float4 v2 = v.color;
-				float4 o0;  // -> o.pos
-				float4 o1;  // -> o.uv0
-				float4 o2;  // -> o.color0
+				float4 o0 = 0;  // -> o.pos
+				float4 o1 = 0;  // -> o.uv0
+				float4 o2 = 0;  // -> o.color0
 				float4 r0 = 0, r1 = 0;
 
-				o0 = UnityObjectToClipPos(v0.xyz);
+				o0 = UnityObjectToClipPos(v.vertex.xyz);
 				o1.xy = float2(mad(v1.x, _MainTex_ST.x, _MainTex_ST.z), mad(v1.y, _MainTex_ST.y, _MainTex_ST.w));
 				o2.xyzw = float4(v2.x, v2.y, v2.z, v2.w);
 
@@ -41084,7 +41084,7 @@ Shader "ShaderRipperTest/VariantMonster"
 				float4 v0 = i.pos;
 				float2 v1 = i.uv0;
 				float4 v2 = i.color0;
-				float4 o0;
+				float4 o0 = 0;
 				float4 r0 = 0, r1 = 0, r2 = 0, r3 = 0, r4 = 0, r5 = 0, r6 = 0, r7 = 0, r8 = 0, r9 = 0;
 
 				r0.xyzw = tex2D(_MaskTex, float2(v1.x, v1.y));
@@ -42732,12 +42732,12 @@ Shader "ShaderRipperTest/VariantMonster"
 				float4 v0 = v.vertex;
 				float2 v1 = v.uv0;
 				float4 v2 = v.color;
-				float4 o0;  // -> o.pos
-				float4 o1;  // -> o.uv0
-				float4 o2;  // -> o.color0
+				float4 o0 = 0;  // -> o.pos
+				float4 o1 = 0;  // -> o.uv0
+				float4 o2 = 0;  // -> o.color0
 				float4 r0 = 0, r1 = 0;
 
-				o0 = UnityObjectToClipPos(v0.xyz);
+				o0 = UnityObjectToClipPos(v.vertex.xyz);
 				o1.xy = float2(mad(v1.x, _MainTex_ST.x, _MainTex_ST.z), mad(v1.y, _MainTex_ST.y, _MainTex_ST.w));
 				o2.xyzw = float4(v2.x, v2.y, v2.z, v2.w);
 
@@ -42752,7 +42752,7 @@ Shader "ShaderRipperTest/VariantMonster"
 				float4 v0 = i.pos;
 				float2 v1 = i.uv0;
 				float4 v2 = i.color0;
-				float4 o0;
+				float4 o0 = 0;
 				float4 r0 = 0, r1 = 0, r2 = 0, r3 = 0, r4 = 0, r5 = 0, r6 = 0, r7 = 0, r8 = 0;
 
 				r0.xyzw = tex2D(_MaskTex, float2(v1.x, v1.y));
@@ -44158,12 +44158,12 @@ Shader "ShaderRipperTest/VariantMonster"
 				float4 v0 = v.vertex;
 				float2 v1 = v.uv0;
 				float4 v2 = v.color;
-				float4 o0;  // -> o.pos
-				float4 o1;  // -> o.uv0
-				float4 o2;  // -> o.color0
+				float4 o0 = 0;  // -> o.pos
+				float4 o1 = 0;  // -> o.uv0
+				float4 o2 = 0;  // -> o.color0
 				float4 r0 = 0, r1 = 0;
 
-				o0 = UnityObjectToClipPos(v0.xyz);
+				o0 = UnityObjectToClipPos(v.vertex.xyz);
 				o1.xy = float2(mad(v1.x, _MainTex_ST.x, _MainTex_ST.z), mad(v1.y, _MainTex_ST.y, _MainTex_ST.w));
 				o2.xyzw = float4(v2.x, v2.y, v2.z, v2.w);
 
@@ -44178,7 +44178,7 @@ Shader "ShaderRipperTest/VariantMonster"
 				float4 v0 = i.pos;
 				float2 v1 = i.uv0;
 				float4 v2 = i.color0;
-				float4 o0;
+				float4 o0 = 0;
 				float4 r0 = 0, r1 = 0, r2 = 0, r3 = 0, r4 = 0, r5 = 0, r6 = 0, r7 = 0, r8 = 0;
 
 				r0.xyzw = tex2D(_MaskTex, float2(v1.x, v1.y));
@@ -45145,12 +45145,12 @@ Shader "ShaderRipperTest/VariantMonster"
 				float4 v0 = v.vertex;
 				float2 v1 = v.uv0;
 				float4 v2 = v.color;
-				float4 o0;  // -> o.pos
-				float4 o1;  // -> o.uv0
-				float4 o2;  // -> o.color0
+				float4 o0 = 0;  // -> o.pos
+				float4 o1 = 0;  // -> o.uv0
+				float4 o2 = 0;  // -> o.color0
 				float4 r0 = 0, r1 = 0;
 
-				o0 = UnityObjectToClipPos(v0.xyz);
+				o0 = UnityObjectToClipPos(v.vertex.xyz);
 				o1.xy = float2(mad(v1.x, _MainTex_ST.x, _MainTex_ST.z), mad(v1.y, _MainTex_ST.y, _MainTex_ST.w));
 				o2.xyzw = float4(v2.x, v2.y, v2.z, v2.w);
 
@@ -45165,7 +45165,7 @@ Shader "ShaderRipperTest/VariantMonster"
 				float4 v0 = i.pos;
 				float2 v1 = i.uv0;
 				float4 v2 = i.color0;
-				float4 o0;
+				float4 o0 = 0;
 				float4 r0 = 0, r1 = 0, r2 = 0, r3 = 0, r4 = 0, r5 = 0, r6 = 0, r7 = 0, r8 = 0;
 
 				r0.xyzw = tex2D(_MaskTex, float2(v1.x, v1.y));
@@ -46144,12 +46144,12 @@ Shader "ShaderRipperTest/VariantMonster"
 				float4 v0 = v.vertex;
 				float2 v1 = v.uv0;
 				float4 v2 = v.color;
-				float4 o0;  // -> o.pos
-				float4 o1;  // -> o.uv0
-				float4 o2;  // -> o.color0
+				float4 o0 = 0;  // -> o.pos
+				float4 o1 = 0;  // -> o.uv0
+				float4 o2 = 0;  // -> o.color0
 				float4 r0 = 0, r1 = 0;
 
-				o0 = UnityObjectToClipPos(v0.xyz);
+				o0 = UnityObjectToClipPos(v.vertex.xyz);
 				o1.xy = float2(mad(v1.x, _MainTex_ST.x, _MainTex_ST.z), mad(v1.y, _MainTex_ST.y, _MainTex_ST.w));
 				o2.xyzw = float4(v2.x, v2.y, v2.z, v2.w);
 
@@ -46164,7 +46164,7 @@ Shader "ShaderRipperTest/VariantMonster"
 				float4 v0 = i.pos;
 				float2 v1 = i.uv0;
 				float4 v2 = i.color0;
-				float4 o0;
+				float4 o0 = 0;
 				float4 r0 = 0, r1 = 0, r2 = 0, r3 = 0, r4 = 0, r5 = 0, r6 = 0, r7 = 0, r8 = 0;
 
 				r0.xyzw = tex2D(_MaskTex, float2(v1.x, v1.y));
@@ -47131,12 +47131,12 @@ Shader "ShaderRipperTest/VariantMonster"
 				float4 v0 = v.vertex;
 				float2 v1 = v.uv0;
 				float4 v2 = v.color;
-				float4 o0;  // -> o.pos
-				float4 o1;  // -> o.uv0
-				float4 o2;  // -> o.color0
+				float4 o0 = 0;  // -> o.pos
+				float4 o1 = 0;  // -> o.uv0
+				float4 o2 = 0;  // -> o.color0
 				float4 r0 = 0, r1 = 0;
 
-				o0 = UnityObjectToClipPos(v0.xyz);
+				o0 = UnityObjectToClipPos(v.vertex.xyz);
 				o1.xy = float2(mad(v1.x, _MainTex_ST.x, _MainTex_ST.z), mad(v1.y, _MainTex_ST.y, _MainTex_ST.w));
 				o2.xyzw = float4(v2.x, v2.y, v2.z, v2.w);
 
@@ -47151,7 +47151,7 @@ Shader "ShaderRipperTest/VariantMonster"
 				float4 v0 = i.pos;
 				float2 v1 = i.uv0;
 				float4 v2 = i.color0;
-				float4 o0;
+				float4 o0 = 0;
 				float4 r0 = 0, r1 = 0, r2 = 0, r3 = 0, r4 = 0, r5 = 0, r6 = 0, r7 = 0, r8 = 0;
 
 				r0.xyzw = tex2D(_MaskTex, float2(v1.x, v1.y));
@@ -48130,12 +48130,12 @@ Shader "ShaderRipperTest/VariantMonster"
 				float4 v0 = v.vertex;
 				float2 v1 = v.uv0;
 				float4 v2 = v.color;
-				float4 o0;  // -> o.pos
-				float4 o1;  // -> o.uv0
-				float4 o2;  // -> o.color0
+				float4 o0 = 0;  // -> o.pos
+				float4 o1 = 0;  // -> o.uv0
+				float4 o2 = 0;  // -> o.color0
 				float4 r0 = 0, r1 = 0;
 
-				o0 = UnityObjectToClipPos(v0.xyz);
+				o0 = UnityObjectToClipPos(v.vertex.xyz);
 				o1.xy = float2(mad(v1.x, _MainTex_ST.x, _MainTex_ST.z), mad(v1.y, _MainTex_ST.y, _MainTex_ST.w));
 				o2.xyzw = float4(v2.x, v2.y, v2.z, v2.w);
 
@@ -48150,7 +48150,7 @@ Shader "ShaderRipperTest/VariantMonster"
 				float4 v0 = i.pos;
 				float2 v1 = i.uv0;
 				float4 v2 = i.color0;
-				float4 o0;
+				float4 o0 = 0;
 				float4 r0 = 0, r1 = 0, r2 = 0, r3 = 0, r4 = 0, r5 = 0, r6 = 0, r7 = 0, r8 = 0;
 
 				r0.xyzw = tex2D(_MaskTex, float2(v1.x, v1.y));
@@ -49126,12 +49126,12 @@ Shader "ShaderRipperTest/VariantMonster"
 				float4 v0 = v.vertex;
 				float2 v1 = v.uv0;
 				float4 v2 = v.color;
-				float4 o0;  // -> o.pos
-				float4 o1;  // -> o.uv0
-				float4 o2;  // -> o.color0
+				float4 o0 = 0;  // -> o.pos
+				float4 o1 = 0;  // -> o.uv0
+				float4 o2 = 0;  // -> o.color0
 				float4 r0 = 0, r1 = 0;
 
-				o0 = UnityObjectToClipPos(v0.xyz);
+				o0 = UnityObjectToClipPos(v.vertex.xyz);
 				o1.xy = float2(mad(v1.x, _MainTex_ST.x, _MainTex_ST.z), mad(v1.y, _MainTex_ST.y, _MainTex_ST.w));
 				o2.xyzw = float4(v2.x, v2.y, v2.z, v2.w);
 
@@ -49146,7 +49146,7 @@ Shader "ShaderRipperTest/VariantMonster"
 				float4 v0 = i.pos;
 				float2 v1 = i.uv0;
 				float4 v2 = i.color0;
-				float4 o0;
+				float4 o0 = 0;
 				float4 r0 = 0, r1 = 0, r2 = 0, r3 = 0, r4 = 0, r5 = 0, r6 = 0, r7 = 0, r8 = 0;
 
 				r0.xyzw = tex2D(_MaskTex, float2(v1.x, v1.y));
@@ -50134,12 +50134,12 @@ Shader "ShaderRipperTest/VariantMonster"
 				float4 v0 = v.vertex;
 				float2 v1 = v.uv0;
 				float4 v2 = v.color;
-				float4 o0;  // -> o.pos
-				float4 o1;  // -> o.uv0
-				float4 o2;  // -> o.color0
+				float4 o0 = 0;  // -> o.pos
+				float4 o1 = 0;  // -> o.uv0
+				float4 o2 = 0;  // -> o.color0
 				float4 r0 = 0, r1 = 0;
 
-				o0 = UnityObjectToClipPos(v0.xyz);
+				o0 = UnityObjectToClipPos(v.vertex.xyz);
 				o1.xy = float2(mad(v1.x, _MainTex_ST.x, _MainTex_ST.z), mad(v1.y, _MainTex_ST.y, _MainTex_ST.w));
 				o2.xyzw = float4(v2.x, v2.y, v2.z, v2.w);
 
@@ -50154,7 +50154,7 @@ Shader "ShaderRipperTest/VariantMonster"
 				float4 v0 = i.pos;
 				float2 v1 = i.uv0;
 				float4 v2 = i.color0;
-				float4 o0;
+				float4 o0 = 0;
 				float4 r0 = 0, r1 = 0, r2 = 0, r3 = 0, r4 = 0, r5 = 0, r6 = 0, r7 = 0, r8 = 0;
 
 				r0.xyzw = tex2D(_MaskTex, float2(v1.x, v1.y));
@@ -51123,12 +51123,12 @@ Shader "ShaderRipperTest/VariantMonster"
 				float4 v0 = v.vertex;
 				float2 v1 = v.uv0;
 				float4 v2 = v.color;
-				float4 o0;  // -> o.pos
-				float4 o1;  // -> o.uv0
-				float4 o2;  // -> o.color0
+				float4 o0 = 0;  // -> o.pos
+				float4 o1 = 0;  // -> o.uv0
+				float4 o2 = 0;  // -> o.color0
 				float4 r0 = 0, r1 = 0;
 
-				o0 = UnityObjectToClipPos(v0.xyz);
+				o0 = UnityObjectToClipPos(v.vertex.xyz);
 				o1.xy = float2(mad(v1.x, _MainTex_ST.x, _MainTex_ST.z), mad(v1.y, _MainTex_ST.y, _MainTex_ST.w));
 				o2.xyzw = float4(v2.x, v2.y, v2.z, v2.w);
 
@@ -51143,7 +51143,7 @@ Shader "ShaderRipperTest/VariantMonster"
 				float4 v0 = i.pos;
 				float2 v1 = i.uv0;
 				float4 v2 = i.color0;
-				float4 o0;
+				float4 o0 = 0;
 				float4 r0 = 0, r1 = 0, r2 = 0, r3 = 0, r4 = 0, r5 = 0, r6 = 0, r7 = 0, r8 = 0;
 
 				r0.xyzw = tex2D(_MaskTex, float2(v1.x, v1.y));
@@ -52124,12 +52124,12 @@ Shader "ShaderRipperTest/VariantMonster"
 				float4 v0 = v.vertex;
 				float2 v1 = v.uv0;
 				float4 v2 = v.color;
-				float4 o0;  // -> o.pos
-				float4 o1;  // -> o.uv0
-				float4 o2;  // -> o.color0
+				float4 o0 = 0;  // -> o.pos
+				float4 o1 = 0;  // -> o.uv0
+				float4 o2 = 0;  // -> o.color0
 				float4 r0 = 0, r1 = 0;
 
-				o0 = UnityObjectToClipPos(v0.xyz);
+				o0 = UnityObjectToClipPos(v.vertex.xyz);
 				o1.xy = float2(mad(v1.x, _MainTex_ST.x, _MainTex_ST.z), mad(v1.y, _MainTex_ST.y, _MainTex_ST.w));
 				o2.xyzw = float4(v2.x, v2.y, v2.z, v2.w);
 
@@ -52144,7 +52144,7 @@ Shader "ShaderRipperTest/VariantMonster"
 				float4 v0 = i.pos;
 				float2 v1 = i.uv0;
 				float4 v2 = i.color0;
-				float4 o0;
+				float4 o0 = 0;
 				float4 r0 = 0, r1 = 0, r2 = 0, r3 = 0, r4 = 0, r5 = 0, r6 = 0, r7 = 0, r8 = 0;
 
 				r0.xyzw = tex2D(_MaskTex, float2(v1.x, v1.y));
@@ -52905,12 +52905,12 @@ Shader "ShaderRipperTest/VariantMonster"
 				float4 v0 = v.vertex;
 				float2 v1 = v.uv0;
 				float4 v2 = v.color;
-				float4 o0;  // -> o.pos
-				float4 o1;  // -> o.uv0
-				float4 o2;  // -> o.color0
+				float4 o0 = 0;  // -> o.pos
+				float4 o1 = 0;  // -> o.uv0
+				float4 o2 = 0;  // -> o.color0
 				float4 r0 = 0, r1 = 0;
 
-				o0 = UnityObjectToClipPos(v0.xyz);
+				o0 = UnityObjectToClipPos(v.vertex.xyz);
 				o1.xy = float2(mad(v1.x, _MainTex_ST.x, _MainTex_ST.z), mad(v1.y, _MainTex_ST.y, _MainTex_ST.w));
 				o2.xyzw = float4(v2.x, v2.y, v2.z, v2.w);
 
@@ -52925,7 +52925,7 @@ Shader "ShaderRipperTest/VariantMonster"
 				float4 v0 = i.pos;
 				float2 v1 = i.uv0;
 				float4 v2 = i.color0;
-				float4 o0;
+				float4 o0 = 0;
 				float4 r0 = 0, r1 = 0, r2 = 0, r3 = 0, r4 = 0, r5 = 0, r6 = 0, r7 = 0, r8 = 0;
 
 				r0.xyzw = tex2D(_MaskTex, float2(v1.x, v1.y));
@@ -54517,12 +54517,12 @@ Shader "ShaderRipperTest/VariantMonster"
 				float4 v0 = v.vertex;
 				float2 v1 = v.uv0;
 				float4 v2 = v.color;
-				float4 o0;  // -> o.pos
-				float4 o1;  // -> o.uv0
-				float4 o2;  // -> o.color0
+				float4 o0 = 0;  // -> o.pos
+				float4 o1 = 0;  // -> o.uv0
+				float4 o2 = 0;  // -> o.color0
 				float4 r0 = 0, r1 = 0;
 
-				o0 = UnityObjectToClipPos(v0.xyz);
+				o0 = UnityObjectToClipPos(v.vertex.xyz);
 				o1.xy = float2(mad(v1.x, _MainTex_ST.x, _MainTex_ST.z), mad(v1.y, _MainTex_ST.y, _MainTex_ST.w));
 				o2.xyzw = float4(v2.x, v2.y, v2.z, v2.w);
 
@@ -54537,7 +54537,7 @@ Shader "ShaderRipperTest/VariantMonster"
 				float4 v0 = i.pos;
 				float2 v1 = i.uv0;
 				float4 v2 = i.color0;
-				float4 o0;
+				float4 o0 = 0;
 				float4 r0 = 0, r1 = 0, r2 = 0, r3 = 0, r4 = 0, r5 = 0, r6 = 0, r7 = 0, r8 = 0, r9 = 0;
 
 				r0.xyzw = tex2D(_MaskTex, float2(v1.x, v1.y));
@@ -56157,12 +56157,12 @@ Shader "ShaderRipperTest/VariantMonster"
 				float4 v0 = v.vertex;
 				float2 v1 = v.uv0;
 				float4 v2 = v.color;
-				float4 o0;  // -> o.pos
-				float4 o1;  // -> o.uv0
-				float4 o2;  // -> o.color0
+				float4 o0 = 0;  // -> o.pos
+				float4 o1 = 0;  // -> o.uv0
+				float4 o2 = 0;  // -> o.color0
 				float4 r0 = 0, r1 = 0;
 
-				o0 = UnityObjectToClipPos(v0.xyz);
+				o0 = UnityObjectToClipPos(v.vertex.xyz);
 				o1.xy = float2(mad(v1.x, _MainTex_ST.x, _MainTex_ST.z), mad(v1.y, _MainTex_ST.y, _MainTex_ST.w));
 				o2.xyzw = float4(v2.x, v2.y, v2.z, v2.w);
 
@@ -56177,7 +56177,7 @@ Shader "ShaderRipperTest/VariantMonster"
 				float4 v0 = i.pos;
 				float2 v1 = i.uv0;
 				float4 v2 = i.color0;
-				float4 o0;
+				float4 o0 = 0;
 				float4 r0 = 0, r1 = 0, r2 = 0, r3 = 0, r4 = 0, r5 = 0, r6 = 0, r7 = 0, r8 = 0, r9 = 0;
 
 				r0.xyzw = tex2D(_MaskTex, float2(v1.x, v1.y));
@@ -57810,12 +57810,12 @@ Shader "ShaderRipperTest/VariantMonster"
 				float4 v0 = v.vertex;
 				float2 v1 = v.uv0;
 				float4 v2 = v.color;
-				float4 o0;  // -> o.pos
-				float4 o1;  // -> o.uv0
-				float4 o2;  // -> o.color0
+				float4 o0 = 0;  // -> o.pos
+				float4 o1 = 0;  // -> o.uv0
+				float4 o2 = 0;  // -> o.color0
 				float4 r0 = 0, r1 = 0;
 
-				o0 = UnityObjectToClipPos(v0.xyz);
+				o0 = UnityObjectToClipPos(v.vertex.xyz);
 				o1.xy = float2(mad(v1.x, _MainTex_ST.x, _MainTex_ST.z), mad(v1.y, _MainTex_ST.y, _MainTex_ST.w));
 				o2.xyzw = float4(v2.x, v2.y, v2.z, v2.w);
 
@@ -57830,7 +57830,7 @@ Shader "ShaderRipperTest/VariantMonster"
 				float4 v0 = i.pos;
 				float2 v1 = i.uv0;
 				float4 v2 = i.color0;
-				float4 o0;
+				float4 o0 = 0;
 				float4 r0 = 0, r1 = 0, r2 = 0, r3 = 0, r4 = 0, r5 = 0, r6 = 0, r7 = 0, r8 = 0, r9 = 0;
 
 				r0.xyzw = tex2D(_MaskTex, float2(v1.x, v1.y));
@@ -59450,12 +59450,12 @@ Shader "ShaderRipperTest/VariantMonster"
 				float4 v0 = v.vertex;
 				float2 v1 = v.uv0;
 				float4 v2 = v.color;
-				float4 o0;  // -> o.pos
-				float4 o1;  // -> o.uv0
-				float4 o2;  // -> o.color0
+				float4 o0 = 0;  // -> o.pos
+				float4 o1 = 0;  // -> o.uv0
+				float4 o2 = 0;  // -> o.color0
 				float4 r0 = 0, r1 = 0;
 
-				o0 = UnityObjectToClipPos(v0.xyz);
+				o0 = UnityObjectToClipPos(v.vertex.xyz);
 				o1.xy = float2(mad(v1.x, _MainTex_ST.x, _MainTex_ST.z), mad(v1.y, _MainTex_ST.y, _MainTex_ST.w));
 				o2.xyzw = float4(v2.x, v2.y, v2.z, v2.w);
 
@@ -59470,7 +59470,7 @@ Shader "ShaderRipperTest/VariantMonster"
 				float4 v0 = i.pos;
 				float2 v1 = i.uv0;
 				float4 v2 = i.color0;
-				float4 o0;
+				float4 o0 = 0;
 				float4 r0 = 0, r1 = 0, r2 = 0, r3 = 0, r4 = 0, r5 = 0, r6 = 0, r7 = 0, r8 = 0, r9 = 0;
 
 				r0.xyzw = tex2D(_MaskTex, float2(v1.x, v1.y));
@@ -61103,12 +61103,12 @@ Shader "ShaderRipperTest/VariantMonster"
 				float4 v0 = v.vertex;
 				float2 v1 = v.uv0;
 				float4 v2 = v.color;
-				float4 o0;  // -> o.pos
-				float4 o1;  // -> o.uv0
-				float4 o2;  // -> o.color0
+				float4 o0 = 0;  // -> o.pos
+				float4 o1 = 0;  // -> o.uv0
+				float4 o2 = 0;  // -> o.color0
 				float4 r0 = 0, r1 = 0;
 
-				o0 = UnityObjectToClipPos(v0.xyz);
+				o0 = UnityObjectToClipPos(v.vertex.xyz);
 				o1.xy = float2(mad(v1.x, _MainTex_ST.x, _MainTex_ST.z), mad(v1.y, _MainTex_ST.y, _MainTex_ST.w));
 				o2.xyzw = float4(v2.x, v2.y, v2.z, v2.w);
 
@@ -61123,7 +61123,7 @@ Shader "ShaderRipperTest/VariantMonster"
 				float4 v0 = i.pos;
 				float2 v1 = i.uv0;
 				float4 v2 = i.color0;
-				float4 o0;
+				float4 o0 = 0;
 				float4 r0 = 0, r1 = 0, r2 = 0, r3 = 0, r4 = 0, r5 = 0, r6 = 0, r7 = 0, r8 = 0, r9 = 0;
 
 				r0.xyzw = tex2D(_MaskTex, float2(v1.x, v1.y));
@@ -62752,12 +62752,12 @@ Shader "ShaderRipperTest/VariantMonster"
 				float4 v0 = v.vertex;
 				float2 v1 = v.uv0;
 				float4 v2 = v.color;
-				float4 o0;  // -> o.pos
-				float4 o1;  // -> o.uv0
-				float4 o2;  // -> o.color0
+				float4 o0 = 0;  // -> o.pos
+				float4 o1 = 0;  // -> o.uv0
+				float4 o2 = 0;  // -> o.color0
 				float4 r0 = 0, r1 = 0;
 
-				o0 = UnityObjectToClipPos(v0.xyz);
+				o0 = UnityObjectToClipPos(v.vertex.xyz);
 				o1.xy = float2(mad(v1.x, _MainTex_ST.x, _MainTex_ST.z), mad(v1.y, _MainTex_ST.y, _MainTex_ST.w));
 				o2.xyzw = float4(v2.x, v2.y, v2.z, v2.w);
 
@@ -62772,7 +62772,7 @@ Shader "ShaderRipperTest/VariantMonster"
 				float4 v0 = i.pos;
 				float2 v1 = i.uv0;
 				float4 v2 = i.color0;
-				float4 o0;
+				float4 o0 = 0;
 				float4 r0 = 0, r1 = 0, r2 = 0, r3 = 0, r4 = 0, r5 = 0, r6 = 0, r7 = 0, r8 = 0, r9 = 0;
 
 				r0.xyzw = tex2D(_MaskTex, float2(v1.x, v1.y));
@@ -64414,12 +64414,12 @@ Shader "ShaderRipperTest/VariantMonster"
 				float4 v0 = v.vertex;
 				float2 v1 = v.uv0;
 				float4 v2 = v.color;
-				float4 o0;  // -> o.pos
-				float4 o1;  // -> o.uv0
-				float4 o2;  // -> o.color0
+				float4 o0 = 0;  // -> o.pos
+				float4 o1 = 0;  // -> o.uv0
+				float4 o2 = 0;  // -> o.color0
 				float4 r0 = 0, r1 = 0;
 
-				o0 = UnityObjectToClipPos(v0.xyz);
+				o0 = UnityObjectToClipPos(v.vertex.xyz);
 				o1.xy = float2(mad(v1.x, _MainTex_ST.x, _MainTex_ST.z), mad(v1.y, _MainTex_ST.y, _MainTex_ST.w));
 				o2.xyzw = float4(v2.x, v2.y, v2.z, v2.w);
 
@@ -64434,7 +64434,7 @@ Shader "ShaderRipperTest/VariantMonster"
 				float4 v0 = i.pos;
 				float2 v1 = i.uv0;
 				float4 v2 = i.color0;
-				float4 o0;
+				float4 o0 = 0;
 				float4 r0 = 0, r1 = 0, r2 = 0, r3 = 0, r4 = 0, r5 = 0, r6 = 0, r7 = 0, r8 = 0, r9 = 0;
 
 				r0.xyzw = tex2D(_MaskTex, float2(v1.x, v1.y));
@@ -66056,12 +66056,12 @@ Shader "ShaderRipperTest/VariantMonster"
 				float4 v0 = v.vertex;
 				float2 v1 = v.uv0;
 				float4 v2 = v.color;
-				float4 o0;  // -> o.pos
-				float4 o1;  // -> o.uv0
-				float4 o2;  // -> o.color0
+				float4 o0 = 0;  // -> o.pos
+				float4 o1 = 0;  // -> o.uv0
+				float4 o2 = 0;  // -> o.color0
 				float4 r0 = 0, r1 = 0;
 
-				o0 = UnityObjectToClipPos(v0.xyz);
+				o0 = UnityObjectToClipPos(v.vertex.xyz);
 				o1.xy = float2(mad(v1.x, _MainTex_ST.x, _MainTex_ST.z), mad(v1.y, _MainTex_ST.y, _MainTex_ST.w));
 				o2.xyzw = float4(v2.x, v2.y, v2.z, v2.w);
 
@@ -66076,7 +66076,7 @@ Shader "ShaderRipperTest/VariantMonster"
 				float4 v0 = i.pos;
 				float2 v1 = i.uv0;
 				float4 v2 = i.color0;
-				float4 o0;
+				float4 o0 = 0;
 				float4 r0 = 0, r1 = 0, r2 = 0, r3 = 0, r4 = 0, r5 = 0, r6 = 0, r7 = 0, r8 = 0, r9 = 0;
 
 				r0.xyzw = tex2D(_MaskTex, float2(v1.x, v1.y));
@@ -67711,12 +67711,12 @@ Shader "ShaderRipperTest/VariantMonster"
 				float4 v0 = v.vertex;
 				float2 v1 = v.uv0;
 				float4 v2 = v.color;
-				float4 o0;  // -> o.pos
-				float4 o1;  // -> o.uv0
-				float4 o2;  // -> o.color0
+				float4 o0 = 0;  // -> o.pos
+				float4 o1 = 0;  // -> o.uv0
+				float4 o2 = 0;  // -> o.color0
 				float4 r0 = 0, r1 = 0;
 
-				o0 = UnityObjectToClipPos(v0.xyz);
+				o0 = UnityObjectToClipPos(v.vertex.xyz);
 				o1.xy = float2(mad(v1.x, _MainTex_ST.x, _MainTex_ST.z), mad(v1.y, _MainTex_ST.y, _MainTex_ST.w));
 				o2.xyzw = float4(v2.x, v2.y, v2.z, v2.w);
 
@@ -67731,7 +67731,7 @@ Shader "ShaderRipperTest/VariantMonster"
 				float4 v0 = i.pos;
 				float2 v1 = i.uv0;
 				float4 v2 = i.color0;
-				float4 o0;
+				float4 o0 = 0;
 				float4 r0 = 0, r1 = 0, r2 = 0, r3 = 0, r4 = 0, r5 = 0, r6 = 0, r7 = 0, r8 = 0;
 
 				r0.xyzw = tex2D(_MaskTex, float2(v1.x, v1.y));
@@ -69334,12 +69334,12 @@ Shader "ShaderRipperTest/VariantMonster"
 				float4 v0 = v.vertex;
 				float2 v1 = v.uv0;
 				float4 v2 = v.color;
-				float4 o0;  // -> o.pos
-				float4 o1;  // -> o.uv0
-				float4 o2;  // -> o.color0
+				float4 o0 = 0;  // -> o.pos
+				float4 o1 = 0;  // -> o.uv0
+				float4 o2 = 0;  // -> o.color0
 				float4 r0 = 0, r1 = 0;
 
-				o0 = UnityObjectToClipPos(v0.xyz);
+				o0 = UnityObjectToClipPos(v.vertex.xyz);
 				o1.xy = float2(mad(v1.x, _MainTex_ST.x, _MainTex_ST.z), mad(v1.y, _MainTex_ST.y, _MainTex_ST.w));
 				o2.xyzw = float4(v2.x, v2.y, v2.z, v2.w);
 
@@ -69354,7 +69354,7 @@ Shader "ShaderRipperTest/VariantMonster"
 				float4 v0 = i.pos;
 				float2 v1 = i.uv0;
 				float4 v2 = i.color0;
-				float4 o0;
+				float4 o0 = 0;
 				float4 r0 = 0, r1 = 0, r2 = 0, r3 = 0, r4 = 0, r5 = 0, r6 = 0, r7 = 0, r8 = 0;
 
 				r0.xyzw = tex2D(_MaskTex, float2(v1.x, v1.y));
@@ -70314,12 +70314,12 @@ Shader "ShaderRipperTest/VariantMonster"
 				float4 v0 = v.vertex;
 				float2 v1 = v.uv0;
 				float4 v2 = v.color;
-				float4 o0;  // -> o.pos
-				float4 o1;  // -> o.uv0
-				float4 o2;  // -> o.color0
+				float4 o0 = 0;  // -> o.pos
+				float4 o1 = 0;  // -> o.uv0
+				float4 o2 = 0;  // -> o.color0
 				float4 r0 = 0, r1 = 0;
 
-				o0 = UnityObjectToClipPos(v0.xyz);
+				o0 = UnityObjectToClipPos(v.vertex.xyz);
 				o1.xy = float2(mad(v1.x, _MainTex_ST.x, _MainTex_ST.z), mad(v1.y, _MainTex_ST.y, _MainTex_ST.w));
 				o2.xyzw = float4(v2.x, v2.y, v2.z, v2.w);
 
@@ -70334,7 +70334,7 @@ Shader "ShaderRipperTest/VariantMonster"
 				float4 v0 = i.pos;
 				float2 v1 = i.uv0;
 				float4 v2 = i.color0;
-				float4 o0;
+				float4 o0 = 0;
 				float4 r0 = 0, r1 = 0, r2 = 0, r3 = 0, r4 = 0, r5 = 0, r6 = 0, r7 = 0, r8 = 0;
 
 				r0.xyzw = tex2D(_MaskTex, float2(v1.x, v1.y));
@@ -71305,12 +71305,12 @@ Shader "ShaderRipperTest/VariantMonster"
 				float4 v0 = v.vertex;
 				float2 v1 = v.uv0;
 				float4 v2 = v.color;
-				float4 o0;  // -> o.pos
-				float4 o1;  // -> o.uv0
-				float4 o2;  // -> o.color0
+				float4 o0 = 0;  // -> o.pos
+				float4 o1 = 0;  // -> o.uv0
+				float4 o2 = 0;  // -> o.color0
 				float4 r0 = 0, r1 = 0;
 
-				o0 = UnityObjectToClipPos(v0.xyz);
+				o0 = UnityObjectToClipPos(v.vertex.xyz);
 				o1.xy = float2(mad(v1.x, _MainTex_ST.x, _MainTex_ST.z), mad(v1.y, _MainTex_ST.y, _MainTex_ST.w));
 				o2.xyzw = float4(v2.x, v2.y, v2.z, v2.w);
 
@@ -71325,7 +71325,7 @@ Shader "ShaderRipperTest/VariantMonster"
 				float4 v0 = i.pos;
 				float2 v1 = i.uv0;
 				float4 v2 = i.color0;
-				float4 o0;
+				float4 o0 = 0;
 				float4 r0 = 0, r1 = 0, r2 = 0, r3 = 0, r4 = 0, r5 = 0, r6 = 0, r7 = 0, r8 = 0;
 
 				r0.xyzw = tex2D(_MaskTex, float2(v1.x, v1.y));
@@ -72285,12 +72285,12 @@ Shader "ShaderRipperTest/VariantMonster"
 				float4 v0 = v.vertex;
 				float2 v1 = v.uv0;
 				float4 v2 = v.color;
-				float4 o0;  // -> o.pos
-				float4 o1;  // -> o.uv0
-				float4 o2;  // -> o.color0
+				float4 o0 = 0;  // -> o.pos
+				float4 o1 = 0;  // -> o.uv0
+				float4 o2 = 0;  // -> o.color0
 				float4 r0 = 0, r1 = 0;
 
-				o0 = UnityObjectToClipPos(v0.xyz);
+				o0 = UnityObjectToClipPos(v.vertex.xyz);
 				o1.xy = float2(mad(v1.x, _MainTex_ST.x, _MainTex_ST.z), mad(v1.y, _MainTex_ST.y, _MainTex_ST.w));
 				o2.xyzw = float4(v2.x, v2.y, v2.z, v2.w);
 
@@ -72305,7 +72305,7 @@ Shader "ShaderRipperTest/VariantMonster"
 				float4 v0 = i.pos;
 				float2 v1 = i.uv0;
 				float4 v2 = i.color0;
-				float4 o0;
+				float4 o0 = 0;
 				float4 r0 = 0, r1 = 0, r2 = 0, r3 = 0, r4 = 0, r5 = 0, r6 = 0, r7 = 0, r8 = 0;
 
 				r0.xyzw = tex2D(_MaskTex, float2(v1.x, v1.y));
@@ -73276,12 +73276,12 @@ Shader "ShaderRipperTest/VariantMonster"
 				float4 v0 = v.vertex;
 				float2 v1 = v.uv0;
 				float4 v2 = v.color;
-				float4 o0;  // -> o.pos
-				float4 o1;  // -> o.uv0
-				float4 o2;  // -> o.color0
+				float4 o0 = 0;  // -> o.pos
+				float4 o1 = 0;  // -> o.uv0
+				float4 o2 = 0;  // -> o.color0
 				float4 r0 = 0, r1 = 0;
 
-				o0 = UnityObjectToClipPos(v0.xyz);
+				o0 = UnityObjectToClipPos(v.vertex.xyz);
 				o1.xy = float2(mad(v1.x, _MainTex_ST.x, _MainTex_ST.z), mad(v1.y, _MainTex_ST.y, _MainTex_ST.w));
 				o2.xyzw = float4(v2.x, v2.y, v2.z, v2.w);
 
@@ -73296,7 +73296,7 @@ Shader "ShaderRipperTest/VariantMonster"
 				float4 v0 = i.pos;
 				float2 v1 = i.uv0;
 				float4 v2 = i.color0;
-				float4 o0;
+				float4 o0 = 0;
 				float4 r0 = 0, r1 = 0, r2 = 0, r3 = 0, r4 = 0, r5 = 0, r6 = 0, r7 = 0, r8 = 0;
 
 				r0.xyzw = tex2D(_MaskTex, float2(v1.x, v1.y));
@@ -74265,12 +74265,12 @@ Shader "ShaderRipperTest/VariantMonster"
 				float4 v0 = v.vertex;
 				float2 v1 = v.uv0;
 				float4 v2 = v.color;
-				float4 o0;  // -> o.pos
-				float4 o1;  // -> o.uv0
-				float4 o2;  // -> o.color0
+				float4 o0 = 0;  // -> o.pos
+				float4 o1 = 0;  // -> o.uv0
+				float4 o2 = 0;  // -> o.color0
 				float4 r0 = 0, r1 = 0;
 
-				o0 = UnityObjectToClipPos(v0.xyz);
+				o0 = UnityObjectToClipPos(v.vertex.xyz);
 				o1.xy = float2(mad(v1.x, _MainTex_ST.x, _MainTex_ST.z), mad(v1.y, _MainTex_ST.y, _MainTex_ST.w));
 				o2.xyzw = float4(v2.x, v2.y, v2.z, v2.w);
 
@@ -74285,7 +74285,7 @@ Shader "ShaderRipperTest/VariantMonster"
 				float4 v0 = i.pos;
 				float2 v1 = i.uv0;
 				float4 v2 = i.color0;
-				float4 o0;
+				float4 o0 = 0;
 				float4 r0 = 0, r1 = 0, r2 = 0, r3 = 0, r4 = 0, r5 = 0, r6 = 0, r7 = 0, r8 = 0;
 
 				r0.xyzw = tex2D(_MaskTex, float2(v1.x, v1.y));
@@ -75265,12 +75265,12 @@ Shader "ShaderRipperTest/VariantMonster"
 				float4 v0 = v.vertex;
 				float2 v1 = v.uv0;
 				float4 v2 = v.color;
-				float4 o0;  // -> o.pos
-				float4 o1;  // -> o.uv0
-				float4 o2;  // -> o.color0
+				float4 o0 = 0;  // -> o.pos
+				float4 o1 = 0;  // -> o.uv0
+				float4 o2 = 0;  // -> o.color0
 				float4 r0 = 0, r1 = 0;
 
-				o0 = UnityObjectToClipPos(v0.xyz);
+				o0 = UnityObjectToClipPos(v.vertex.xyz);
 				o1.xy = float2(mad(v1.x, _MainTex_ST.x, _MainTex_ST.z), mad(v1.y, _MainTex_ST.y, _MainTex_ST.w));
 				o2.xyzw = float4(v2.x, v2.y, v2.z, v2.w);
 
@@ -75285,7 +75285,7 @@ Shader "ShaderRipperTest/VariantMonster"
 				float4 v0 = i.pos;
 				float2 v1 = i.uv0;
 				float4 v2 = i.color0;
-				float4 o0;
+				float4 o0 = 0;
 				float4 r0 = 0, r1 = 0, r2 = 0, r3 = 0, r4 = 0, r5 = 0, r6 = 0, r7 = 0, r8 = 0;
 
 				r0.xyzw = tex2D(_MaskTex, float2(v1.x, v1.y));
@@ -76247,12 +76247,12 @@ Shader "ShaderRipperTest/VariantMonster"
 				float4 v0 = v.vertex;
 				float2 v1 = v.uv0;
 				float4 v2 = v.color;
-				float4 o0;  // -> o.pos
-				float4 o1;  // -> o.uv0
-				float4 o2;  // -> o.color0
+				float4 o0 = 0;  // -> o.pos
+				float4 o1 = 0;  // -> o.uv0
+				float4 o2 = 0;  // -> o.color0
 				float4 r0 = 0, r1 = 0;
 
-				o0 = UnityObjectToClipPos(v0.xyz);
+				o0 = UnityObjectToClipPos(v.vertex.xyz);
 				o1.xy = float2(mad(v1.x, _MainTex_ST.x, _MainTex_ST.z), mad(v1.y, _MainTex_ST.y, _MainTex_ST.w));
 				o2.xyzw = float4(v2.x, v2.y, v2.z, v2.w);
 
@@ -76267,7 +76267,7 @@ Shader "ShaderRipperTest/VariantMonster"
 				float4 v0 = i.pos;
 				float2 v1 = i.uv0;
 				float4 v2 = i.color0;
-				float4 o0;
+				float4 o0 = 0;
 				float4 r0 = 0, r1 = 0, r2 = 0, r3 = 0, r4 = 0, r5 = 0, r6 = 0, r7 = 0, r8 = 0;
 
 				r0.xyzw = tex2D(_MaskTex, float2(v1.x, v1.y));
@@ -77240,12 +77240,12 @@ Shader "ShaderRipperTest/VariantMonster"
 				float4 v0 = v.vertex;
 				float2 v1 = v.uv0;
 				float4 v2 = v.color;
-				float4 o0;  // -> o.pos
-				float4 o1;  // -> o.uv0
-				float4 o2;  // -> o.color0
+				float4 o0 = 0;  // -> o.pos
+				float4 o1 = 0;  // -> o.uv0
+				float4 o2 = 0;  // -> o.color0
 				float4 r0 = 0, r1 = 0;
 
-				o0 = UnityObjectToClipPos(v0.xyz);
+				o0 = UnityObjectToClipPos(v.vertex.xyz);
 				o1.xy = float2(mad(v1.x, _MainTex_ST.x, _MainTex_ST.z), mad(v1.y, _MainTex_ST.y, _MainTex_ST.w));
 				o2.xyzw = float4(v2.x, v2.y, v2.z, v2.w);
 
@@ -77260,7 +77260,7 @@ Shader "ShaderRipperTest/VariantMonster"
 				float4 v0 = i.pos;
 				float2 v1 = i.uv0;
 				float4 v2 = i.color0;
-				float4 o0;
+				float4 o0 = 0;
 				float4 r0 = 0, r1 = 0, r2 = 0, r3 = 0, r4 = 0, r5 = 0, r6 = 0, r7 = 0, r8 = 0;
 
 				r0.xyzw = tex2D(_MaskTex, float2(v1.x, v1.y));
@@ -78225,12 +78225,12 @@ Shader "ShaderRipperTest/VariantMonster"
 				float4 v0 = v.vertex;
 				float2 v1 = v.uv0;
 				float4 v2 = v.color;
-				float4 o0;  // -> o.pos
-				float4 o1;  // -> o.uv0
-				float4 o2;  // -> o.color0
+				float4 o0 = 0;  // -> o.pos
+				float4 o1 = 0;  // -> o.uv0
+				float4 o2 = 0;  // -> o.color0
 				float4 r0 = 0, r1 = 0;
 
-				o0 = UnityObjectToClipPos(v0.xyz);
+				o0 = UnityObjectToClipPos(v.vertex.xyz);
 				o1.xy = float2(mad(v1.x, _MainTex_ST.x, _MainTex_ST.z), mad(v1.y, _MainTex_ST.y, _MainTex_ST.w));
 				o2.xyzw = float4(v2.x, v2.y, v2.z, v2.w);
 
@@ -78245,7 +78245,7 @@ Shader "ShaderRipperTest/VariantMonster"
 				float4 v0 = i.pos;
 				float2 v1 = i.uv0;
 				float4 v2 = i.color0;
-				float4 o0;
+				float4 o0 = 0;
 				float4 r0 = 0, r1 = 0, r2 = 0, r3 = 0, r4 = 0, r5 = 0, r6 = 0, r7 = 0, r8 = 0;
 
 				r0.xyzw = tex2D(_MaskTex, float2(v1.x, v1.y));
