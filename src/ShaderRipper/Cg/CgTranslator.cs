@@ -2,6 +2,7 @@ using System;
 using System.Collections.Generic;
 using System.Globalization;
 using System.Text;
+using System.Threading;
 
 namespace ShaderRipper.Cg
 {
@@ -40,7 +41,8 @@ namespace ShaderRipper.Cg
         /// <summary>
         /// Instructions that fell through to the TODO branch.  Process-wide
         /// because the emitter constructs a translator per entry point, and the
-        /// run summary wants one honest total (0 = full coverage).
+        /// run summary wants one honest total (0 = full coverage).  Incremented
+        /// from worker threads -- readers use Volatile.Read / Interlocked.
         /// </summary>
         public static int UnsupportedTotal;
 
@@ -342,10 +344,16 @@ namespace ShaderRipper.Cg
 
         private void Line(string s) => _sb.AppendLine(new string('\t', _indent) + s);
 
+        /// <summary>
+        /// Opcodes whose first operand being <c>null</c> does not make the
+        /// instruction dead.  Control flow reads its operand instead of writing it,
+        /// and <c>sincos</c> writes two destinations -- <c>sincos null, r3.yw, src</c>
+        /// is a cosine-only instruction that must not be dropped.
+        /// </summary>
         private static readonly HashSet<string> ReadsOperand0 = new()
         {
             "if_nz", "if_z", "breakc_nz", "breakc_z", "discard_nz",
-            "loop", "endloop", "else", "endif", "ret",
+            "loop", "endloop", "else", "endif", "ret", "sincos",
         };
 
         private void Emit(Instruction ins)
@@ -445,7 +453,25 @@ namespace ShaderRipper.Cg
                 case "nop": break;
                 case "continue": Line("continue;"); break;
                 case "ld_structured_indexable": LdStructured(ins); break;
-                case "discard_nz": Line($"if (any({SrcExpr(o[0])})) discard;"); break;
+                case "discard_nz":
+                    {
+                        // A constant mask is common in the fallback variant: true
+                        // means unconditional discard, false means dead code.  fxc
+                        // also rejects any(<constructor>) outright (X3014), so the
+                        // lanes are expanded instead of splatted.
+                        if (o[0].Kind == "l")
+                        {
+                            bool anyTrue = o[0].Imm.Any(v => v != 0f);
+                            if (anyTrue) Line("discard;");
+                        }
+                        else
+                        {
+                            int n = N(o[0]);
+                            var c = Comps(o[0], n, o[0].Swizzle);
+                            Line($"if (any(float{n}({string.Join(", ", c)}))) discard;");
+                        }
+                        break;
+                    }
                 case "ret":
                     if (_blockDepth > 0 && !string.IsNullOrEmpty(ReturnExpr))
                         Line($"return {ReturnExpr};");
@@ -458,7 +484,7 @@ namespace ShaderRipper.Cg
                 case "endif": _blockDepth--; _indent--; Line("}"); break;
                 case "breakc_nz": Line($"if (any({SrcExpr(o[0])})) break;"); break;
                 case "breakc_z": Line($"if (!any({SrcExpr(o[0])})) break;"); break;
-                default: UnsupportedTotal++; Line($"/* TODO [{ins.Opcode}] {ins.Raw} */"); break;
+                default: Interlocked.Increment(ref UnsupportedTotal); Line($"/* TODO [{ins.Opcode}] {ins.Raw} */"); break;
             }
         }
 
@@ -546,7 +572,13 @@ namespace ShaderRipper.Cg
             var a = Comps(o[1], n, o[0].Swizzle);
             var b = Comps(o[2], n, o[0].Swizzle);
             var r = new List<string>();
-            for (int i = 0; i < n; i++) r.Add($"({a[i]} {op} {b[i]}) ? 1.0 : 0.0");
+            // DXBC comparisons write an all-ones mask on true, i.e. -1, not 1.
+            // Shaders that then feed the result through iadd/itof (the common
+            // "where does this value sit relative to a boundary" ramp) depend on
+            // that sign: with 1.0 the ramp comes out inverted.  Consumers that want
+            // a 0/1 value go through and(..., 1.0) or a boolean test, and AndOr
+            // treats any non-zero as true, so -1 is safe there too.
+            for (int i = 0; i < n; i++) r.Add($"({a[i]} {op} {b[i]}) ? -1.0 : 0.0");
             Assign(o[0], r);
         }
 
@@ -751,7 +783,8 @@ namespace ShaderRipper.Cg
             var a = Comps(o[1], n, o[0].Swizzle);
             var b = Comps(o[2], n, o[0].Swizzle);
             var r = new List<string>();
-            for (int i = 0; i < n; i++) r.Add($"(((int)({a[i]}) {op} (int)({b[i]})) ? 1 : 0)");
+            // Same all-ones mask convention as the float comparisons above.
+            for (int i = 0; i < n; i++) r.Add($"(((int)({a[i]}) {op} (int)({b[i]})) ? -1 : 0)");
             Assign(o[0], r);
         }
 
@@ -838,19 +871,21 @@ namespace ShaderRipper.Cg
             if (o.Count >= 3) { sinDst = o[0]; cosDst = o[1]; src = o[2]; }
             else { sinDst = o[0]; cosDst = null; src = o[1]; }
 
-            string x = SrcExpr(src);
-
-            if (cosDst == null)
+            // Per lane, like every other instruction.  A destination mask that does
+            // not start at x (".yz") takes the source components at those same
+            // lanes; emitting sin(<whole swizzled vector>) and letting the
+            // assignment truncate takes the first N components instead, which
+            // silently pairs each destination lane with the wrong source lane
+            // (sin(y), sin(y) where the instruction said sin(y), sin(z)).
+            void Write(Operand dst, string fn)
             {
-                string sw = string.IsNullOrEmpty(sinDst.Swizzle) ? "xy" : sinDst.Swizzle;
-                string name = RegName(sinDst);
-                Line($"{name}.{sw[0]} = sin({x});");
-                if (sw.Length >= 2) Line($"{name}.{sw[1]} = cos({x});");
-                return;
+                if (dst == null || dst.Kind == "null") return;
+                List<string> c = Comps(src, N(dst), dst.Swizzle);
+                Assign(dst, c.ConvertAll(v => $"{fn}({v})"));
             }
 
-            if (sinDst.Kind != "null") Line($"{DstExpr(sinDst)} = sin({x});");
-            if (cosDst.Kind != "null") Line($"{DstExpr(cosDst)} = cos({x});");
+            Write(sinDst, "sin");
+            Write(cosDst, "cos");
         }
 
         /// <summary>Turn "r1.x+0" into "(int)(r1.x)+0" for indexable-temp indexing.</summary>
