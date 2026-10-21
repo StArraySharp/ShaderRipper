@@ -21,6 +21,13 @@ namespace ShaderRipper
         /// <summary>m_Externals entries: index+1 == the PPtr m_FileID that names it.</summary>
         public readonly List<string> Externals = new List<string>();
 
+        /// <summary>Class IDs in type-table order (object.typeId indexes this).</summary>
+        public readonly List<int> ClassIds = new List<int>();
+
+        /// <summary>Raw object table: pathID, typeId(index), absolute offset, size.</summary>
+        public readonly List<(long pathId, int typeId, long off, uint size)> Objects =
+            new List<(long pathId, int typeId, long off, uint size)>();
+
         public static SerializedFile Load(string path, TypeNode schema) =>
             Load(File.ReadAllBytes(path), schema);
 
@@ -78,6 +85,7 @@ namespace ShaderRipper
             int typeCount = r.ReadI32();
             var classIds = new int[typeCount];
             for (int t = 0; t < typeCount; t++) classIds[t] = SkipSerializedType(r, sf.EnableTypeTree);
+            sf.ClassIds.AddRange(classIds);
 
             if (version >= 7 && version < 14) r.ReadI32();
 
@@ -98,6 +106,7 @@ namespace ShaderRipper
                 long off = byteStart + dataOffset;
                 if (off < 0 || byteSize > 0 && (ulong)off + byteSize > (ulong)b.Length) continue;
                 entries.Add((pathId, off, byteSize, typeId));
+                sf.Objects.Add((pathId, typeId, off, byteSize));
             }
 
             foreach (var e in entries)

@@ -1,5 +1,6 @@
 <Solution>
   <Folder Name="/src/">
     <Project Path="src/ShaderRipper/ShaderRipper.csproj" />
+    <Project Path="src/ShaderRipper.Application/ShaderRipper.Application.csproj" />
   </Folder>
 </Solution>

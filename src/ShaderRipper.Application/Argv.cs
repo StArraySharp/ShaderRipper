@@ -18,14 +18,22 @@ namespace ShaderRipper
             "--data", "--out", "--root", "--bundles", "--names", "--builtin-index",
             "--matrix-names", "--schema", "--tmp-layouts", "--only", "--dump",
             "--list-shaders", "--platform", "--glsl2cg", "--disasm", "--lang",
-            "--mat-check", "--file",
+            "--mat-check", "--file", "--dump-objects",
         };
 
+        /// <summary>Options that accept several values rm/cp-style (space separated).</summary>
+        private static readonly HashSet<string> Variadic = new(StringComparer.OrdinalIgnoreCase) { "--file" };
+
         private readonly Dictionary<string, string> _values = new(StringComparer.OrdinalIgnoreCase);
+        private readonly Dictionary<string, List<string>> _multi = new(StringComparer.OrdinalIgnoreCase);
         private readonly HashSet<string> _flags = new(StringComparer.OrdinalIgnoreCase);
         private readonly List<string> _bare = new();
 
         public IReadOnlyList<string> Bare => _bare;
+
+        /// <summary>All values collected for a repeatable option (e.g. --file).</summary>
+        public IReadOnlyList<string> Values(string name) =>
+            _multi.TryGetValue(name, out var l) ? (IReadOnlyList<string>)l : Array.Empty<string>();
 
         public bool Has(string name) =>
             _flags.Contains(name) || _values.ContainsKey(name);
@@ -56,8 +64,28 @@ namespace ShaderRipper
 
                 if (takesValue)
                 {
-                    a._values[t] = next;
+                    if (!a._multi.TryGetValue(t, out var l)) a._multi[t] = l = new List<string>();
+                    l.Add(next);
+                    a._values[t] = next;   // Value() keeps the last one for compat
                     i++;
+
+                    // rm/cp-style variadic input: keep swallowing following bare
+                    // tokens while they look like files (or wildcards), so
+                    // "--file a.assets b.bundle c.apk" works. A token that is
+                    // neither an existing file nor a wildcard stays positional
+                    // (that is how the legacy "<data> <out>" form keeps working).
+                    if (Variadic.Contains(t))
+                        while (i + 1 < args.Length)
+                        {
+                            string nx = args[i + 1];
+                            if (nx.StartsWith("-", StringComparison.Ordinal)) break;
+                            bool looksLikeInput = System.IO.File.Exists(nx) ||
+                                                  nx.Contains('*') || nx.Contains('?');
+                            if (!looksLikeInput) break;
+                            l.Add(nx);
+                            a._values[t] = nx;
+                            i++;
+                        }
                 }
                 else
                 {

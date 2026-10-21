@@ -36,6 +36,31 @@ namespace ShaderRipper
 
             // --list-shaders works standalone: it takes a file directly and
             // must not require --data/--file.
+            string dumpObjects = cli.Value("--dump-objects");
+            if (dumpObjects != null)
+            {
+                Paths.SetRoot(cli.Value("--root"));
+                var dRoot = TypeNode.LoadSchema(Paths.Schema(
+                    ReadSerializedFileVersion(dumpObjects) >= 22 ? "shader_typetypes_6000.json" : "shader_typetypes.json",
+                    cli.Value("--schema")));
+                var dTpk = new Func<string, int, TypeNode>((ver, id) =>
+                    TpkSchema.Available ? TpkSchema.BuildClass(id, ver) : null);
+                var dsf = SerializedFile.Load(dumpObjects, dRoot, dTpk);
+                Console.WriteLine($"version={dsf.UnityVersion} objects={dsf.Objects.Count} externals={dsf.Externals.Count}");
+                var seen = new HashSet<int>();
+                foreach (var (pid, tid, off, size) in dsf.Objects)
+                {
+                    int cls = tid >= 0 && tid < dsf.ClassIds.Count ? dsf.ClassIds[tid] : -1;
+                    TypeNode tree = null;
+                    try { tree = cls > 0 ? dTpk(dsf.UnityVersion, cls) : null; } catch { }
+                    string kids = tree == null ? "<no tree>" : string.Join(",", tree.Children.ConvertAll(c => c.Name));
+                    if (seen.Add(cls))
+                        Console.WriteLine($"  class={cls} size={size} children=[{kids}]  (pathId={pid})");
+                }
+                foreach (var e in dsf.Externals) Console.WriteLine("  ext: " + e);
+                return 0;
+            }
+
             string listPath = cli.Value("--list-shaders");
             if (listPath != null && !File.Exists(listPath) && cli.Bare.Count > 0 && File.Exists(cli.Bare[0]))
                 listPath = cli.Bare[0];
@@ -63,22 +88,37 @@ namespace ShaderRipper
                 return 2;
             }
 
-            string singleFile = cli.Value("--file");
-            if (singleFile == null && dataDir != null && File.Exists(dataDir))
-                singleFile = dataDir;          // a bare arg pointing at a file
-            bool fileMode = singleFile != null;
-            bool singleBundle = false;
-
+            // Collect input files: repeatable --file, comma/semicolon separated
+            // values, wildcards, and bare args that point at existing files.
+            var inputFiles = new List<string>();
+            foreach (var rawVal in cli.Values("--file"))
+                foreach (var seg in rawVal.Split(',', ';'))
+                {
+                    string v = seg.Trim();
+                    if (v.Length == 0) continue;
+                    if (v.Contains('*') || v.Contains('?'))
+                    {
+                        string dir = Path.GetDirectoryName(Path.GetFullPath(v));
+                        string pat = Path.GetFileName(v);
+                        if (Directory.Exists(dir))
+                            foreach (var hit in Directory.GetFiles(dir, pat)) inputFiles.Add(hit);
+                    }
+                    else inputFiles.Add(v);
+                }
+            foreach (var b in cli.Bare)
+                if (File.Exists(b)) inputFiles.Add(b);
+            // dedupe, keep order
+            var seenInputs = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+            inputFiles = inputFiles.Select(Path.GetFullPath).Where(f => seenInputs.Add(f)).ToList();
+            bool fileMode = inputFiles.Count > 0;
             if (fileMode)
             {
-                singleFile = Path.GetFullPath(singleFile);
-                if (!File.Exists(singleFile)) { Console.Error.WriteLine(Strings.F("ResourcesAssetsMissing", singleFile)); return 2; }
-                string ext = Path.GetExtension(singleFile).ToLowerInvariant();
-                singleBundle = ext is ".bundle" or ".assetbundle" or ".unity3d";
-                if (dataDir == null) dataDir = Path.GetDirectoryName(singleFile);
+                foreach (var f in inputFiles)
+                    if (!File.Exists(f)) { Console.Error.WriteLine(Strings.F("ResourcesAssetsMissing", f)); return 2; }
+                if (dataDir == null) dataDir = Path.GetDirectoryName(inputFiles[0]);
             }
             dataDir = Path.GetFullPath(dataDir);
-            string assets = singleFile;
+            string assets = fileMode ? inputFiles[0] : null;
             if (!fileMode)
             {
                 assets = Path.Combine(dataDir, "resources.assets");
@@ -112,19 +152,86 @@ namespace ShaderRipper
             int tmpLayoutCount = Cg.TmpLayouts.Load(cli.Value("--tmp-layouts"));
             if (cli.Has("--no-tmp-layout")) Cg.TmpLayouts.Enabled = false;
 
-            List<Bundle.Node> preNodes = null;
-            uint sfVersion;
-            if (fileMode && singleBundle)
+            // ---- preload inputs: bundle/apk payloads are read once up front ----
+            // sources = (bytes, path, container): exactly one of bytes/path is set;
+            // container is the bundle-node or apk-entry path used for the output tree.
+            var sources = new List<(byte[] bytes, string path, string container, string sourceFile)>();
+            uint sfVersion = 0;
+            if (fileMode)
             {
-                // Bundle layout: read once up front and probe the first node's
-                // SerializedFile header to pick the right schema.
-                preNodes = Bundle.Read(singleFile);
-                sfVersion = 0;
-                foreach (var nd in preNodes)
+                foreach (var f in inputFiles)
                 {
-                    uint v = ReadVersionFromBytes(nd.Data);
-                    if (v > 10 && v < 1000) { sfVersion = v; break; }
+                    try
+                    {
+                        switch (SniffFile(f))
+                        {
+                            case InputKind.Bundle:
+                                foreach (var nd in Bundle.Read(f))
+                                {
+                                    if (SkipNode(nd.Path)) continue;
+                                    sources.Add((nd.Data, null, nd.Path, null));
+                                    if (sfVersion == 0) { uint v = ReadVersionFromBytes(nd.Data); if (v > 10 && v < 1000) sfVersion = v; }
+                                }
+                                break;
+
+                            case InputKind.Zip:
+                                using (var zip = System.IO.Compression.ZipFile.OpenRead(f))
+                                    foreach (var entry in zip.Entries)
+                                    {
+                                        string n = entry.FullName;
+                                        if (SkipNode(n) || entry.Length < 12) continue;
+                                        byte[] head = ReadHead(entry, 12);
+                                        switch (SniffHead(head))
+                                        {
+                                            case InputKind.Bundle:
+                                            {
+                                                using var es = entry.Open();
+                                                var ms = new MemoryStream();
+                                                es.CopyTo(ms);
+                                                List<Bundle.Node> nodes;
+                                                try { nodes = Bundle.Read(ms.ToArray()); }
+                                                catch (Exception e) { Console.Error.WriteLine($"    entry {n}: {e.Message}"); continue; }
+                                                foreach (var nd in nodes)
+                                                {
+                                                    if (SkipNode(nd.Path)) continue;
+                                                    // node paths are already project-relative; the
+                                                    // apk entry name must not leak into them.
+                                                    sources.Add((nd.Data, null, nd.Path, null));
+                                                    if (sfVersion == 0) { uint v = ReadVersionFromBytes(nd.Data); if (v > 10 && v < 1000) sfVersion = v; }
+                                                }
+                                                break;
+                                            }
+                                            case InputKind.Serialized:
+                                            {
+                                                // Unity data files inside an apk often have no
+                                                // extension at all (GUID-named) — sniff by header.
+                                                using var es = entry.Open();
+                                                var ms = new MemoryStream();
+                                                es.CopyTo(ms);
+                                                sources.Add((ms.ToArray(), null, null, Path.GetFileName(n)));
+                                                if (sfVersion == 0) { uint v = ReadVersionFromBytes(ms.ToArray()); if (v > 10 && v < 1000) sfVersion = v; }
+                                                break;
+                                            }
+                                        }
+                                    }
+                                break;
+
+                            case InputKind.Serialized:
+                                sources.Add((null, f, null, Path.GetFileName(f)));
+                                if (sfVersion == 0) sfVersion = ReadSerializedFileVersion(f);
+                                break;
+
+                            default:
+                                Console.Error.WriteLine($"  [!] unrecognised container format, skipped: {f}");
+                                break;
+                        }
+                    }
+                    catch (Exception e)
+                    {
+                        Console.Error.WriteLine(Strings.F("BundleSkipped", Path.GetFileName(f), e.Message));
+                    }
                 }
+                if (sources.Count == 0) { Console.Error.WriteLine("no shader-bearing files found in the given inputs"); return 2; }
             }
             else
             {
@@ -139,7 +246,7 @@ namespace ShaderRipper
             }
 
             string gameName = fileMode
-                ? SanitizeName(Path.GetFileNameWithoutExtension(singleFile))
+                ? SanitizeName(Path.GetFileNameWithoutExtension(inputFiles[0]))
                 : ReadProductName(dataDir);
             if (gameName == null)
             {
@@ -148,7 +255,7 @@ namespace ShaderRipper
             }
             string outDir = FirstNonEmpty(cli.Value("--out"),
                                           Environment.GetEnvironmentVariable("SHADERRIPPER_OUT") ?? Environment.GetEnvironmentVariable("SHADERRIP_OUT"),
-                                          cli.Bare.Count > 1 ? cli.Bare[1] : null)
+                                          cli.Bare.Where((b2, idx) => idx > 0 && !File.Exists(b2)).FirstOrDefault())
                             ?? Path.Combine(Directory.GetCurrentDirectory(), gameName + "_ShaderLabs");
             outDir = Path.GetFullPath(outDir);
             if (!dumpMode && !matCheck)
@@ -162,23 +269,52 @@ namespace ShaderRipper
             Func<string, int, TypeNode> tpkClass = (ver, classId) =>
                 TpkSchema.Available ? TpkSchema.BuildClass(classId, ver) : null;
 
+            // Resources.Load paths only exist in globalgamemanagers (ResourceManager
+            // m_Container); load it so Resources assets land in Assets/Resources/...
+            Dictionary<(string file, long pathId), string> resMap = null;
+            {
+                byte[] gg = FindGlobalGameManagers(inputFiles, dataDir);
+                if (gg != null) resMap = ResourceMap.Load(gg, root, tpkClass);
+                Console.WriteLine(resMap != null
+                    ? $"resources map: {resMap.Count} entrie(s)"
+                    : "resources map: not found (globalgamemanagers missing)");
+                if (resMap != null && resMap.Count == 0 && ResourceMap.LastError != null)
+                    Console.Error.WriteLine("  [resmap] " + ResourceMap.LastError);
+                string resDump = Environment.GetEnvironmentVariable("SHADERRIPPER_DEBUG_RESMAP_FILE");
+                if (resMap != null && !string.IsNullOrEmpty(resDump))
+                    File.WriteAllLines(resDump, resMap.Select(kv => $"{kv.Key.file}\t{kv.Key.pathId}\t{kv.Value}"));
+                if (resMap != null && Environment.GetEnvironmentVariable("SHADERRIPPER_DEBUG_RESMAP") != null)
+                    foreach (var kv in resMap.Take(5))
+                        Console.Error.WriteLine($"  [resmap] {kv.Key.file} :: {kv.Key.pathId} -> {kv.Value}");
+            }
+
             var allShaders = new List<Shader>();
             SerializedFile sf = null;
             string shownVersion = null;
-            if (fileMode && singleBundle)
+            if (fileMode)
             {
-                int nodes = 0, found = 0;
+                int nodes = 0, found = 0, failed = 0;
                 var seen = new HashSet<string>(StringComparer.Ordinal);
-                foreach (var nd in preNodes)
+                foreach (var (bytes, path, container, sourceFile) in sources)
                 {
-                    if (nd.Path.EndsWith(".resS", StringComparison.OrdinalIgnoreCase) ||
-                        nd.Path.EndsWith(".resource", StringComparison.OrdinalIgnoreCase)) continue;
                     SerializedFile inner;
-                    try { inner = SerializedFile.Load(nd.Data, root, tpkClass); }
-                    catch (Exception e) { Console.Error.WriteLine($"    node {nd.Path}: {e.Message}"); continue; }
+                    try { inner = bytes != null ? SerializedFile.Load(bytes, root, tpkClass)
+                                               : SerializedFile.Load(path, root, tpkClass); }
+                    catch
+                    {
+                        // apk/zip containers hold hundreds of non-shader assets
+                        // (textures, materials) whose type trees are outside our
+                        // schema — skip them silently and report a count instead.
+                        failed++;
+                        continue;
+                    }
                     shownVersion ??= inner.UnityVersion;
                     if (inner.Shaders.Count == 0) continue;
                     nodes++;
+                    if (container != null)
+                        foreach (var sh2 in inner.Shaders) sh2.ContainerPath = container;
+                    if (sourceFile != null)
+                        foreach (var sh2 in inner.Shaders) sh2.SourceFile = sourceFile;
                     foreach (var sh in inner.Shaders)
                     {
                         string nm = !string.IsNullOrEmpty(sh.Name) ? sh.Name : sh.ParsedForm?.Name ?? "";
@@ -189,13 +325,17 @@ namespace ShaderRipper
                 }
                 Console.WriteLine(Strings.F("Unity_Shaders", shownVersion ?? "?", found)
                                   + (TpkSchema.Available ? "  tpk=on" : "  tpk=off (data/sourcetpk.tpk missing)"));
-                Console.WriteLine(Strings.F("BundlesScanned", 1, nodes, found));
+                Console.WriteLine(Strings.F("BundlesScanned", inputFiles.Count, nodes, found)
+                                  + (failed > 0 ? $"  ({failed} file(s) skipped)" : ""));
             }
             else
             {
                 sf = SerializedFile.Load(assets, root, tpkClass);
                 Console.WriteLine(Strings.F("Unity_Shaders", sf.UnityVersion, sf.Shaders.Count)
                                   + (TpkSchema.Available ? "  tpk=on" : "  tpk=off (data/sourcetpk.tpk missing)"));
+                // remember which file these came from so the Resources map can key them
+                string assetsName = Path.GetFileName(assets);
+                foreach (var sh0 in sf.Shaders) sh0.SourceFile = assetsName;
                 allShaders.AddRange(sf.Shaders);
             }
             if (indexCount > 0)
@@ -251,6 +391,7 @@ namespace ShaderRipper
                         }
                         if (inner.Shaders.Count == 0) continue;
                         nodes++;
+                        foreach (var sh2 in inner.Shaders) sh2.ContainerPath = node.Path;
                         foreach (var sh in inner.Shaders)
                         {
                             string nm = !string.IsNullOrEmpty(sh.Name) ? sh.Name
@@ -601,7 +742,76 @@ namespace ShaderRipper
                         ? "dxil" : mainInfo.Format;
                     string lab = ShaderLabWriter.Write(sh, name, progs, paramBlobs, safe,
                                                        writerFormat, mainPlatId, srcByBlob);
-                    File.WriteAllText(Path.Combine(outDir, safe + ".shader"), lab);
+                    string outPath;
+                    {
+                        // Prefer the asset's real container path from the bundle
+                        // node ("assets/resources/foo.shader" -> Assets/Resources/...);
+                        // fall back to AR's default Assets/Shader/<Name>.shader.
+                        string rel;
+                        string container = sh.ContainerPath;
+                        bool fromResources = false;
+                        if (container == null && resMap != null && sh.SourceFile != null &&
+                            resMap.TryGetValue((sh.SourceFile, sh.PathId), out var mapped))
+                        {
+                            container = mapped;
+                            fromResources = true;
+                        }
+                        if (fromResources)
+                        {
+                            // m_Container names are Resources-relative
+                            // ("achievements/foo", "camerafilterpack_rainfx")
+                            rel = "Resources/" + container.Replace('\\', '/');
+                            if (!rel.EndsWith(".shader", StringComparison.OrdinalIgnoreCase)) rel += ".shader";
+                            var rparts0 = rel.Split('/');
+                            for (int i = 0; i < rparts0.Length; i++)
+                                foreach (char c2 in Path.GetInvalidFileNameChars()) rparts0[i] = rparts0[i].Replace(c2, '_');
+                            string outPathR = Path.Combine(new[] { outDir, "Assets" }.Concat(rparts0).ToArray());
+                            // a resource path can be claimed twice when the same asset ships in
+                            // several data files — never overwrite silently
+                            if (File.Exists(outPathR))
+                                outPathR = outPathR[..^".shader".Length] + "_" + sh.PathId + ".shader";
+                            Directory.CreateDirectory(Path.GetDirectoryName(outPathR)!);
+                            File.WriteAllText(outPathR, lab);
+                            ok++;
+                            continue;
+                        }
+                        if (container == null && resMap != null &&
+                            Environment.GetEnvironmentVariable("SHADERRIPPER_DEBUG_RESMAP") != null)
+                            Console.Error.WriteLine($"  [resmap] miss {name} :: {sh.SourceFile} :: {sh.PathId}");
+                        if (!string.IsNullOrEmpty(container))
+                        {
+                            rel = container.Replace('\\', '/');
+                            if (rel.StartsWith("assets/", StringComparison.OrdinalIgnoreCase)) rel = rel["assets/".Length..];
+                            // builds store container paths lowercase; restore Unity's canonical
+                            // casing for the special folders so the tree drops into a project
+                            foreach (var (low, canon) in SpecialFolders)
+                                if (rel.StartsWith(low, StringComparison.OrdinalIgnoreCase))
+                                {
+                                    rel = canon + rel[low.Length..];
+                                    break;
+                                }
+                            if (!rel.EndsWith(".shader", StringComparison.OrdinalIgnoreCase))
+                            {
+                                // Unity sometimes stores shader nodes under a data-ish
+                                // name; AssetRipper keeps the directory but names the
+                                // file after the shader.
+                                string dir2 = Path.GetDirectoryName(rel)?.Replace('\\', '/');
+                                rel = (string.IsNullOrEmpty(dir2) ? "" : dir2 + "/") + safe + ".shader";
+                            }
+                        }
+                        else
+                        {
+                            Console.WriteLine($"  [ar] no container path: \"{name}\" -> Assets/Shader/{safe}.shader");
+                            rel = "Shader/" + safe + ".shader";
+                        }
+                        var parts = rel.Split('/');
+                        for (int i = 0; i < parts.Length; i++)
+                            if (i == parts.Length - 1 || parts[i].Length > 0)
+                                foreach (char c in Path.GetInvalidFileNameChars()) parts[i] = parts[i].Replace(c, '_');
+                        outPath = Path.Combine(new[] { outDir, "Assets" }.Concat(parts).ToArray());
+                    }
+                    Directory.CreateDirectory(Path.GetDirectoryName(outPath)!);
+                    File.WriteAllText(outPath, lab);
                     ok++;
                 }
                 catch (Exception e)
@@ -789,39 +999,180 @@ namespace ShaderRipper
             catch { return 0; }
         }
 
-        /// <summary>SerializedFile version from an in-memory header (bundle node data).</summary>
-        private static uint ReadVersionFromBytes(byte[] b)
+        /// <summary>
+        /// Locate globalgamemanagers for the current input set: next to a loose
+        /// .assets, inside the game data dir, or as an entry of an apk/zip.
+        /// Windows and Linux builds use the same file (and the same format).
+        /// </summary>
+        private static byte[] FindGlobalGameManagers(List<string> inputFiles, string dataDir)
         {
+            var names = new[] { "globalgamemanagers", "globalgamemanagers.assets" };
+            var dirs = new List<string>();
+            if (!string.IsNullOrEmpty(dataDir)) dirs.Add(dataDir);
+            foreach (var f in inputFiles)
+                if (dirs.Count == 0 || !string.Equals(Path.GetDirectoryName(f), dirs[0], StringComparison.OrdinalIgnoreCase))
+                    dirs.Add(Path.GetDirectoryName(f) ?? "");
+
+            foreach (var d in dirs)
+                foreach (var n in names)
+                {
+                    string pth = Path.Combine(d, n);
+                    if (File.Exists(pth))
+                    {
+                        try { return File.ReadAllBytes(pth); } catch { }
+                    }
+                }
+
+            foreach (var f in inputFiles)
+            {
+                if (SniffFile(f) != InputKind.Zip) continue;
+                try
+                {
+                    using var zip = System.IO.Compression.ZipFile.OpenRead(f);
+                    foreach (var n in names)
+                        foreach (var entry in zip.Entries)
+                            if (string.Equals(Path.GetFileName(entry.FullName), n, StringComparison.OrdinalIgnoreCase))
+                            {
+                                using var es = entry.Open();
+                                var ms = new MemoryStream();
+                                es.CopyTo(ms);
+                                return ms.ToArray();
+                            }
+                }
+                catch { }
+            }
+            return null;
+        }
+
+        private enum InputKind { Unknown, Serialized, Bundle, Zip }
+
+        /// <summary>Lowercase container prefixes that map back to Unity's canonical folder names.</summary>
+        private static readonly (string low, string canon)[] SpecialFolders =
+        {
+            ("resources/", "Resources/"),
+            ("streamingassets/", "StreamingAssets/"),
+            ("plugins/", "Plugins/"),
+            ("editor/", "Editor/"),
+            ("gizmos/", "Gizmos/"),
+        };
+
+        private static bool SkipNode(string path) =>
+            path.EndsWith(".resS", StringComparison.OrdinalIgnoreCase) ||
+            path.EndsWith(".resource", StringComparison.OrdinalIgnoreCase);
+
+        /// <summary>Content sniffing by file head — extensions are advisory only
+        /// (downloaded apks are often renamed to .1, Unity data files inside
+        /// apks are GUID-named with no extension).</summary>
+        private static InputKind SniffFile(string path)
+        {
+            using var fs = File.OpenRead(path);
+            var h = new byte[12];
+            int n = fs.Read(h, 0, 12);
+            return SniffHead(h, n);
+        }
+
+        private static InputKind SniffHead(byte[] h, int n = 12)
+        {
+            if (n >= 4 && h[0] == 0x50 && h[1] == 0x4B && h[2] is 3 or 5 or 7) return InputKind.Zip;
+            if (n >= 7 && Encoding.ASCII.GetString(h, 0, 7) == "UnityFS") return InputKind.Bundle;
+            if (n >= 12)
+            {
+                uint v = (uint)((h[8] << 24) | (h[9] << 16) | (h[10] << 8) | h[11]);
+                if (v >= 6 && v <= 1000) return InputKind.Serialized;
+            }
+            return InputKind.Unknown;
+        }
+
+        private static byte[] ReadHead(System.IO.Compression.ZipArchiveEntry entry, int count)
+        {
+            using var s = entry.Open();
+            var b = new byte[count];
+            int n = 0;
+            while (n < count)
+            {
+                int r = s.Read(b, n, count - n);
+                if (r <= 0) break;
+                n += r;
+            }
+            return b;
+        }
+
+        /// <summary>SerializedFile version from an in-memory header (bundle node data).</summary>
+        private static uint ReadVersionFromBytes(byte[] b)        {
             if (b == null || b.Length < 12) return 0;
             return (uint)((b[8] << 24) | (b[9] << 16) | (b[10] << 8) | b[11]);
         }
 
-        /// <summary>--list-shaders: print every shader name in a SerializedFile or bundle.</summary>
+        /// <summary>--list-shaders: print every shader name in a SerializedFile,
+        /// bundle or apk/zip container (detected by content, not extension).</summary>
         private static int ListShaders(string path, TypeNode root, Func<string, int, TypeNode> tpkClass)
         {
             try
             {
-                string ext = Path.GetExtension(path).ToLowerInvariant();
                 var names = new List<string>();
-                if (ext is ".bundle" or ".assetbundle" or ".unity3d")
+                void Collect(byte[] data, string path2, string container)
                 {
-                    foreach (var nd in Bundle.Read(path))
-                    {
-                        if (nd.Path.EndsWith(".resS", StringComparison.OrdinalIgnoreCase) ||
-                            nd.Path.EndsWith(".resource", StringComparison.OrdinalIgnoreCase)) continue;
-                        try
-                            {
-                                foreach (var sh in SerializedFile.Load(nd.Data, root, tpkClass).Shaders)
-                                    names.Add(!string.IsNullOrEmpty(sh.Name) ? sh.Name : sh.ParsedForm?.Name ?? "");
-                            }
-                        catch (Exception e) { Console.Error.WriteLine($"    node {nd.Path}: {e.Message}"); }
-                    }
-                }
-                else
-                {
-                    foreach (var sh in SerializedFile.Load(path, root, tpkClass).Shaders)
+                    SerializedFile inner = data != null ? SerializedFile.Load(data, root, tpkClass)
+                                                        : SerializedFile.Load(path2, root, tpkClass);
+                    if (container != null)
+                        foreach (var sh in inner.Shaders) sh.ContainerPath = container;
+                    foreach (var sh in inner.Shaders)
                         names.Add(!string.IsNullOrEmpty(sh.Name) ? sh.Name : sh.ParsedForm?.Name ?? "");
                 }
+
+                switch (SniffFile(path))
+                {
+                    case InputKind.Zip:
+                        using (var zip = System.IO.Compression.ZipFile.OpenRead(path))
+                            foreach (var entry in zip.Entries)
+                            {
+                                string n = entry.FullName;
+                                if (SkipNode(n) || entry.Length < 12) continue;
+                                byte[] head = ReadHead(entry, 12);
+                                try
+                                {
+                                    switch (SniffHead(head))
+                                    {
+                                        case InputKind.Bundle:
+                                            using (var es = entry.Open())
+                                            {
+                                                var ms = new MemoryStream();
+                                                es.CopyTo(ms);
+                                                foreach (var nd in Bundle.Read(ms.ToArray()))
+                                                {
+                                                    if (SkipNode(nd.Path)) continue;
+                                                    Collect(nd.Data, null, n + "/" + nd.Path);
+                                                }
+                                            }
+                                            break;
+                                        case InputKind.Serialized:
+                                            using (var es = entry.Open())
+                                            {
+                                                var ms = new MemoryStream();
+                                                es.CopyTo(ms);
+                                                Collect(ms.ToArray(), null, n);
+                                            }
+                                            break;
+                                    }
+                                }
+                                catch (Exception e) { Console.Error.WriteLine($"    entry {n}: {e.Message}"); }
+                            }
+                        break;
+
+                    case InputKind.Bundle:
+                        foreach (var nd in Bundle.Read(path))
+                        {
+                            if (SkipNode(nd.Path)) continue;
+                            try { Collect(nd.Data, null, nd.Path); }
+                            catch (Exception e) { Console.Error.WriteLine($"    node {nd.Path}: {e.Message}"); }
+                        }
+                        break;
+
+                    case InputKind.Serialized:
+                        Collect(null, path, null);
+                        break;
+                }
+
                 foreach (var n in names.Where(n => !string.IsNullOrEmpty(n)).Distinct().OrderBy(n => n, StringComparer.Ordinal))
                     Console.WriteLine(n);
                 Console.Error.WriteLine($"({names.Count} shader object(s))");

@@ -8,6 +8,14 @@ namespace ShaderRipper
         public long Offset;
         public uint Size;
         public string Name;
+        /// <summary>Container path from the owning bundle node (e.g.
+        /// "assets/resources/foo.shader"), or null for loose .assets files.</summary>
+        public string ContainerPath;
+
+        /// <summary>Base name of the .assets file this object came from
+        /// ("resources.assets", or the GUID-named apk entry) — the key the
+        /// Resources map uses.</summary>
+        public string SourceFile;
         public ParsedForm ParsedForm;
         public uint[] Platforms = System.Array.Empty<uint>();
         public uint[][] Offsets = System.Array.Empty<uint[]>();

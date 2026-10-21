@@ -15,7 +15,7 @@ namespace ShaderRipper
     {
         private const uint FlagBlocksInfoAtEnd = 0x80;
 
-        private enum Compression { None = 0, Lzma = 1, Lz4 = 2, Lz4Hc = 3 }
+        private enum Compression { None = 0, Lzma = 1, Lz4 = 2, Lz4Hc = 3, Lzham = 4 }
 
         internal readonly struct Node
         {
@@ -181,10 +181,35 @@ namespace ShaderRipper
                         if (got <= 0) throw new InvalidDataException("LZ4 blocksInfo decode failed");
                         return dst;
                     }
+                case Compression.Lzma:
+                    return DecodeLzma(src, rawSize);
+                case Compression.Lzham:
+                    throw new NotSupportedException(
+                        "bundle is LZHAM-compressed — not supported (very rare; LZ4 and LZMA are)");
                 default:
                     throw new NotSupportedException(
-                        $"bundle compression {c} is not supported (only LZ4/none)");
+                        $"bundle compression {(int)c} is not supported (only LZ4/LZMA/none)");
             }
+        }
+
+        /// <summary>
+        /// UnityFS LZMA blocks use the classic "lzma alone" framing: 5 bytes of
+        /// range-coder properties followed by the 8-byte uncompressed size, then
+        /// the raw stream. SharpCompress' LzmaStream decodes exactly that.
+        /// </summary>
+        private static byte[] DecodeLzma(byte[] src, int rawSize)
+        {
+            if (src.Length < 13) throw new InvalidDataException("LZMA payload too short");
+            var props = new byte[5];
+            Buffer.BlockCopy(src, 0, props, 0, 5);
+            using var input = new MemoryStream(src, 13, src.Length - 13, writable: false);
+            using var output = new MemoryStream(rawSize);
+            var dec = new SevenZip.Compression.LZMA.Decoder();
+            dec.SetDecoderProperties(props);
+            dec.Code(input, output, src.Length - 13, rawSize, null);
+            if (output.Length != rawSize)
+                throw new InvalidDataException($"LZMA decode produced {output.Length}/{rawSize} bytes");
+            return output.ToArray();
         }
 
         private static byte[] Slice(byte[] b, int off, int len)
