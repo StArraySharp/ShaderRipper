@@ -1,4 +1,4 @@
-using System;
+﻿using System;
 using System.Collections.Generic;
 using System.IO;
 using System.Linq;
@@ -156,14 +156,14 @@ namespace ShaderRipper
                                     : "#elif " + guard));
                                 foreach (var line in Cg.GlslToCg.Translate(srcByKey[keys[vi]]).Cg
                                              .Replace("\r\n", "\n").Split('\n'))
-                                    sb.AppendLine("\t\t\t" + line.TrimEnd());
+                                    sb.AppendLine(line.TrimEnd().Length == 0 ? "" : "\t\t\t" + line.TrimEnd());
                             }
                             sb.AppendLine();
                             sb.AppendLine("\t\t\t// ---- fallback: combinations Unity never compiled ----");
                             sb.AppendLine("\t\t\t#else");
                             foreach (var line in Cg.GlslToCg.Translate(srcByKey[keys[0]]).Cg
                                          .Replace("\r\n", "\n").Split('\n'))
-                                sb.AppendLine("\t\t\t" + line.TrimEnd());
+                                sb.AppendLine(line.TrimEnd().Length == 0 ? "" : "\t\t\t" + line.TrimEnd());
                             sb.AppendLine("\t\t\t#endif");
                             sb.AppendLine("\t\t\tENDCG");
                             glslDone = true;
@@ -211,7 +211,7 @@ namespace ShaderRipper
                         }
 
                         foreach (var line in body.Split('\n'))
-                            sb.AppendLine("\t\t\t" + line.TrimEnd('\r'));
+                            sb.AppendLine(line.TrimEnd('\r').Trim().Length == 0 ? "" : "\t\t\t" + line.TrimEnd('\r'));
 
                         sb.AppendLine("\t\t\tENDCG");
                     }

@@ -606,7 +606,13 @@ namespace ShaderRipper.Cg
                 string dest = m.Groups[3].Value;
                 string reg = m.Groups[2].Value.Trim();
                 string field = alias.TryGetValue(reg, out var f) ? f : reg;
-                return $"{dest} = UnityObjectToClipPos({field}.xyz);" + Environment.NewLine;
+                // The match starts at the line start, so it swallowed the
+                // indentation -- put it back, or the collapsed line lands in
+                // column 0 while every neighbour stays one level in.
+                int k = 0;
+                while (k < m.Value.Length && (m.Value[k] == ' ' || m.Value[k] == '\t')) k++;
+                string lead = m.Value.Substring(0, k);
+                return lead + $"{dest} = UnityObjectToClipPos({field}.xyz);" + Environment.NewLine;
             }, 1);
         }
         private static List<int> OutRegisters(AsmParser.Program p) =>
