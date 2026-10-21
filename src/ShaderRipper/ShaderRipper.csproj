@@ -10,6 +10,7 @@
     <AllowUnsafeBlocks>true</AllowUnsafeBlocks>
     <InvariantGlobalization>true</InvariantGlobalization>
     <SatelliteResourceLanguages>en</SatelliteResourceLanguages>
+    <ShaderNativeRid Condition="'$(ShaderNativeRid)' == ''">$(RuntimeIdentifier)</ShaderNativeRid>
   </PropertyGroup>
   <ItemGroup>
     <InternalsVisibleTo Include="ShaderRipper.Application" />
@@ -24,16 +25,16 @@
                       LogicalName="ShaderRipper.Native.D3Dcompiler_47.dll" />
     <EmbeddedResource Include="NativeLibs/win-x64/dxcompiler.dll"
                       LogicalName="ShaderRipper.Native.dxcompiler.dll"
-                      Condition="'$(RuntimeIdentifier)' == 'win-x64' Or '$(RuntimeIdentifier)' == ''" />
+                      Condition="'$(ShaderNativeRid)' == 'win-x64' Or '$(ShaderNativeRid)' == ''" />
     <EmbeddedResource Include="NativeLibs/win-x64/dxil.dll"
                       LogicalName="ShaderRipper.Native.dxil.dll"
-                      Condition="'$(RuntimeIdentifier)' == 'win-x64' Or '$(RuntimeIdentifier)' == ''" />
+                      Condition="'$(ShaderNativeRid)' == 'win-x64' Or '$(ShaderNativeRid)' == ''" />
     <EmbeddedResource Include="NativeLibs/linux-x64/libdxcompiler.so"
                       LogicalName="ShaderRipper.Native.libdxcompiler.so"
-                      Condition="'$(RuntimeIdentifier)' == 'linux-x64'" />
+                      Condition="'$(ShaderNativeRid)' == 'linux-x64'" />
     <EmbeddedResource Include="NativeLibs/linux-x64/libdxil.so"
                       LogicalName="ShaderRipper.Native.libdxil.so"
-                      Condition="'$(RuntimeIdentifier)' == 'linux-x64'" />
+                      Condition="'$(ShaderNativeRid)' == 'linux-x64'" />
   </ItemGroup>
   <ItemGroup>
     <PackageReference Include="AssetRipper.Tpk" Version="2.0.0" />

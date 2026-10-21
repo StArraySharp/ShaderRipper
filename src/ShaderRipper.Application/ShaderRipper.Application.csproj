@@ -12,6 +12,7 @@
     <SatelliteResourceLanguages>en</SatelliteResourceLanguages>
   </PropertyGroup>
   <ItemGroup>
-    <ProjectReference Include="..\ShaderRipper\ShaderRipper.csproj" />
+    <ProjectReference Include="..\ShaderRipper\ShaderRipper.csproj"
+                      AdditionalProperties="ShaderNativeRid=$(RuntimeIdentifier)" />
   </ItemGroup>
 </Project>
