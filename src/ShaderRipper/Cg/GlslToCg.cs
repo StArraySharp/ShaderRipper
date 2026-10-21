@@ -98,6 +98,11 @@ namespace ShaderRipper.Cg
             (new Regex(@"\binversesqrt\b"), "rsqrt"),
             (new Regex(@"\bfract\b"), "frac"),
             (new Regex(@"\bmix\b"), "lerp"),
+            // GLSL derivative names.  Unity's CGIncludes do NOT define them
+            // (only GraniteShaderLib3 maps the other way, ddx -> dFdx), so a
+            // CGPROGRAM carrying dFdx fails to compile with X3004.
+            (new Regex(@"\bdFdx\b"), "ddx"),
+            (new Regex(@"\bdFdy\b"), "ddy"),
             (new Regex(@"\bmod\s*\("), "fmod("),
             (new Regex(@"\btextureLod\s*\("), "tex2Dlod("),
             (new Regex(@"\btexture\s*\("), "tex2D("),
