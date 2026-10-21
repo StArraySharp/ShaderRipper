@@ -71,33 +71,44 @@ namespace ShaderRipper.Cg
             sb.AppendLine($"// {allKeys.Count} keyword variant(s), {groups.Count} multi_compile line(s)");
             foreach (var note in vanalysis.Notes) sb.AppendLine($"// variants: {note}");
 
+            int emitted = 0;
+            string fallbackKey = allKeys.Count > 0 ? allKeys[0] : null;
             for (int vi = 0; vi < allKeys.Count; vi++)
             {
                 string key = allKeys[vi];
+                vsByKey.TryGetValue(key, out var vsSp);
+                psByKey.TryGetValue(key, out var psSp);
+                var vs = Lookup(progs, vsSp);
+                var ps = Lookup(progs, psSp);
+
+                // A combination Unity never compiled completely (one stage missing)
+                // must not become its own #elif block: a variant with only one
+                // stage renders nothing and Unity reports X3501 for the missing
+                // entry point.  Such combos are left to the #else fallback below.
+                if (vs == null || ps == null) continue;
+                if (fallbackKey == allKeys[0] && fallbackKey != null && emitted == 0)
+                    fallbackKey = key;
+
                 var kw = Split(key);
                 string guard = VariantPlan.Guard(groups, kw);
 
                 sb.AppendLine();
                 sb.AppendLine($"// ---- variant {vi}" +
                               (kw.Count == 0 ? " (base)" : ": " + string.Join(" + ", kw)) + " ----");
-                sb.AppendLine(vi == 0 ? (guard.Length > 0 ? $"#if {guard}" : "#if 1")
-                                      : $"#elif {guard}");
-
-                vsByKey.TryGetValue(key, out var vsSp);
-                psByKey.TryGetValue(key, out var psSp);
-                var vs = Lookup(progs, vsSp);
-                var ps = Lookup(progs, psSp);
+                sb.AppendLine(emitted == 0 ? (guard.Length > 0 ? $"#if {guard}" : "#if 1")
+                                           : $"#elif {guard}");
 
                 EmitVariant(sb, vs, ps, props, nameTable, vsSp, psSp, paramBlobs, names, identityHint, tmpLayout);
+                emitted++;
             }
 
-            if (allKeys.Count > 0)
+            if (fallbackKey != null)
             {
                 sb.AppendLine();
                 sb.AppendLine("// ---- fallback: combinations Unity never compiled ----");
                 sb.AppendLine("#else");
-                vsByKey.TryGetValue(allKeys[0], out var vsSp);
-                psByKey.TryGetValue(allKeys[0], out var psSp);
+                vsByKey.TryGetValue(fallbackKey, out var vsSp);
+                psByKey.TryGetValue(fallbackKey, out var psSp);
                 EmitVariant(sb, Lookup(progs, vsSp), Lookup(progs, psSp), props, nameTable, vsSp, psSp, paramBlobs, names, identityHint, tmpLayout);
                 sb.AppendLine("#endif");
             }
@@ -323,7 +334,11 @@ namespace ShaderRipper.Cg
                         seenCb[d.Register] = size;
                     }
                     else if (d.Kind == "xtemp" && seenXt.Add(d.Register))
-                        sb.AppendLine($"float4 x{d.Register}[{Math.Max(1, d.Elements)}];");
+                        // static: indexable temps get written at runtime, and a
+                        // plain global is implicitly constant in HLSL (X3025).
+                        // static storage zero-initializes; an array cannot take a
+                        // scalar initializer (X3017).
+                        sb.AppendLine($"static float4 x{d.Register}[{Math.Max(1, d.Elements)}];");
                     else if (d.Kind == "icb" && !icbDone && d.IcbValues != null && d.IcbValues.Count > 0)
                     {
                         icbDone = true;
@@ -647,9 +662,12 @@ namespace ShaderRipper.Cg
                          @"(?m)^\s*float([234])?\s+v(\d+)\s*=\s*v\.(\w+)\s*;"))
                 alias["v" + am.Groups[2].Value] = "v." + am.Groups[3].Value;
 
+            // Matrices are read column by column, so the world-position term is
+            // "v0.y * (unity_ObjectToWorld._m01_m11_m21_m31).x" and the clip-space
+            // write ends in "unity_MatrixVP._m03_m13_m23_m33".
             var re = new System.Text.RegularExpressions.Regex(
-                @"(?ms)^\s*(\w+)\.xyzw = float4\(([^;\r\n]*?)\.y \* unity_ObjectToWorld\[1\]\.x[^;\r\n]*\);\r?\n" +
-                @".*?^\s*(\w+)\.xyzw = float4\([^;\r\n]*unity_MatrixVP\[3\]\.x[^;\r\n]*\);\r?\n");
+                @"(?ms)^\s*(\w+)\.xyzw = float4\(([^;\r\n]*?)\.y \* \(unity_ObjectToWorld\._m01_m11_m21_m31\)\.x[^;\r\n]*\);\r?\n" +
+                @".*?^\s*(\w+)\.xyzw = float4\([^;\r\n]*(?:\(unity_MatrixVP\._m03_m13_m23_m33\)\.x|unity_MatrixVP\[3\]\.x)[^;\r\n]*\);\r?\n");
 
             // Output writes can sit inside the spanned lines -- a shader that also
             // passes world position out (TEXCOORD1 = mul(unity_ObjectToWorld, v))
@@ -658,14 +676,16 @@ namespace ShaderRipper.Cg
             // initialized" in Unity).  Only that one shape is understood; anything
             // else means the span is not a plain MVP block and is left alone.
             var worldPos = new System.Text.RegularExpressions.Regex(
-                @"(?m)^[ \t]*(o\d+)\.(\w+)[ \t]*=[ \t]*float3\(mad\(unity_ObjectToWorld\[3\]\.x[^\r\n]*\);");
+                @"(?m)^[ \t]*(o\d+)\.(\w+)[ \t]*=[ \t]*float3\(mad\((?:unity_ObjectToWorld\[3\]|\(unity_ObjectToWorld\._m03_m13_m23_m33\))\.[^\r\n]*\);");
             var anyOutput = new System.Text.RegularExpressions.Regex(@"(?m)^[ \t]*(o\d+)\.");
 
             return re.Replace(body, m =>
             {
                 string dest = m.Groups[3].Value;
                 string reg = m.Groups[2].Value.Trim();
-                if (!alias.TryGetValue(reg, out var field)) return m.Value;
+                // The chain can start from a temp (a sprite flips the vertex before
+                // transforming it), so an unknown register is not a reason to bail.
+                string field = alias.TryGetValue(reg, out var f) ? f : reg;
 
                 // The match starts at the line start, so it swallowed the
                 // indentation -- put it back, or the collapsed line lands in
