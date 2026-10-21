@@ -247,6 +247,12 @@ namespace ShaderRipper
             }
             if (typeTree && r.Version >= 21)
             {
+                // A bundle node can be truncated (Unity writes some built-in asset
+                // bundles that way); report it as bad data instead of letting the
+                // reader run off the end of the array.
+                if (r.Remaining < 4)
+                    throw new InvalidDataException(
+                        $"truncated type table: version-21 dependency count missing ({r.Remaining} byte(s) left)");
                 int deps = r.ReadI32();
                 if (deps > 0 && deps < 4096) r.Skip(deps * 4);
             }
