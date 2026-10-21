@@ -548,18 +548,28 @@ namespace ShaderRipper.Cg
                 if (m.ArraySize > 1) w = 4;
                 if (col + w > 4) continue;
 
+                // A member can be an integer.  Declaring it float would read the
+                // stored bits as a float instead of converting: _NumVerts = 4
+                // comes back as 5.6e-45, and v3.x / _NumVerts turns every vertex
+                // into NaN (the object simply stops rendering).  Only type 1 is
+                // proven to be int (the code around it does itof); the rarer
+                // type 2 has no such evidence, so it stays float rather than
+                // guessing uint.
+                string scalar = m.Type == 1 ? "int" : "float";
+                string Ty(int n) => n == 1 ? scalar : scalar + (n == 2 ? "2" : n == 3 ? "3" : "4");
+
                 if (w == 4 && col == 0)
                 {
                     RowExpr[(d.Register, row)] = m.Name;
                     RowWidth[(d.Register, row)] = 4;
-                    decls.Add((m.Name, "float4"));
+                    decls.Add((m.Name, Ty(4)));
                 }
                 else
                 {
                     for (int k = 0; k < w; k++)
                         CompExpr[(d.Register, row, col + k)] =
                             w == 1 ? m.Name : m.Name + "." + "xyzw"[k];
-                    decls.Add((m.Name, w == 1 ? "float" : w == 2 ? "float2" : "float3"));
+                    decls.Add((m.Name, Ty(w)));
                 }
                 mapped++;
             }

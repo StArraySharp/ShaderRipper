@@ -228,9 +228,12 @@ namespace ShaderRipper.Cg
             if (iface.V2fFields.Count > 0)
                 sb.Append(ShaderInterface.StructText(hasVs ? "v2f" : "appdata", iface.V2fFields, renumber: true));
 
+            // Everything below belongs to this variant only; DeclareResources uses
+            // this mark to tell its own declarations from earlier variants'.
+            int variantStart = sb.Length;
             sb.AppendLine();
             int declStart = sb.Length;
-            DeclareResources(sb, vs, ps, vsCb, psCb, props);
+            DeclareResources(sb, variantStart, vs, ps, vsCb, psCb, props);
             sb.AppendLine();
 
             int bodyStart = sb.Length;
@@ -259,7 +262,7 @@ namespace ShaderRipper.Cg
 
             var have = new HashSet<string>(StringComparer.Ordinal);
             foreach (System.Text.RegularExpressions.Match m in System.Text.RegularExpressions.Regex.Matches(
-                         declText, @"\b(?:float[234]?(?:x[234])?|sampler2D|samplerCUBE|sampler3D|SamplerState)\s+(\w+)"))
+                         declText, @"\b(?:(?:float|int|uint|bool)[234]?(?:x[234])?|sampler2D|samplerCUBE|sampler3D|SamplerState)\s+(\w+)"))
                 have.Add(m.Groups[1].Value);
 
             var extra = new StringBuilder();
@@ -278,8 +281,9 @@ namespace ShaderRipper.Cg
             if (extra.Length > 0) sb.Insert(bodyStart, extra.ToString());
         }
 
-        private static void DeclareResources(StringBuilder sb, AsmParser.Program vs, AsmParser.Program ps,
-                                             CbResolver vsCb, CbResolver psCb, IReadOnlyList<Property> props)
+        private static void DeclareResources(StringBuilder sb, int variantStart, AsmParser.Program vs,
+                                             AsmParser.Program ps, CbResolver vsCb, CbResolver psCb,
+                                             IReadOnlyList<Property> props)
         {
             var seenTex = new HashSet<string>();
             var seenCb = new Dictionary<int, int>();
@@ -381,10 +385,12 @@ namespace ShaderRipper.Cg
                 }
             }
 
+            // Only this variant's own text: sb also holds every earlier variant of
+            // the pass, and a name declared there does not exist here.
             var declared = new HashSet<string>(StringComparer.Ordinal);
             foreach (System.Text.RegularExpressions.Match m in System.Text.RegularExpressions.Regex.Matches(
-                         sb.ToString(),
-                         @"(?m)^\s*(?:float[234]?|sampler1D|sampler2D|sampler3D|samplerCUBE)\s+(\w+)"))
+                         sb.ToString(variantStart, sb.Length - variantStart),
+                         @"(?m)^\s*(?:(?:float|int|uint|bool)[234]?|sampler1D|sampler2D|sampler3D|samplerCUBE)\s+(\w+)"))
                 declared.Add(m.Groups[1].Value);
             foreach (var p in props ?? new List<Property>())
             {
