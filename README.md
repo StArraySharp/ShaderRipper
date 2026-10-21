@@ -78,12 +78,13 @@ The build stores only the **set** of keywords each variant was compiled with —
 line structure is not in the data. It is recovered from which keywords can be on at the
 same time: two keywords that never co-occur in any variant are the alternatives of one
 line (Unity only ever defines one of them), while keywords that do co-occur are separate
-lines. For `Hidden/BlendModes/SpritesDefault/OverlayMasked` that yields three lines — a
-25-mode `BLENDMODES_MODE_*` line plus `ETC1_EXTERNAL_ALPHA` and `PIXELSNAP_ON` —
-covering 100 of the 104 reachable states; the 4 missing ones are the states the build
-stripped, so the emitted `#if / #elif` chain is already the runtime truth. Every variant
-keeps its own exact guard (`defined(MODE_MUL)`, not "one of the modes"), so a
-hand-written `#ifdef` in the body still means what it did in the original source.
+lines. For the 60-variant test shader in [`docs/verification/`](docs/verification/) that gives back exactly the
+four lines it was written with — `__ DIST_SWIRL DIST_WAVE`, `__ GLOW_ON`,
+`__ MODE_ADD MODE_MUL MODE_OVERLAY MODE_SCREEN`, `__ SHAPE_RING` — and 60/60 coverage, the full cartesian
+product 5 × 3 × 2 × 2. Treating the eight keywords as independent toggles would have claimed 2⁸ = 256 variants,
+and for the 25-mode blend shaders found in real game data it would have claimed 2²⁵. Every variant keeps its own
+exact guard (`defined(MODE_MUL)`, not "one of the modes"), so a hand-written `#ifdef` in the body still means
+what it did in the input.
 
 Supported containers and compression:
 
@@ -152,29 +153,46 @@ For more readable output, prefer game data that includes **GLES3 / OpenGLCore** 
 
 ## Correctness verification
 
-Verification files live in [`docs/verification/`](docs/verification/) (one sub-directory per shader: the original source (AR export / upstream repo), this tool's rebuilt output (with and without per-instruction comments), and the merged DXBC disassembly; the OverlayMasked directory also holds its upstream cginc includes). Using the largest shader of an unnamed commercial Unity 6 game, `Hidden/BlendModes/SpritesDefault/OverlayMasked` (714 KB / 208 keyword variants), we did a three-way comparison against the blend-modes asset's upstream open-source code (original HLSL → compiled DXBC → CG rebuilt by this tool). The DARKEN mode fragment:
+[`docs/verification/`](docs/verification/) holds one round trip through a Unity 6 test project. Both shaders in it were **written by us**, packed into that project, and then extracted back out of its build data — so both ends of the chain are ours and every number below can be reproduced. Each sub-directory holds the source we packed (`*_original.shader`, the input), what this tool rebuilt (`*_ripper.shader`, the output, with per-instruction comments; `*_ripper_noasm.shader` is the same file without them), and the merged DXBC disassembly of every compiled variant.
 
-Original source (upstream `BlendFunctions.cginc`):
+| shader | properties | variants | fragment instructions |
+|---|---|---|---|
+| `ShaderRipperTest/ExtremeFlow` | 37 | 1 | 1286 |
+| `ShaderRipperTest/VariantMonster` | 20 | 60 | 82,550 total, 763–1875 per variant |
 
-```csharp
-fixed3 Darken (fixed3 a, fixed3 b) { return min(a, b); }
-// Macro expansion:
-fixed4 overlayColor = tex2D(_BLENDMODES_OverlayTexture, uv) * _BLENDMODES_OverlayColor;
-fixed3 blendColor = Darken(color.rgb, overlayColor.rgb);
-color.rgb = lerp(color.rgb, blendColor, _BLENDMODES_OverlayColor.a);
+Every variant was recompiled with `d3dcompiler_47` at `ps_5_0`: 1/1 and 60/60 pass, 0 untranslated instructions, 0 `TODO` markers, and control flow comes back intact (ExtremeFlow: 3 loops, 5 exits between them, 2 `discard`s, `ddx`/`ddy` preserved). The 60-variant shader is shipped only in its stripped form — the annotated copy alone would be 6.6 MB — and `--asm` regenerates it in one run.
+
+What the compiler did to the source, and what the transliteration gives back, on ExtremeFlow's if/else chain:
+
+Input:
+
+```hlsl
+if (energy < 0.5)      accum *= 1.05;
+else if (energy < 1.0) accum += float3(0.02, 0.01, 0.03);
+else if (energy < 1.8) accum = lerp(accum, accum * _ColorC.rgb, 0.25);
+else                   accum = saturate(accum) * (0.9 + 0.1 * sin(fl));
+
+if (accum.g > 1.4) break;              // early exit out of the [loop]
 ```
 
-CG rebuilt by this tool (variable names recovered from cbuffer reflection):
+Output:
 
 ```csharp
-r0.xyz = tex2D(t1, ...) * _BLENDMODES_OverlayColor.rgb;   // overlayColor
-r2.xyzw = tex2D(_MainTex, ...) * v1;                      // color
-r0.xyz = min(r0.xyz, r2.xyz);                             // Darken = min ✓
-r0.xyz = mad(-r1 * v1, r0);                               // first half of lerp (compiler rewrite)
-r0.xyz = mad(_BLENDMODES_OverlayColor.w, r0, r2);         // lerp(color, blend, a) ✓
+r3.xyw = float3(r4.x * 1.05, r4.y * 1.05, r4.z * 1.05);                       // arm 1
+r6.xyz = float3((r3.z < 0.5) ? 1.0 : 0.0, (r3.z < 1.0) ? 1.0 : 0.0,
+                (r3.z < 1.8) ? 1.0 : 0.0);                                    // the three tests, kept
+r7.xyz = float3(mad(r4.x, _ColorC.x, -(r4.x)), ...);                          // lerp: accum*color - accum
+r7.xyz = float3(mad(r7.x, 0.25, r4.x), ...);                                  //   ... * 0.25 + accum
+r3.xyw = float3(r6.x != 0.0 ? r3.x : r5.x, ...);                              // the select tree
+r2.w = (1.4 < r3.y) ? 1.0 : 0.0;
+if (any(r2.w)) { r2.xyz = float3(r3.x, r3.y, r3.w); break; }                  // early exit rebuilt
 ```
 
-The compiler rewrote `lerp` into two `mad`s; the instruction-by-instruction transliteration preserves both, semantically equivalent to the source. For the verified sample: all 208 variants / 12000 DXBC instructions translated, 0 untranslated, and every cbuffer field matched its original property name.
+The compiler flattened the branch chain into predicated selects and rewrote `lerp` into two `mad`s. The
+instruction-by-instruction transliteration keeps exactly that shape instead of guessing the original
+`if/else` back — it is the same program, and it is why the output has more instructions than the input
+(1286 vs 1097 for ExtremeFlow): operator fusion the compiler performed is not recoverable, and inventing it
+would be a guess.
 
 ## Limitations
 

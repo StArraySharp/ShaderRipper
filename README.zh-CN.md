@@ -73,10 +73,11 @@ ShaderRipper.exe --file "a.apk" --out D:\ExportedProject
 
 包里只存了每个变体**编译时带哪些关键字**，行结构本身没有留下。它由「哪些关键字能同时为真」反推：
 任何变体里都不同时出现的关键字，是同一行的各个候选（Unity 只会定义其中之一）；能同时出现的就是不同的行。
-以 `Hidden/BlendModes/SpritesDefault/OverlayMasked` 为例，还原出三条：一条 25 候选的
-`BLENDMODES_MODE_*`，加上 `ETC1_EXTERNAL_ALPHA` 和 `PIXELSNAP_ON`，覆盖 104 个可能状态中的 100 个——
-缺的 4 个正是构建时被剥掉的，所以生成的 `#if / #elif` 链已经就是运行时的全部真相。每个变体的守卫都是
-精确匹配（`defined(MODE_MUL)`，而不是「是某个 mode」），所以函数体里手写的 `#ifdef` 语义与原始源码一致。
+以 [`docs/verification/`](docs/verification/) 里那个 60 变体的测试着色器为例，还原出的正是它当初手写的四条：
+`__ DIST_SWIRL DIST_WAVE`、`__ GLOW_ON`、`__ MODE_ADD MODE_MUL MODE_OVERLAY MODE_SCREEN`、`__ SHAPE_RING`，
+覆盖 60/60，即 5 × 3 × 2 × 2 的完整笛卡尔积。若把这 8 个关键字当成独立开关，会主张 2⁸ = 256 个变体；
+在真实游戏数据里那些 25 候选的混合模式着色器上，则会主张 2²⁵ 个。每个变体的守卫都是精确匹配
+（`defined(MODE_MUL)`，而不是「是某个 mode」），所以函数体里手写的 `#ifdef` 语义与输入一致。
 
 支持的容器与压缩：
 
@@ -143,29 +144,44 @@ ShaderRipper.exe --file "a.apk" --out D:\ExportedProject
 
 ## 正确性验证
 
-验证用文件见 [`docs/verification/`](docs/verification/)（按 shader 分子目录：原始源码（AR 导出/上游仓库）、本工具反编译产物（含/不含逐指令注释两版）、DXBC 反汇编合集；OverlayMasked 目录另含其上游 cginc）。以某款 Unity 6 商业游戏（名称从略）中最大的 shader `Hidden/BlendModes/SpritesDefault/OverlayMasked`（714 KB / 208 个 keyword 变体）为样本，与该混合模式资产的上游开源源码做三方对照（原始 HLSL → DXBC 编译产物 → 本工具反编译 CG）。DARKEN 模式片段：
+[`docs/verification/`](docs/verification/) 是一次完整往返：这里的两个着色器都是**我们自己写的**，打包进一个 Unity 6 测试工程，再从该工程的构建产物里提取回来——链路两端都是我们自己的东西，下面的数字都能复现。每个子目录里放：我们打包进去的输入（`*_original.shader`）、本工具还原出的输出（`*_ripper.shader`，带逐指令注释；`*_ripper_noasm.shader` 是去掉注释的同一份）、以及所有已编译变体的 DXBC 反汇编合集。
 
-原始源码（上游 `BlendFunctions.cginc`）：
+| 着色器 | 属性 | 变体 | fragment 指令 |
+|---|---|---|---|
+| `ShaderRipperTest/ExtremeFlow` | 37 | 1 | 1286 |
+| `ShaderRipperTest/VariantMonster` | 20 | 60 | 合计 82,550，单变体 763–1875 |
 
-```csharp
-fixed3 Darken (fixed3 a, fixed3 b) { return min(a, b); }
-// 宏展开：
-fixed4 overlayColor = tex2D(_BLENDMODES_OverlayTexture, uv) * _BLENDMODES_OverlayColor;
-fixed3 blendColor = Darken(color.rgb, overlayColor.rgb);
-color.rgb = lerp(color.rgb, blendColor, _BLENDMODES_OverlayColor.a);
+每个变体都用 `d3dcompiler_47` 以 `ps_5_0` 重新编译验证：1/1 与 60/60 全部通过，0 条未翻译指令，0 处 `TODO`；控制流原样保留（ExtremeFlow：3 个循环、5 个出口、2 处 `discard`，`ddx`/`ddy` 都在）。60 变体那份只放了去注释版（带注释的单文件就有 6.6 MB），加 `--asm` 跑一次即可生成。
+
+编译器对源码做了什么、直译又还回什么——以 ExtremeFlow 的 if/else 链为例。
+
+输入：
+
+```hlsl
+if (energy < 0.5)      accum *= 1.05;
+else if (energy < 1.0) accum += float3(0.02, 0.01, 0.03);
+else if (energy < 1.8) accum = lerp(accum, accum * _ColorC.rgb, 0.25);
+else                   accum = saturate(accum) * (0.9 + 0.1 * sin(fl));
+
+if (accum.g > 1.4) break;              // 提前跳出 [loop]
 ```
 
-本工具反编译 CG（变量名从 cbuffer 反射还原）：
+输出：
 
 ```csharp
-r0.xyz = tex2D(t1, ...) * _BLENDMODES_OverlayColor.rgb;   // overlayColor
-r2.xyzw = tex2D(_MainTex, ...) * v1;                      // color
-r0.xyz = min(r0.xyz, r2.xyz);                             // Darken = min ✓
-r0.xyz = mad(-r1 * v1, r0);                               // lerp 前半（编译器改写）
-r0.xyz = mad(_BLENDMODES_OverlayColor.w, r0, r2);         // lerp(color, blend, a) ✓
+r3.xyw = float3(r4.x * 1.05, r4.y * 1.05, r4.z * 1.05);                       // 第 1 臂
+r6.xyz = float3((r3.z < 0.5) ? 1.0 : 0.0, (r3.z < 1.0) ? 1.0 : 0.0,
+                (r3.z < 1.8) ? 1.0 : 0.0);                                    // 三个判据还在
+r7.xyz = float3(mad(r4.x, _ColorC.x, -(r4.x)), ...);                          // lerp：accum*color - accum
+r7.xyz = float3(mad(r7.x, 0.25, r4.x), ...);                                  //   ... * 0.25 + accum
+r3.xyw = float3(r6.x != 0.0 ? r3.x : r5.x, ...);                              // 选择树
+r2.w = (1.4 < r3.y) ? 1.0 : 0.0;
+if (any(r2.w)) { r2.xyz = float3(r3.x, r3.y, r3.w); break; }                  // 提前退出被重建
 ```
 
-编译器把 `lerp` 优化成两条 `mad`，直译逐条保留，语义与源码等价。对已验证样本：208 个变体、12000 行 DXBC 指令全部翻译，0 条未翻译指令，cbuffer 字段与原始属性一一对应。
+编译器把分支链压成了谓词选择树，并把 `lerp` 改写成两条 `mad`。逐指令直译原样保留这个形态，而不是去猜
+原来的 `if/else`——它们本来就是同一个程序。这也解释了为什么输出比输入指令多（ExtremeFlow 1286 vs 1097）：
+编译器做过的算子融合拿不回来，硬猜就是编造。
 
 ## 限制
 
