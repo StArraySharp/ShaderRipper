@@ -217,7 +217,7 @@ namespace ShaderRipper.Cg
                     var m = UnityCbuffers.Find(cbname, row);
                     bool known = m != null && (r.InTable(m.Name) || r.ConfirmedCb.Contains(d.Register));
                     string expr = known
-                        ? (m.IsMatrix ? $"{m.Name}[{row - m.Row}]" : m.Name) : null;
+                        ? (m.IsMatrix ? MatrixColumn(m.Name, row - m.Row, m.Rows) : m.Name) : null;
 
                     if (expr != null && (m.FillsRow || m.IsMatrix) &&
                         !UnityCbuffers.RowIsShared(cbname, row))
@@ -237,7 +237,8 @@ namespace ShaderRipper.Cg
                         var lane = UnityCbuffers.FindLane(cbname, row, c);
                         if (lane == null || !(r.InTable(lane.Name) || r.ConfirmedCb.Contains(d.Register))) continue;
                         r.CompExpr[(d.Register, row, c)] = lane.IsMatrix
-                            ? $"{lane.Name}[{row - lane.Row}].{"xyzw"[c - lane.Col]}"
+                            // Component c of a matrix column is M[<that row>][<column>].
+                            ? $"{lane.Name}[{c - lane.Col}].{"xyzw"[row - lane.Row]}"
                             : lane.Span == 1 ? lane.Name
                             : lane.Name + "." + "xyzw"[c - lane.Col];
                         r.NoteNamed(d.Register, lane);
@@ -493,6 +494,21 @@ namespace ShaderRipper.Cg
         /// member carries its byte offset and component count, so this needs no
         /// inference at all: a slot is named by the member that starts exactly there.
         /// </summary>
+        /// <summary>
+        /// One register of a matrix holds a COLUMN, not a row: D3D packs matrices
+        /// column-major, so cbuffer row R of a float4x4 is M[0..3][R].  Reading it
+        /// as M[R] transposes the matrix, which is what turned a world-position W
+        /// into M[1][3] -- zero for an affine transform -- and sent the object off
+        /// screen.  The expression is parenthesised so a lane can still be taken
+        /// from it ("(M._m01_m11_m21_m31).w"): swizzling a swizzle is not legal.
+        /// </summary>
+        private static string MatrixColumn(string name, int k, int rows)
+        {
+            var sb = new System.Text.StringBuilder("(").Append(name).Append('.');
+            for (int r = 0; r < rows; r++) sb.Append("_m").Append(r).Append(k);
+            return sb.Append(')').ToString();
+        }
+
         private bool MapGlobalsFromAssetReflection(AsmParser.Decl d, SortedSet<int> rows)
         {
             var cb = AssetGlobals;
@@ -521,7 +537,7 @@ namespace ShaderRipper.Cg
                     {
                         for (int k = 0; k < n; k++)
                         {
-                            RowExpr[(d.Register, row + k)] = $"{m.Name}[{k}]";
+                            RowExpr[(d.Register, row + k)] = MatrixColumn(m.Name, k, n);
                             RowWidth[(d.Register, row + k)] = 4;
                         }
                         decls.Add((m.Name, n == 2 ? "float2x2" : n == 3 ? "float3x3" : "float4x4"));
@@ -536,7 +552,7 @@ namespace ShaderRipper.Cg
                     int n = Math.Max(1, m.RowCount);
                     for (int k = 0; k < n; k++)
                     {
-                        RowExpr[(d.Register, row + k)] = $"{m.Name}[{k}]";
+                        RowExpr[(d.Register, row + k)] = MatrixColumn(m.Name, k, n);
                         RowWidth[(d.Register, row + k)] = 4;
                     }
                     decls.Add((m.Name, n == 2 ? "float2x2" : n == 3 ? "float3x3" : "float4x4"));
@@ -548,14 +564,14 @@ namespace ShaderRipper.Cg
                 if (m.ArraySize > 1) w = 4;
                 if (col + w > 4) continue;
 
-                // A member can be an integer.  Declaring it float would read the
-                // stored bits as a float instead of converting: _NumVerts = 4
-                // comes back as 5.6e-45, and v3.x / _NumVerts turns every vertex
-                // into NaN (the object simply stops rendering).  Only type 1 is
-                // proven to be int (the code around it does itof); the rarer
-                // type 2 has no such evidence, so it stays float rather than
-                // guessing uint.
-                string scalar = m.Type == 1 ? "int" : "float";
+                // Always float, even when the reflection says the member is an int
+                // (type 1) and the code around it converts with itof.  Unity uploads
+                // a ShaderLab Float property as float bits; declaring the member int
+                // makes the shader read those bits as an integer -- _NumVerts = 352
+                // arrives as 1135616 and the ribbon collapses.  Declaring float keeps
+                // the emitted float(x) a no-op cast, which is what the GLSL backend's
+                // own reconstruction does and what the shader needs to run.
+                string scalar = "float";
                 string Ty(int n) => n == 1 ? scalar : scalar + (n == 2 ? "2" : n == 3 ? "3" : "4");
 
                 if (w == 4 && col == 0)
@@ -642,7 +658,7 @@ namespace ShaderRipper.Cg
                     {
                         for (int k = 0; k < n; k++)
                         {
-                            RowExpr[(d.Register, row + k)] = $"{mname}[{k}]";
+                            RowExpr[(d.Register, row + k)] = MatrixColumn(mname, k, n);
                             RowWidth[(d.Register, row + k)] = 4;
                         }
                         decls.Add((mname, n == 2 ? "float2x2" : n == 3 ? "float3x3" : "float4x4"));
@@ -1067,10 +1083,16 @@ namespace ShaderRipper.Cg
         private void MapTextures(AsmParser.Program prog, IReadOnlyList<Property> props,
                                  System.Collections.Generic.List<(string Name, int Index, int Sampler)> texParams)
         {
+            // A name is trustworthy when the shader itself declares it.  The
+            // property table is authoritative for material textures; the name table
+            // passed down here is the pass tag list, so it cannot vouch for anything.
+            var declared = new HashSet<string>(StringComparer.Ordinal);
+            if (props != null) foreach (var p in props) declared.Add(p.Name);
+
             if (texParams != null && texParams.Count > 0)
             {
                 foreach (var (nm, idx, _) in texParams)
-                    if (idx >= 0 && idx < 128 && _nameTable.Contains(nm))
+                    if (idx >= 0 && idx < 128 && (declared.Contains(nm) || _nameTable.Contains(nm)))
                         TexName[idx] = nm;
                 if (TexName.Count > 0) return;
                 Notes.Add("// asset texture params present but no name matched -- falling back to property order");
@@ -1079,14 +1101,29 @@ namespace ShaderRipper.Cg
             var texProps = new List<string>();
             if (props != null)
                 foreach (var p in props)
-                    if (TextureTypes.Contains(p.Type) && _nameTable.Contains(p.Name))
-                        texProps.Add(p.Name);
+                    if (TextureTypes.Contains(p.Type)) texProps.Add(p.Name);
+
+            if (Environment.GetEnvironmentVariable("SHADERRIP_CBDBG") == "1")
+                Console.Error.WriteLine($"[tex] nameTable={_nameTable.Count} props=" +
+                    string.Join(",", props?.Select(p => $"{p.Name}:t{p.Type}:{_nameTable.Contains(p.Name)}") ?? Array.Empty<string>()));
 
             var regs = prog.Decls.Where(d => d.Kind != null && d.Kind.StartsWith("texture"))
                                  .Select(d => d.Register).Distinct().OrderBy(x => x).ToList();
             if (regs.Count == 0) return;
             if (texProps.Count != regs.Count)
             {
+                // Fewer properties than registers is the normal shape of a variant
+                // that added a built-in sampler -- a soft-particle pass reads the
+                // camera depth on top of its material texture.  Mapping the
+                // properties that do exist to the leading registers gets the
+                // material texture right; the leftovers stay tN and are called out.
+                if (texProps.Count > 0 && texProps.Count < regs.Count)
+                {
+                    for (int i = 0; i < texProps.Count; i++) TexName[regs[i]] = texProps[i];
+                    Notes.Add($"// {regs.Count} texture register(s), {texProps.Count} material "
+                              + "texture propert(ies): the leading ones are named, the rest stay tN");
+                    return;
+                }
                 Notes.Add($"// {regs.Count} texture register(s) but {texProps.Count} named texture "
                           + "propert(ies) -- samplers left as tN");
                 return;
