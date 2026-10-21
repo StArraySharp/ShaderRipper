@@ -72,6 +72,8 @@ ShaderRipper.exe --file "a.apk" --out D:\ExportedProject
 
 Note: the CGPROGRAM body is a **translation of the compiled assembly**, not the author's source (source code is not shipped in game data); properties, render state, Pass structure, and variant `#if` chains are faithfully reconstructed.
 
+File names come from the shader name with only the hierarchy separators replaced (`UI/Pause Planets` → `UI_Pause Planets.shader` — spaces, brackets and casing are kept). When a resource path is already claimed by another shader, the file is named after the shader itself rather than getting an opaque path id appended. Shaders are exported in parallel, and every name/path claim is resolved up front, so repeated runs produce identical trees.
+
 ### How the `multi_compile` lines are recovered
 
 The build stores only the **set** of keywords each variant was compiled with — the line structure is not in the
@@ -125,6 +127,7 @@ For more readable output, prefer game data that includes **GLES3 / OpenGLCore** 
 | `--platform <id\|name>` | Force backend: `d3d11` / `d3d9` / `d3d12` / `gles3` / `gles20` / `openglcore` / `metal` / `vulkan`; d3d11 preferred, otherwise auto-picks a GLSL platform |
 | `--asm` | Emit per-instruction disassembly comments (d3d11=DXBC, glsl=original GLSL lines, d3d9/12=native assembly) |
 | `--only <substr>` | Only process shaders whose name contains the substring |
+| `--dedup` | Keep one copy per shader when several data files ship the same shader; the copy with a fixed container path wins, ties break on the lowest path id |
 | `--bundles [dir]` | Also scan asset bundles (defaults to the same directory as --data) |
 | `--list-shaders <f>` | List the shaders inside a SerializedFile |
 | `--dump [substr]` | Print blob/parameter block info only, no files written |
@@ -159,8 +162,8 @@ packing them yourself.
 
 | shader | properties | variants | fragment instructions |
 |---|---|---|---|
-| `ShaderRipperTest/ExtremeFlow` | 37 | 1 | 1286 |
-| `ShaderRipperTest/VariantMonster` | 20 | 60 | 82,550 total, 763–1875 per variant |
+| `ShaderRipperTest/ExtremeFlow` | 37 | 1 | 1328 |
+| `ShaderRipperTest/VariantMonster` | 20 | 60 | 84,425 total, 777–1911 per variant |
 
 Every variant was recompiled with `d3dcompiler_47` at `ps_5_0`: 1/1 and 60/60 pass, 0 untranslated
 instructions, 0 `TODO` markers, and control flow survives (ExtremeFlow: 3 loops, 5 exits between them,
@@ -183,8 +186,8 @@ Output:
 
 ```csharp
 r3.xyw = float3(r4.x * 1.05, r4.y * 1.05, r4.z * 1.05);                       // arm 1
-r6.xyz = float3((r3.z < 0.5) ? 1.0 : 0.0, (r3.z < 1.0) ? 1.0 : 0.0,
-                (r3.z < 1.8) ? 1.0 : 0.0);                                    // the three tests, kept
+r6.xyz = float3((r3.z < 0.5) ? -1.0 : 0.0, (r3.z < 1.0) ? -1.0 : 0.0,
+                (r3.z < 1.8) ? -1.0 : 0.0);                                   // the three tests, kept
 r7.xyz = float3(mad(r4.x, _ColorC.x, -(r4.x)), ...);                          // lerp: accum*color - accum
 r7.xyz = float3(mad(r7.x, 0.25, r4.x), ...);                                  //   ... * 0.25 + accum
 r3.xyw = float3(r6.x != 0.0 ? r3.x : r5.x, ...);                              // the select tree
@@ -193,9 +196,16 @@ if (any(r2.w)) { r2.xyz = float3(r3.x, r3.y, r3.w); break; }                  //
 ```
 
 The compiler flattened the branch chain into predicated selects and rewrote `lerp` into two `mad`s; the
-transliteration keeps that shape instead of guessing the original `if/else` back. That is also why the output
-has more instructions than the input (1286 vs 1097): fusion the compiler performed cannot be recovered, and
-inventing it would be a guess.
+transliteration keeps that shape instead of guessing the original `if/else` back. The `-1.0` is deliberate —
+DXBC comparisons write an all-ones mask on true, and the ramp that consumes these values depends on that sign,
+so a `1.0` there would silently invert the test. That is also why the output has more instructions than the
+input (1328 vs 1097): fusion the compiler performed cannot be recovered, and inventing it would be a guess.
+
+`scripts/usc_validate.py` re-checks whole output trees with Unity's own `UnityShaderCompiler` (real
+`CGIncludes`, real keyword sets): it preprocesses each file once and compiles every variant listed in its
+`// ---- variant N` markers for both stages, one UnityShaderCompiler.exe per worker. A commercial game's data
+directory (418 shaders, ~1.4k variants) goes green in about 25 seconds on 8 processes — the same check with
+the `d3dcompiler_47` harness in `.temp` takes ten minutes and cannot see the include-level errors.
 
 ## Limitations
 

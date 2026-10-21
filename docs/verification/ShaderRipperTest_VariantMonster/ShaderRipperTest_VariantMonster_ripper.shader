@@ -147,7 +147,7 @@ Shader "ShaderRipperTest/VariantMonster"
 				// sample r0.xyzw, v1.xyxx, t0.xyzw, s3
 				r0.xyzw = tex2D(_MaskTex, float2(v1.x, v1.y));
 				// lt r0.x, r0.w, cb0[9].w
-				r0.x = (r0.w < _Threshold) ? 1.0 : 0.0;
+				r0.x = (r0.w < _Threshold) ? -1.0 : 0.0;
 				// discard_nz r0.x
 				if (any(r0.x)) discard;
 				// mul r0.x, cb0[6].z, cb1[0].y
@@ -1017,7 +1017,7 @@ Shader "ShaderRipperTest/VariantMonster"
 					// loop
 				for (;;) {
 					// ige r3.y, r3.x, r1.z
-					r3.y = (((int)(r3.x) >= (int)(r1.z)) ? 1 : 0);
+					r3.y = (((int)(r3.x) >= (int)(r1.z)) ? -1 : 0);
 					// breakc_nz r3.y
 					if (any(r3.y)) break;
 					// itof r3.y, r3.x
@@ -1439,7 +1439,7 @@ Shader "ShaderRipperTest/VariantMonster"
 						// loop
 					for (;;) {
 						// ige r5.x, r4.w, r1.w
-						r5.x = (((int)(r4.w) >= (int)(r1.w)) ? 1 : 0);
+						r5.x = (((int)(r4.w) >= (int)(r1.w)) ? -1 : 0);
 						// breakc_nz r5.x
 						if (any(r5.x)) break;
 						// itof r5.x, r4.w
@@ -1530,7 +1530,7 @@ Shader "ShaderRipperTest/VariantMonster"
 						// mad r5.z, |r5.z|, l(2.000000), r4.z
 						r5.z = mad(abs(r5.z), 2.0, r4.z);
 						// lt r5.w, l(2.200000), r5.z
-						r5.w = (2.2 < r5.z) ? 1.0 : 0.0;
+						r5.w = (2.2 < r5.z) ? -1.0 : 0.0;
 							// if_nz r5.w
 						if (any(r5.w)) {
 							// iadd r5.w, r4.w, l(1)
@@ -1564,7 +1564,7 @@ Shader "ShaderRipperTest/VariantMonster"
 					// mul r3.yz, r4.xxyx, l(0.000000, 1.040000, 1.040000, 0.000000)
 					r3.yz = float2(r4.x * 1.04, r4.y * 1.04);
 					// lt r5.xy, r4.zzzz, l(0.600000, 1.400000, 0.000000, 0.000000)
-					r5.xy = float2((r4.z < 0.6) ? 1.0 : 0.0, (r4.z < 1.4) ? 1.0 : 0.0);
+					r5.xy = float2((r4.z < 0.6) ? -1.0 : 0.0, (r4.z < 1.4) ? -1.0 : 0.0);
 					// add r5.zw, r4.xxxy, l(0.000000, 0.000000, 0.020000, 0.010000)
 					r5.zw = float2(r4.x + 0.02, r4.y + 0.01);
 					// mov_sat r4.xy, r4.xyxx
@@ -1576,7 +1576,7 @@ Shader "ShaderRipperTest/VariantMonster"
 					// movc r3.yz, r5.xxxx, r3.yyzy, r5.yyzy
 					r3.yz = float2(r5.x != 0.0 ? r3.y : r5.y, r5.x != 0.0 ? r3.z : r5.z);
 					// lt r3.w, l(1.500000), r3.y
-					r3.w = (1.5 < r3.y) ? 1.0 : 0.0;
+					r3.w = (1.5 < r3.y) ? -1.0 : 0.0;
 						// if_nz r3.w
 					if (any(r3.w)) {
 						// mov r2.z, r3.z
@@ -1592,7 +1592,7 @@ Shader "ShaderRipperTest/VariantMonster"
 				// endloop
 				}
 				// lt r1.z, l(0.500000), cb0[10].w
-				r1.z = (0.5 < _ToggleDetail) ? 1.0 : 0.0;
+				r1.z = (0.5 < _ToggleDetail) ? -1.0 : 0.0;
 					// if_nz r1.z
 				if (any(r1.z)) {
 					// mul r1.z, r0.x, l(0.250000)
@@ -1714,7 +1714,7 @@ Shader "ShaderRipperTest/VariantMonster"
 				// endif
 				}
 				// lt r1.z, l(0.500000), cb0[11].x
-				r1.z = (0.5 < _ToggleBands) ? 1.0 : 0.0;
+				r1.z = (0.5 < _ToggleBands) ? -1.0 : 0.0;
 					// if_nz r1.z
 				if (any(r1.z)) {
 					// mul r4.xyzw, cb0[8].wwww, l(0.300000, 0.520000, 0.740000, 0.960000)
@@ -1725,6 +1725,8 @@ Shader "ShaderRipperTest/VariantMonster"
 					r1.z = sin(r1.z);
 					// mad r1.w, r0.w, r4.x, -r0.x
 					r1.w = mad(r0.w, r4.x, -(r0.x));
+					// sincos null, r1.w, r1.w
+					r1.w = cos(r1.w);
 					// add r2.x, r0.w, r0.z
 					r2.x = r0.w + r0.z;
 					// mul r5.xyzw, r4.xyzw, r2.xxxx
@@ -1743,22 +1745,26 @@ Shader "ShaderRipperTest/VariantMonster"
 					r1.z = r1.z + r2.y;
 					// mad r2.y, r0.w, r4.y, -r6.x
 					r2.y = mad(r0.w, r4.y, -(r6.x));
+					// sincos null, r2.y, r2.y
+					r2.y = cos(r2.y);
 					// add r1.w, r1.w, r2.y
 					r1.w = r1.w + r2.y;
 					// mad r5.xyz, r5.yzwy, l(0.600000, 0.600000, 0.600000, 0.000000), r6.xyzx
 					r5.xyz = float3(mad(r5.y, 0.6, r6.x), mad(r5.z, 0.6, r6.y), mad(r5.w, 0.6, r6.z));
 					// sincos r5.xyz, null, r5.xyzx
-					r5.xyz = sin(r5.xyzx);
+					r5.xyz = float3(sin(r5.x), sin(r5.y), sin(r5.z));
 					// add r0.x, r0.x, r5.x
 					r0.x = r0.x + r5.x;
 					// mad r2.yw, r0.zzzz, r4.zzzw, r6.yyyz
 					r2.yw = float2(mad(r0.z, r4.z, r6.y), mad(r0.z, r4.w, r6.z));
 					// sincos r2.yw, null, r2.yyyw
-					r2.yw = sin(r2.yyyw);
+					r2.yw = float2(sin(r2.y), sin(r2.w));
 					// add r1.z, r1.z, r2.y
 					r1.z = r1.z + r2.y;
 					// mad r4.xy, r0.wwww, r4.zwzz, -r6.yzyy
 					r4.xy = float2(mad(r0.w, r4.z, -(r6.y)), mad(r0.w, r4.w, -(r6.z)));
+					// sincos null, r4.xy, r4.xyxx
+					r4.xy = float2(cos(r4.x), cos(r4.y));
 					// add r1.w, r1.w, r4.x
 					r1.w = r1.w + r4.x;
 					// add r0.x, r5.y, r0.x
@@ -1779,6 +1785,8 @@ Shader "ShaderRipperTest/VariantMonster"
 					r1.z = r1.z + r3.w;
 					// mad r3.w, r0.w, r2.y, -r6.w
 					r3.w = mad(r0.w, r2.y, -(r6.w));
+					// sincos null, r3.w, r3.w
+					r3.w = cos(r3.w);
 					// add r1.w, r1.w, r3.w
 					r1.w = r1.w + r3.w;
 					// mul r2.xy, r2.ywyy, r2.xxxx
@@ -1799,6 +1807,8 @@ Shader "ShaderRipperTest/VariantMonster"
 					r4.x = r1.z + r3.w;
 					// mad r1.z, r0.w, r2.w, -r2.x
 					r1.z = mad(r0.w, r2.w, -(r2.x));
+					// sincos null, r1.z, r1.z
+					r1.z = cos(r1.z);
 					// add r4.y, r1.z, r1.w
 					r4.y = r1.z + r1.w;
 					// mad r1.z, r2.y, l(0.600000), r2.x
@@ -1826,7 +1836,7 @@ Shader "ShaderRipperTest/VariantMonster"
 				// mul r0.x, r0.y, r0.x
 				r0.x = r0.y * r0.x;
 				// lt r0.y, r0.x, cb0[9].w
-				r0.y = (r0.x < _Threshold) ? 1.0 : 0.0;
+				r0.y = (r0.x < _Threshold) ? -1.0 : 0.0;
 				// discard_nz r0.y
 				if (any(r0.y)) discard;
 				// mad r1.xyz, r3.xyzx, l(0.900000, 0.900000, 0.900000, 0.000000), l(0.600000, 0.600000, 0.600000, 0.000000)
@@ -1864,7 +1874,7 @@ Shader "ShaderRipperTest/VariantMonster"
 				// mul r0.z, cb0[8].z, l(0.500000)
 				r0.z = _Params3.z * 0.5;
 				// lt r0.z, r0.y, r0.z
-				r0.z = (r0.y < r0.z) ? 1.0 : 0.0;
+				r0.z = (r0.y < r0.z) ? -1.0 : 0.0;
 				// mad r0.w, -r0.y, l(3.000000), l(1.000000)
 				r0.w = mad(-(r0.y), 3.0, 1.0);
 				// max r0.w, r0.w, l(0.000000)
@@ -1876,7 +1886,7 @@ Shader "ShaderRipperTest/VariantMonster"
 				// mad r2.xyz, r2.xyzx, cb0[8].zzzz, r1.xyzx
 				r2.xyz = float3(mad(r2.x, _Params3.z, r1.x), mad(r2.y, _Params3.z, r1.y), mad(r2.z, _Params3.z, r1.z));
 				// lt r0.y, r0.y, l(0.400000)
-				r0.y = (r0.y < 0.4) ? 1.0 : 0.0;
+				r0.y = (r0.y < 0.4) ? -1.0 : 0.0;
 				// mul r3.xyz, r1.xyzx, l(0.920000, 0.920000, 0.920000, 0.000000)
 				r3.xyz = float3(r1.x * 0.92, r1.y * 0.92, r1.z * 0.92);
 				// movc r1.xyz, r0.yyyy, r3.xyzx, r1.xyzx
@@ -1898,7 +1908,7 @@ Shader "ShaderRipperTest/VariantMonster"
 				// mul r0.yzw, r0.yyzw, cb0[10].yyyy
 				r0.yzw = float3(r0.y * _Emission, r0.z * _Emission, r0.w * _Emission);
 				// lt r1.x, l(0.500000), cb0[11].y
-				r1.x = (0.5 < _ToggleDither) ? 1.0 : 0.0;
+				r1.x = (0.5 < _ToggleDither) ? -1.0 : 0.0;
 				// mul r1.yz, v1.xxyx, cb1[6].xxyx
 				r1.yz = float2(v1.x * _ScreenParams.x, v1.y * _ScreenParams.y);
 				// mul r1.yz, r1.yyzy, l(0.000000, 127.099998, 311.700012, 0.000000)
@@ -1970,6 +1980,15 @@ Shader "ShaderRipperTest/VariantMonster"
 			// touches; they stay undeclared because nothing can pin them.
 			// cb1 = UnityPerDraw  (declared by UnityCG.cginc)
 			// cb2 = UnityPerFrame  (declared by UnityCG.cginc)
+			float4 _MainTex_TexelSize;
+			float4 _NoiseTex_ST;
+			float4 _NoiseTex_TexelSize;
+			float4 _DetailTex_ST;
+			float4 _DetailTex_TexelSize;
+			float4 _MaskTex_ST;
+			float4 _MaskTex_TexelSize;
+			float4 _ColorB;
+			float4 _Params2;
 			// cbuffer order confirmed by the asset's own register index
 			// $Globals cb0: 1 slot(s) named from the compiled constant-buffer member table
 			// $Globals cb0: 14 member(s) named from the asset's own constant-buffer reflection (192 bytes)
@@ -2008,7 +2027,7 @@ Shader "ShaderRipperTest/VariantMonster"
 				// sample r0.xyzw, v1.xyxx, t0.xyzw, s3
 				r0.xyzw = tex2D(_MaskTex, float2(v1.x, v1.y));
 				// lt r0.x, r0.w, cb0[9].w
-				r0.x = (r0.w < _Threshold) ? 1.0 : 0.0;
+				r0.x = (r0.w < _Threshold) ? -1.0 : 0.0;
 				// discard_nz r0.x
 				if (any(r0.x)) discard;
 				// mul r0.x, cb0[6].z, cb1[0].y
@@ -2456,7 +2475,7 @@ Shader "ShaderRipperTest/VariantMonster"
 				// mul r2.x, r1.w, r1.z
 				r2.x = r1.w * r1.z;
 				// lt r2.y, |r0.w|, |r0.z|
-				r2.y = (abs(r0.w) < abs(r0.z)) ? 1.0 : 0.0;
+				r2.y = (abs(r0.w) < abs(r0.z)) ? -1.0 : 0.0;
 				// mad r2.x, r2.x, l(-2.000000), l(1.570796)
 				r2.x = mad(r2.x, -2.0, 1.570796);
 				// and r2.x, r2.y, r2.x
@@ -2464,7 +2483,7 @@ Shader "ShaderRipperTest/VariantMonster"
 				// mad r1.z, r1.z, r1.w, r2.x
 				r1.z = mad(r1.z, r1.w, r2.x);
 				// lt r1.w, r0.w, -r0.w
-				r1.w = (r0.w < -(r0.w)) ? 1.0 : 0.0;
+				r1.w = (r0.w < -(r0.w)) ? -1.0 : 0.0;
 				// and r1.w, r1.w, l(0xc0490fdb)
 				r1.w = ((float)((int)(r1.w) & (int)(-3.141593)));
 				// add r1.z, r1.w, r1.z
@@ -2474,9 +2493,9 @@ Shader "ShaderRipperTest/VariantMonster"
 				// max r0.z, r0.w, r0.z
 				r0.z = max(r0.w, r0.z);
 				// lt r0.w, r1.w, -r1.w
-				r0.w = (r1.w < -(r1.w)) ? 1.0 : 0.0;
+				r0.w = (r1.w < -(r1.w)) ? -1.0 : 0.0;
 				// ge r0.z, r0.z, -r0.z
-				r0.z = (r0.z >= -(r0.z)) ? 1.0 : 0.0;
+				r0.z = (r0.z >= -(r0.z)) ? -1.0 : 0.0;
 				// and r0.z, r0.z, r0.w
 				r0.z = ((((r0.z) != 0.0) && ((r0.w) != 0.0)) ? 1.0 : 0.0);
 				// movc r0.z, r0.z, -r1.z, r1.z
@@ -2539,7 +2558,7 @@ Shader "ShaderRipperTest/VariantMonster"
 					// loop
 				for (;;) {
 					// ige r3.y, r3.x, r1.z
-					r3.y = (((int)(r3.x) >= (int)(r1.z)) ? 1 : 0);
+					r3.y = (((int)(r3.x) >= (int)(r1.z)) ? -1 : 0);
 					// breakc_nz r3.y
 					if (any(r3.y)) break;
 					// itof r3.y, r3.x
@@ -2961,7 +2980,7 @@ Shader "ShaderRipperTest/VariantMonster"
 						// loop
 					for (;;) {
 						// ige r5.x, r4.w, r1.w
-						r5.x = (((int)(r4.w) >= (int)(r1.w)) ? 1 : 0);
+						r5.x = (((int)(r4.w) >= (int)(r1.w)) ? -1 : 0);
 						// breakc_nz r5.x
 						if (any(r5.x)) break;
 						// itof r5.x, r4.w
@@ -3052,7 +3071,7 @@ Shader "ShaderRipperTest/VariantMonster"
 						// mad r5.z, |r5.z|, l(2.000000), r4.z
 						r5.z = mad(abs(r5.z), 2.0, r4.z);
 						// lt r5.w, l(2.200000), r5.z
-						r5.w = (2.2 < r5.z) ? 1.0 : 0.0;
+						r5.w = (2.2 < r5.z) ? -1.0 : 0.0;
 							// if_nz r5.w
 						if (any(r5.w)) {
 							// iadd r5.w, r4.w, l(1)
@@ -3086,7 +3105,7 @@ Shader "ShaderRipperTest/VariantMonster"
 					// mul r3.yz, r4.xxyx, l(0.000000, 1.040000, 1.040000, 0.000000)
 					r3.yz = float2(r4.x * 1.04, r4.y * 1.04);
 					// lt r5.xy, r4.zzzz, l(0.600000, 1.400000, 0.000000, 0.000000)
-					r5.xy = float2((r4.z < 0.6) ? 1.0 : 0.0, (r4.z < 1.4) ? 1.0 : 0.0);
+					r5.xy = float2((r4.z < 0.6) ? -1.0 : 0.0, (r4.z < 1.4) ? -1.0 : 0.0);
 					// add r5.zw, r4.xxxy, l(0.000000, 0.000000, 0.020000, 0.010000)
 					r5.zw = float2(r4.x + 0.02, r4.y + 0.01);
 					// mov_sat r4.xy, r4.xyxx
@@ -3098,7 +3117,7 @@ Shader "ShaderRipperTest/VariantMonster"
 					// movc r3.yz, r5.xxxx, r3.yyzy, r5.yyzy
 					r3.yz = float2(r5.x != 0.0 ? r3.y : r5.y, r5.x != 0.0 ? r3.z : r5.z);
 					// lt r3.w, l(1.500000), r3.y
-					r3.w = (1.5 < r3.y) ? 1.0 : 0.0;
+					r3.w = (1.5 < r3.y) ? -1.0 : 0.0;
 						// if_nz r3.w
 					if (any(r3.w)) {
 						// mov r2.z, r3.z
@@ -3114,7 +3133,7 @@ Shader "ShaderRipperTest/VariantMonster"
 				// endloop
 				}
 				// lt r1.z, l(0.500000), cb0[10].w
-				r1.z = (0.5 < _ToggleDetail) ? 1.0 : 0.0;
+				r1.z = (0.5 < _ToggleDetail) ? -1.0 : 0.0;
 					// if_nz r1.z
 				if (any(r1.z)) {
 					// mul r1.z, r0.x, l(0.250000)
@@ -3236,7 +3255,7 @@ Shader "ShaderRipperTest/VariantMonster"
 				// endif
 				}
 				// lt r1.z, l(0.500000), cb0[11].x
-				r1.z = (0.5 < _ToggleBands) ? 1.0 : 0.0;
+				r1.z = (0.5 < _ToggleBands) ? -1.0 : 0.0;
 					// if_nz r1.z
 				if (any(r1.z)) {
 					// mul r4.xyzw, cb0[8].wwww, l(0.300000, 0.520000, 0.740000, 0.960000)
@@ -3247,6 +3266,8 @@ Shader "ShaderRipperTest/VariantMonster"
 					r1.z = sin(r1.z);
 					// mad r1.w, r0.w, r4.x, -r0.x
 					r1.w = mad(r0.w, r4.x, -(r0.x));
+					// sincos null, r1.w, r1.w
+					r1.w = cos(r1.w);
 					// add r2.x, r0.w, r0.z
 					r2.x = r0.w + r0.z;
 					// mul r5.xyzw, r4.xyzw, r2.xxxx
@@ -3265,22 +3286,26 @@ Shader "ShaderRipperTest/VariantMonster"
 					r1.z = r1.z + r2.y;
 					// mad r2.y, r0.w, r4.y, -r6.x
 					r2.y = mad(r0.w, r4.y, -(r6.x));
+					// sincos null, r2.y, r2.y
+					r2.y = cos(r2.y);
 					// add r1.w, r1.w, r2.y
 					r1.w = r1.w + r2.y;
 					// mad r5.xyz, r5.yzwy, l(0.600000, 0.600000, 0.600000, 0.000000), r6.xyzx
 					r5.xyz = float3(mad(r5.y, 0.6, r6.x), mad(r5.z, 0.6, r6.y), mad(r5.w, 0.6, r6.z));
 					// sincos r5.xyz, null, r5.xyzx
-					r5.xyz = sin(r5.xyzx);
+					r5.xyz = float3(sin(r5.x), sin(r5.y), sin(r5.z));
 					// add r0.x, r0.x, r5.x
 					r0.x = r0.x + r5.x;
 					// mad r2.yw, r0.zzzz, r4.zzzw, r6.yyyz
 					r2.yw = float2(mad(r0.z, r4.z, r6.y), mad(r0.z, r4.w, r6.z));
 					// sincos r2.yw, null, r2.yyyw
-					r2.yw = sin(r2.yyyw);
+					r2.yw = float2(sin(r2.y), sin(r2.w));
 					// add r1.z, r1.z, r2.y
 					r1.z = r1.z + r2.y;
 					// mad r4.xy, r0.wwww, r4.zwzz, -r6.yzyy
 					r4.xy = float2(mad(r0.w, r4.z, -(r6.y)), mad(r0.w, r4.w, -(r6.z)));
+					// sincos null, r4.xy, r4.xyxx
+					r4.xy = float2(cos(r4.x), cos(r4.y));
 					// add r1.w, r1.w, r4.x
 					r1.w = r1.w + r4.x;
 					// add r0.x, r5.y, r0.x
@@ -3301,6 +3326,8 @@ Shader "ShaderRipperTest/VariantMonster"
 					r1.z = r1.z + r3.w;
 					// mad r3.w, r0.w, r2.y, -r6.w
 					r3.w = mad(r0.w, r2.y, -(r6.w));
+					// sincos null, r3.w, r3.w
+					r3.w = cos(r3.w);
 					// add r1.w, r1.w, r3.w
 					r1.w = r1.w + r3.w;
 					// mul r2.xy, r2.ywyy, r2.xxxx
@@ -3321,6 +3348,8 @@ Shader "ShaderRipperTest/VariantMonster"
 					r4.x = r1.z + r3.w;
 					// mad r1.z, r0.w, r2.w, -r2.x
 					r1.z = mad(r0.w, r2.w, -(r2.x));
+					// sincos null, r1.z, r1.z
+					r1.z = cos(r1.z);
 					// add r4.y, r1.z, r1.w
 					r4.y = r1.z + r1.w;
 					// mad r1.z, r2.y, l(0.600000), r2.x
@@ -3348,7 +3377,7 @@ Shader "ShaderRipperTest/VariantMonster"
 				// mul r0.x, r0.y, r0.x
 				r0.x = r0.y * r0.x;
 				// lt r0.y, r0.x, cb0[9].w
-				r0.y = (r0.x < _Threshold) ? 1.0 : 0.0;
+				r0.y = (r0.x < _Threshold) ? -1.0 : 0.0;
 				// discard_nz r0.y
 				if (any(r0.y)) discard;
 				// mad r1.xyz, r3.xyzx, l(0.900000, 0.900000, 0.900000, 0.000000), l(0.600000, 0.600000, 0.600000, 0.000000)
@@ -3386,7 +3415,7 @@ Shader "ShaderRipperTest/VariantMonster"
 				// mul r0.z, cb0[8].z, l(0.500000)
 				r0.z = _Params3.z * 0.5;
 				// lt r0.z, r0.y, r0.z
-				r0.z = (r0.y < r0.z) ? 1.0 : 0.0;
+				r0.z = (r0.y < r0.z) ? -1.0 : 0.0;
 				// mad r0.w, -r0.y, l(3.000000), l(1.000000)
 				r0.w = mad(-(r0.y), 3.0, 1.0);
 				// max r0.w, r0.w, l(0.000000)
@@ -3398,7 +3427,7 @@ Shader "ShaderRipperTest/VariantMonster"
 				// mad r2.xyz, r2.xyzx, cb0[8].zzzz, r1.xyzx
 				r2.xyz = float3(mad(r2.x, _Params3.z, r1.x), mad(r2.y, _Params3.z, r1.y), mad(r2.z, _Params3.z, r1.z));
 				// lt r0.y, r0.y, l(0.400000)
-				r0.y = (r0.y < 0.4) ? 1.0 : 0.0;
+				r0.y = (r0.y < 0.4) ? -1.0 : 0.0;
 				// mul r3.xyz, r1.xyzx, l(0.920000, 0.920000, 0.920000, 0.000000)
 				r3.xyz = float3(r1.x * 0.92, r1.y * 0.92, r1.z * 0.92);
 				// movc r1.xyz, r0.yyyy, r3.xyzx, r1.xyzx
@@ -3420,7 +3449,7 @@ Shader "ShaderRipperTest/VariantMonster"
 				// mul r0.yzw, r0.yyzw, cb0[10].yyyy
 				r0.yzw = float3(r0.y * _Emission, r0.z * _Emission, r0.w * _Emission);
 				// lt r1.x, l(0.500000), cb0[11].y
-				r1.x = (0.5 < _ToggleDither) ? 1.0 : 0.0;
+				r1.x = (0.5 < _ToggleDither) ? -1.0 : 0.0;
 				// mul r1.yz, v1.xxyx, cb1[6].xxyx
 				r1.yz = float2(v1.x * _ScreenParams.x, v1.y * _ScreenParams.y);
 				// mul r1.yz, r1.yyzy, l(0.000000, 127.099998, 311.700012, 0.000000)
@@ -3485,6 +3514,27 @@ Shader "ShaderRipperTest/VariantMonster"
 			//   unnamed single lanes are shared by the Float/Range prop(s): _Iterations, _Steps, _WarpDepth, _Threshold, _Contrast, _Emission, _Saturation, _ToggleDetail, _ToggleBands, _ToggleDither
 			// cb1 = UnityPerDraw  (declared by UnityCG.cginc)
 			// cb2 = UnityPerFrame  (declared by UnityCG.cginc)
+			float4 _MainTex_TexelSize;
+			float4 _NoiseTex_ST;
+			float4 _NoiseTex_TexelSize;
+			float4 _DetailTex_ST;
+			float4 _DetailTex_TexelSize;
+			float4 _MaskTex_ST;
+			float4 _MaskTex_TexelSize;
+			float4 _Color;
+			float4 _ColorC;
+			float4 _Params;
+			float4 _Params3;
+			float _Iterations;
+			float _Steps;
+			float _WarpDepth;
+			float _Threshold;
+			float _Contrast;
+			float _Emission;
+			float _Saturation;
+			float _ToggleDetail;
+			float _ToggleBands;
+			float _ToggleDither;
 			// cbuffer order confirmed by the asset's own register index
 			// $Globals cb0: 1 slot(s) named from the compiled constant-buffer member table
 			// $Globals cb0: 2 slot(s) named from the compiled constant-buffer member table
@@ -3523,7 +3573,7 @@ Shader "ShaderRipperTest/VariantMonster"
 				// sample r0.xyzw, v1.xyxx, t0.xyzw, s3
 				r0.xyzw = tex2D(_MaskTex, float2(v1.x, v1.y));
 				// lt r0.x, r0.w, cb0[9].w
-				r0.x = (r0.w < cb0[9].w) ? 1.0 : 0.0;
+				r0.x = (r0.w < cb0[9].w) ? -1.0 : 0.0;
 				// discard_nz r0.x
 				if (any(r0.x)) discard;
 				// mul r0.x, cb0[6].z, cb1[0].y
@@ -3971,7 +4021,7 @@ Shader "ShaderRipperTest/VariantMonster"
 				// mul r2.x, r1.w, r1.z
 				r2.x = r1.w * r1.z;
 				// lt r2.y, |r0.w|, |r0.z|
-				r2.y = (abs(r0.w) < abs(r0.z)) ? 1.0 : 0.0;
+				r2.y = (abs(r0.w) < abs(r0.z)) ? -1.0 : 0.0;
 				// mad r2.x, r2.x, l(-2.000000), l(1.570796)
 				r2.x = mad(r2.x, -2.0, 1.570796);
 				// and r2.x, r2.y, r2.x
@@ -3979,7 +4029,7 @@ Shader "ShaderRipperTest/VariantMonster"
 				// mad r1.z, r1.z, r1.w, r2.x
 				r1.z = mad(r1.z, r1.w, r2.x);
 				// lt r1.w, r0.w, -r0.w
-				r1.w = (r0.w < -(r0.w)) ? 1.0 : 0.0;
+				r1.w = (r0.w < -(r0.w)) ? -1.0 : 0.0;
 				// and r1.w, r1.w, l(0xc0490fdb)
 				r1.w = ((float)((int)(r1.w) & (int)(-3.141593)));
 				// add r1.z, r1.w, r1.z
@@ -3989,9 +4039,9 @@ Shader "ShaderRipperTest/VariantMonster"
 				// max r0.z, r0.w, r0.z
 				r0.z = max(r0.w, r0.z);
 				// lt r0.w, r1.w, -r1.w
-				r0.w = (r1.w < -(r1.w)) ? 1.0 : 0.0;
+				r0.w = (r1.w < -(r1.w)) ? -1.0 : 0.0;
 				// ge r0.z, r0.z, -r0.z
-				r0.z = (r0.z >= -(r0.z)) ? 1.0 : 0.0;
+				r0.z = (r0.z >= -(r0.z)) ? -1.0 : 0.0;
 				// and r0.z, r0.z, r0.w
 				r0.z = ((((r0.z) != 0.0) && ((r0.w) != 0.0)) ? 1.0 : 0.0);
 				// movc r0.z, r0.z, -r1.z, r1.z
@@ -4050,7 +4100,7 @@ Shader "ShaderRipperTest/VariantMonster"
 					// loop
 				for (;;) {
 					// ige r3.w, r3.z, r2.x
-					r3.w = (((int)(r3.z) >= (int)(r2.x)) ? 1 : 0);
+					r3.w = (((int)(r3.z) >= (int)(r2.x)) ? -1 : 0);
 					// breakc_nz r3.w
 					if (any(r3.w)) break;
 					// itof r3.w, r3.z
@@ -4464,7 +4514,7 @@ Shader "ShaderRipperTest/VariantMonster"
 						// loop
 					for (;;) {
 						// ige r5.z, r5.y, r2.y
-						r5.z = (((int)(r5.y) >= (int)(r2.y)) ? 1 : 0);
+						r5.z = (((int)(r5.y) >= (int)(r2.y)) ? -1 : 0);
 						// breakc_nz r5.z
 						if (any(r5.z)) break;
 						// itof r5.z, r5.y
@@ -4557,7 +4607,7 @@ Shader "ShaderRipperTest/VariantMonster"
 						// mad r6.x, |r6.x|, l(2.000000), r5.x
 						r6.x = mad(abs(r6.x), 2.0, r5.x);
 						// lt r6.y, l(2.200000), r6.x
-						r6.y = (2.2 < r6.x) ? 1.0 : 0.0;
+						r6.y = (2.2 < r6.x) ? -1.0 : 0.0;
 							// if_nz r6.y
 						if (any(r6.y)) {
 							// iadd r6.y, r5.y, l(1)
@@ -4591,7 +4641,7 @@ Shader "ShaderRipperTest/VariantMonster"
 					// mul r4.xy, r4.zwzz, l(1.040000, 1.040000, 0.000000, 0.000000)
 					r4.xy = float2(r4.z * 1.04, r4.w * 1.04);
 					// lt r5.yz, r5.xxxx, l(0.000000, 0.600000, 1.400000, 0.000000)
-					r5.yz = float2((r5.x < 0.6) ? 1.0 : 0.0, (r5.x < 1.4) ? 1.0 : 0.0);
+					r5.yz = float2((r5.x < 0.6) ? -1.0 : 0.0, (r5.x < 1.4) ? -1.0 : 0.0);
 					// add r6.xy, r4.zwzz, l(0.020000, 0.010000, 0.000000, 0.000000)
 					r6.xy = float2(r4.z + 0.02, r4.w + 0.01);
 					// mov_sat r4.zw, r4.zzzw
@@ -4603,7 +4653,7 @@ Shader "ShaderRipperTest/VariantMonster"
 					// movc r4.xy, r5.yyyy, r4.xyxx, r5.zwzz
 					r4.xy = float2(r5.y != 0.0 ? r4.x : r5.z, r5.y != 0.0 ? r4.y : r5.w);
 					// lt r3.w, l(1.500000), r4.x
-					r3.w = (1.5 < r4.x) ? 1.0 : 0.0;
+					r3.w = (1.5 < r4.x) ? -1.0 : 0.0;
 						// if_nz r3.w
 					if (any(r3.w)) {
 						// mov r3.x, r4.y
@@ -4619,7 +4669,7 @@ Shader "ShaderRipperTest/VariantMonster"
 				// endloop
 				}
 				// lt r2.x, l(0.500000), cb0[10].w
-				r2.x = (0.5 < cb0[10].w) ? 1.0 : 0.0;
+				r2.x = (0.5 < cb0[10].w) ? -1.0 : 0.0;
 					// if_nz r2.x
 				if (any(r2.x)) {
 					// mul r2.x, r0.x, l(0.250000)
@@ -4741,7 +4791,7 @@ Shader "ShaderRipperTest/VariantMonster"
 				// endif
 				}
 				// lt r2.w, l(0.500000), cb0[11].x
-				r2.w = (0.5 < cb0[11].x) ? 1.0 : 0.0;
+				r2.w = (0.5 < cb0[11].x) ? -1.0 : 0.0;
 					// if_nz r2.w
 				if (any(r2.w)) {
 					// mul r4.xyzw, cb0[8].wwww, l(0.300000, 0.520000, 0.740000, 0.960000)
@@ -4752,6 +4802,8 @@ Shader "ShaderRipperTest/VariantMonster"
 					r2.w = sin(r2.w);
 					// mad r3.y, r0.w, r4.x, -r0.x
 					r3.y = mad(r0.w, r4.x, -(r0.x));
+					// sincos null, r3.y, r3.y
+					r3.y = cos(r3.y);
 					// add r3.z, r0.w, r0.z
 					r3.z = r0.w + r0.z;
 					// mul r5.xyzw, r4.xyzw, r3.zzzz
@@ -4770,22 +4822,26 @@ Shader "ShaderRipperTest/VariantMonster"
 					r2.w = r2.w + r4.x;
 					// mad r4.x, r0.w, r4.y, -r6.x
 					r4.x = mad(r0.w, r4.y, -(r6.x));
+					// sincos null, r4.x, r4.x
+					r4.x = cos(r4.x);
 					// add r3.y, r3.y, r4.x
 					r3.y = r3.y + r4.x;
 					// mad r5.xyz, r5.yzwy, l(0.600000, 0.600000, 0.600000, 0.000000), r6.xyzx
 					r5.xyz = float3(mad(r5.y, 0.6, r6.x), mad(r5.z, 0.6, r6.y), mad(r5.w, 0.6, r6.z));
 					// sincos r5.xyz, null, r5.xyzx
-					r5.xyz = sin(r5.xyzx);
+					r5.xyz = float3(sin(r5.x), sin(r5.y), sin(r5.z));
 					// add r3.w, r3.w, r5.x
 					r3.w = r3.w + r5.x;
 					// mad r4.xy, r0.zzzz, r4.zwzz, r6.yzyy
 					r4.xy = float2(mad(r0.z, r4.z, r6.y), mad(r0.z, r4.w, r6.z));
 					// sincos r4.xy, null, r4.xyxx
-					r4.xy = sin(r4.xyxx);
+					r4.xy = float2(sin(r4.x), sin(r4.y));
 					// add r2.w, r2.w, r4.x
 					r2.w = r2.w + r4.x;
 					// mad r4.xz, r0.wwww, r4.zzwz, -r6.yyzy
 					r4.xz = float2(mad(r0.w, r4.z, -(r6.y)), mad(r0.w, r4.w, -(r6.z)));
+					// sincos null, r4.xz, r4.xxzx
+					r4.xz = float2(cos(r4.x), cos(r4.z));
 					// add r3.y, r3.y, r4.x
 					r3.y = r3.y + r4.x;
 					// add r3.w, r5.y, r3.w
@@ -4806,6 +4862,8 @@ Shader "ShaderRipperTest/VariantMonster"
 					r2.w = r2.w + r4.z;
 					// mad r4.z, r0.w, r4.x, -r6.w
 					r4.z = mad(r0.w, r4.x, -(r6.w));
+					// sincos null, r4.z, r4.z
+					r4.z = cos(r4.z);
 					// add r3.y, r3.y, r4.z
 					r3.y = r3.y + r4.z;
 					// mul r4.xz, r3.zzzz, r4.xxyx
@@ -4826,6 +4884,8 @@ Shader "ShaderRipperTest/VariantMonster"
 					r5.x = r2.w + r4.x;
 					// mad r2.w, r0.w, r4.y, -r3.w
 					r2.w = mad(r0.w, r4.y, -(r3.w));
+					// sincos null, r2.w, r2.w
+					r2.w = cos(r2.w);
 					// add r5.y, r2.w, r3.y
 					r5.y = r2.w + r3.y;
 					// mad r2.w, r4.z, l(0.600000), r3.w
@@ -4869,7 +4929,7 @@ Shader "ShaderRipperTest/VariantMonster"
 					// loop
 				for (;;) {
 					// ige r4.y, r4.x, r1.w
-					r4.y = (((int)(r4.x) >= (int)(r1.w)) ? 1 : 0);
+					r4.y = (((int)(r4.x) >= (int)(r1.w)) ? -1 : 0);
 					// breakc_nz r4.y
 					if (any(r4.y)) break;
 					// itof r4.y, r4.x
@@ -5296,7 +5356,7 @@ Shader "ShaderRipperTest/VariantMonster"
 					// mad r4.y, r4.y, r4.z, r2.w
 					r4.y = mad(r4.y, r4.z, r2.w);
 					// lt r4.z, l(1.100000), r4.y
-					r4.z = (1.1 < r4.y) ? 1.0 : 0.0;
+					r4.z = (1.1 < r4.y) ? -1.0 : 0.0;
 						// if_nz r4.z
 					if (any(r4.z)) {
 						// mov r2.w, r4.y
@@ -5320,7 +5380,7 @@ Shader "ShaderRipperTest/VariantMonster"
 				// mul r0.y, r0.y, r1.x
 				r0.y = r0.y * r1.x;
 				// lt r1.x, r0.y, cb0[9].w
-				r1.x = (r0.y < cb0[9].w) ? 1.0 : 0.0;
+				r1.x = (r0.y < cb0[9].w) ? -1.0 : 0.0;
 				// discard_nz r1.x
 				if (any(r1.x)) discard;
 				// mad r1.xzw, r2.xxyz, l(0.900000, 0.000000, 0.900000, 0.900000), l(0.600000, 0.000000, 0.600000, 0.600000)
@@ -5358,7 +5418,7 @@ Shader "ShaderRipperTest/VariantMonster"
 				// mul r2.y, cb0[8].z, l(0.500000)
 				r2.y = cb0[8].z * 0.5;
 				// lt r2.y, r2.x, r2.y
-				r2.y = (r2.x < r2.y) ? 1.0 : 0.0;
+				r2.y = (r2.x < r2.y) ? -1.0 : 0.0;
 				// mad r2.z, -r2.x, l(3.000000), l(1.000000)
 				r2.z = mad(-(r2.x), 3.0, 1.0);
 				// max r2.z, r2.z, l(0.000000)
@@ -5370,7 +5430,7 @@ Shader "ShaderRipperTest/VariantMonster"
 				// mad r3.xyz, r3.xyzx, cb0[8].zzzz, r1.xzwx
 				r3.xyz = float3(mad(r3.x, cb0[8].z, r1.x), mad(r3.y, cb0[8].z, r1.z), mad(r3.z, cb0[8].z, r1.w));
 				// lt r2.x, r2.x, l(0.400000)
-				r2.x = (r2.x < 0.4) ? 1.0 : 0.0;
+				r2.x = (r2.x < 0.4) ? -1.0 : 0.0;
 				// mul r4.xyz, r1.xzwx, l(0.920000, 0.920000, 0.920000, 0.000000)
 				r4.xyz = float3(r1.x * 0.92, r1.z * 0.92, r1.w * 0.92);
 				// movc r1.xzw, r2.xxxx, r4.xxyz, r1.xxzw
@@ -6228,7 +6288,7 @@ Shader "ShaderRipperTest/VariantMonster"
 				// mul r0.xzw, r0.xxzw, cb0[10].yyyy
 				r0.xzw = float3(r0.x * cb0[10].y, r0.z * cb0[10].y, r0.w * cb0[10].y);
 				// lt r1.x, l(0.500000), cb0[11].y
-				r1.x = (0.5 < cb0[11].y) ? 1.0 : 0.0;
+				r1.x = (0.5 < cb0[11].y) ? -1.0 : 0.0;
 				// mul r1.yz, v1.xxyx, cb1[6].xxyx
 				r1.yz = float2(v1.x * _ScreenParams.x, v1.y * _ScreenParams.y);
 				// mul r1.yz, r1.yyzy, l(0.000000, 127.099998, 311.700012, 0.000000)
@@ -6293,6 +6353,27 @@ Shader "ShaderRipperTest/VariantMonster"
 			//   unnamed single lanes are shared by the Float/Range prop(s): _Iterations, _Steps, _WarpDepth, _Threshold, _Contrast, _Emission, _Saturation, _ToggleDetail, _ToggleBands, _ToggleDither
 			// cb1 = UnityPerDraw  (declared by UnityCG.cginc)
 			// cb2 = UnityPerFrame  (declared by UnityCG.cginc)
+			float4 _MainTex_TexelSize;
+			float4 _NoiseTex_ST;
+			float4 _NoiseTex_TexelSize;
+			float4 _DetailTex_ST;
+			float4 _DetailTex_TexelSize;
+			float4 _MaskTex_ST;
+			float4 _MaskTex_TexelSize;
+			float4 _Color;
+			float4 _ColorC;
+			float4 _Params;
+			float4 _Params3;
+			float _Iterations;
+			float _Steps;
+			float _WarpDepth;
+			float _Threshold;
+			float _Contrast;
+			float _Emission;
+			float _Saturation;
+			float _ToggleDetail;
+			float _ToggleBands;
+			float _ToggleDither;
 			// cbuffer order confirmed by the asset's own register index
 			// $Globals cb0: 1 slot(s) named from the compiled constant-buffer member table
 			// $Globals cb0: 2 slot(s) named from the compiled constant-buffer member table
@@ -6331,7 +6412,7 @@ Shader "ShaderRipperTest/VariantMonster"
 				// sample r0.xyzw, v1.xyxx, t0.xyzw, s3
 				r0.xyzw = tex2D(_MaskTex, float2(v1.x, v1.y));
 				// lt r0.x, r0.w, cb0[9].w
-				r0.x = (r0.w < cb0[9].w) ? 1.0 : 0.0;
+				r0.x = (r0.w < cb0[9].w) ? -1.0 : 0.0;
 				// discard_nz r0.x
 				if (any(r0.x)) discard;
 				// mul r0.x, cb0[6].z, cb1[0].y
@@ -6779,7 +6860,7 @@ Shader "ShaderRipperTest/VariantMonster"
 				// mul r2.z, r2.y, r2.x
 				r2.z = r2.y * r2.x;
 				// lt r2.w, |r1.z|, |r1.y|
-				r2.w = (abs(r1.z) < abs(r1.y)) ? 1.0 : 0.0;
+				r2.w = (abs(r1.z) < abs(r1.y)) ? -1.0 : 0.0;
 				// mad r2.z, r2.z, l(-2.000000), l(1.570796)
 				r2.z = mad(r2.z, -2.0, 1.570796);
 				// and r2.z, r2.w, r2.z
@@ -6787,7 +6868,7 @@ Shader "ShaderRipperTest/VariantMonster"
 				// mad r2.x, r2.x, r2.y, r2.z
 				r2.x = mad(r2.x, r2.y, r2.z);
 				// lt r2.y, r1.z, -r1.z
-				r2.y = (r1.z < -(r1.z)) ? 1.0 : 0.0;
+				r2.y = (r1.z < -(r1.z)) ? -1.0 : 0.0;
 				// and r2.y, r2.y, l(0xc0490fdb)
 				r2.y = ((float)((int)(r2.y) & (int)(-3.141593)));
 				// add r2.x, r2.y, r2.x
@@ -6797,9 +6878,9 @@ Shader "ShaderRipperTest/VariantMonster"
 				// max r1.y, r1.z, r1.y
 				r1.y = max(r1.z, r1.y);
 				// lt r1.z, r2.y, -r2.y
-				r1.z = (r2.y < -(r2.y)) ? 1.0 : 0.0;
+				r1.z = (r2.y < -(r2.y)) ? -1.0 : 0.0;
 				// ge r1.y, r1.y, -r1.y
-				r1.y = (r1.y >= -(r1.y)) ? 1.0 : 0.0;
+				r1.y = (r1.y >= -(r1.y)) ? -1.0 : 0.0;
 				// and r1.y, r1.y, r1.z
 				r1.y = ((((r1.y) != 0.0) && ((r1.z) != 0.0)) ? 1.0 : 0.0);
 				// movc r1.y, r1.y, -r2.x, r2.x
@@ -6860,7 +6941,7 @@ Shader "ShaderRipperTest/VariantMonster"
 					// loop
 				for (;;) {
 					// ige r4.y, r4.x, r2.z
-					r4.y = (((int)(r4.x) >= (int)(r2.z)) ? 1 : 0);
+					r4.y = (((int)(r4.x) >= (int)(r2.z)) ? -1 : 0);
 					// breakc_nz r4.y
 					if (any(r4.y)) break;
 					// itof r4.y, r4.x
@@ -7282,7 +7363,7 @@ Shader "ShaderRipperTest/VariantMonster"
 						// loop
 					for (;;) {
 						// ige r6.x, r5.w, r2.w
-						r6.x = (((int)(r5.w) >= (int)(r2.w)) ? 1 : 0);
+						r6.x = (((int)(r5.w) >= (int)(r2.w)) ? -1 : 0);
 						// breakc_nz r6.x
 						if (any(r6.x)) break;
 						// itof r6.x, r5.w
@@ -7373,7 +7454,7 @@ Shader "ShaderRipperTest/VariantMonster"
 						// mad r6.z, |r6.z|, l(2.000000), r5.z
 						r6.z = mad(abs(r6.z), 2.0, r5.z);
 						// lt r6.w, l(2.200000), r6.z
-						r6.w = (2.2 < r6.z) ? 1.0 : 0.0;
+						r6.w = (2.2 < r6.z) ? -1.0 : 0.0;
 							// if_nz r6.w
 						if (any(r6.w)) {
 							// iadd r6.w, r5.w, l(1)
@@ -7407,7 +7488,7 @@ Shader "ShaderRipperTest/VariantMonster"
 					// mul r4.yz, r5.xxyx, l(0.000000, 1.040000, 1.040000, 0.000000)
 					r4.yz = float2(r5.x * 1.04, r5.y * 1.04);
 					// lt r6.xy, r5.zzzz, l(0.600000, 1.400000, 0.000000, 0.000000)
-					r6.xy = float2((r5.z < 0.6) ? 1.0 : 0.0, (r5.z < 1.4) ? 1.0 : 0.0);
+					r6.xy = float2((r5.z < 0.6) ? -1.0 : 0.0, (r5.z < 1.4) ? -1.0 : 0.0);
 					// add r6.zw, r5.xxxy, l(0.000000, 0.000000, 0.020000, 0.010000)
 					r6.zw = float2(r5.x + 0.02, r5.y + 0.01);
 					// mov_sat r5.xy, r5.xyxx
@@ -7419,7 +7500,7 @@ Shader "ShaderRipperTest/VariantMonster"
 					// movc r4.yz, r6.xxxx, r4.yyzy, r6.yyzy
 					r4.yz = float2(r6.x != 0.0 ? r4.y : r6.y, r6.x != 0.0 ? r4.z : r6.z);
 					// lt r4.w, l(1.500000), r4.y
-					r4.w = (1.5 < r4.y) ? 1.0 : 0.0;
+					r4.w = (1.5 < r4.y) ? -1.0 : 0.0;
 						// if_nz r4.w
 					if (any(r4.w)) {
 						// mov r3.z, r4.z
@@ -7435,7 +7516,7 @@ Shader "ShaderRipperTest/VariantMonster"
 				// endloop
 				}
 				// lt r2.z, l(0.500000), cb0[10].w
-				r2.z = (0.5 < cb0[10].w) ? 1.0 : 0.0;
+				r2.z = (0.5 < cb0[10].w) ? -1.0 : 0.0;
 					// if_nz r2.z
 				if (any(r2.z)) {
 					// mul r2.z, r0.x, l(0.250000)
@@ -7557,7 +7638,7 @@ Shader "ShaderRipperTest/VariantMonster"
 				// endif
 				}
 				// lt r2.z, l(0.500000), cb0[11].x
-				r2.z = (0.5 < cb0[11].x) ? 1.0 : 0.0;
+				r2.z = (0.5 < cb0[11].x) ? -1.0 : 0.0;
 					// if_nz r2.z
 				if (any(r2.z)) {
 					// mul r5.xyzw, cb0[8].wwww, l(0.300000, 0.520000, 0.740000, 0.960000)
@@ -7568,6 +7649,8 @@ Shader "ShaderRipperTest/VariantMonster"
 					r2.z = sin(r2.z);
 					// mad r2.w, r1.z, r5.x, -r0.x
 					r2.w = mad(r1.z, r5.x, -(r0.x));
+					// sincos null, r2.w, r2.w
+					r2.w = cos(r2.w);
 					// add r3.x, r1.z, r1.y
 					r3.x = r1.z + r1.y;
 					// mul r6.xyzw, r5.xyzw, r3.xxxx
@@ -7579,27 +7662,31 @@ Shader "ShaderRipperTest/VariantMonster"
 					// mad r3.w, r1.y, r5.y, r7.x
 					r3.w = mad(r1.y, r5.y, r7.x);
 					// sincos r3.yw, null, r3.yyyw
-					r3.yw = sin(r3.yyyw);
+					r3.yw = float2(sin(r3.y), sin(r3.w));
 					// add r2.z, r2.z, r3.w
 					r2.z = r2.z + r3.w;
 					// mad r3.w, r1.z, r5.y, -r7.x
 					r3.w = mad(r1.z, r5.y, -(r7.x));
+					// sincos null, r3.w, r3.w
+					r3.w = cos(r3.w);
 					// add r2.w, r2.w, r3.w
 					r2.w = r2.w + r3.w;
 					// mad r6.xyz, r6.yzwy, l(0.600000, 0.600000, 0.600000, 0.000000), r7.xyzx
 					r6.xyz = float3(mad(r6.y, 0.6, r7.x), mad(r6.z, 0.6, r7.y), mad(r6.w, 0.6, r7.z));
 					// sincos r6.xyz, null, r6.xyzx
-					r6.xyz = sin(r6.xyzx);
+					r6.xyz = float3(sin(r6.x), sin(r6.y), sin(r6.z));
 					// add r3.y, r3.y, r6.x
 					r3.y = r3.y + r6.x;
 					// mad r5.xy, r1.yyyy, r5.zwzz, r7.yzyy
 					r5.xy = float2(mad(r1.y, r5.z, r7.y), mad(r1.y, r5.w, r7.z));
 					// sincos r5.xy, null, r5.xyxx
-					r5.xy = sin(r5.xyxx);
+					r5.xy = float2(sin(r5.x), sin(r5.y));
 					// add r2.z, r2.z, r5.x
 					r2.z = r2.z + r5.x;
 					// mad r5.xz, r1.zzzz, r5.zzwz, -r7.yyzy
 					r5.xz = float2(mad(r1.z, r5.z, -(r7.y)), mad(r1.z, r5.w, -(r7.z)));
+					// sincos null, r5.xz, r5.xxzx
+					r5.xz = float2(cos(r5.x), cos(r5.z));
 					// add r3.y, r6.y, r3.y
 					r3.y = r6.y + r3.y;
 					// add r2.zw, r2.zzzw, r5.yyyx
@@ -7618,6 +7705,8 @@ Shader "ShaderRipperTest/VariantMonster"
 					r2.z = r2.z + r3.w;
 					// mad r3.w, r1.z, r5.x, -r7.w
 					r3.w = mad(r1.z, r5.x, -(r7.w));
+					// sincos null, r3.w, r3.w
+					r3.w = cos(r3.w);
 					// add r2.w, r2.w, r3.w
 					r2.w = r2.w + r3.w;
 					// mul r3.xw, r3.xxxx, r5.xxxy
@@ -7638,6 +7727,8 @@ Shader "ShaderRipperTest/VariantMonster"
 					r6.x = r2.z + r4.w;
 					// mad r2.z, r1.z, r5.y, -r3.y
 					r2.z = mad(r1.z, r5.y, -(r3.y));
+					// sincos null, r2.z, r2.z
+					r2.z = cos(r2.z);
 					// add r6.y, r2.z, r2.w
 					r6.y = r2.z + r2.w;
 					// mad r2.z, r3.w, l(0.600000), r3.y
@@ -7679,7 +7770,7 @@ Shader "ShaderRipperTest/VariantMonster"
 					// loop
 				for (;;) {
 					// ige r4.w, r2.w, r2.y
-					r4.w = (((int)(r2.w) >= (int)(r2.y)) ? 1 : 0);
+					r4.w = (((int)(r2.w) >= (int)(r2.y)) ? -1 : 0);
 					// breakc_nz r4.w
 					if (any(r4.w)) break;
 					// itof r4.w, r2.w
@@ -8116,7 +8207,7 @@ Shader "ShaderRipperTest/VariantMonster"
 					// mad r4.w, r4.w, r5.x, r2.z
 					r4.w = mad(r4.w, r5.x, r2.z);
 					// lt r5.x, l(1.100000), r4.w
-					r5.x = (1.1 < r4.w) ? 1.0 : 0.0;
+					r5.x = (1.1 < r4.w) ? -1.0 : 0.0;
 						// if_nz r5.x
 					if (any(r5.x)) {
 						// mov r2.z, r4.w
@@ -8140,7 +8231,7 @@ Shader "ShaderRipperTest/VariantMonster"
 				// mul r0.y, r0.y, r2.x
 				r0.y = r0.y * r2.x;
 				// lt r2.x, r0.y, cb0[9].w
-				r2.x = (r0.y < cb0[9].w) ? 1.0 : 0.0;
+				r2.x = (r0.y < cb0[9].w) ? -1.0 : 0.0;
 				// discard_nz r2.x
 				if (any(r2.x)) discard;
 				// mul r5.xyzw, r0.xxxx, l(0.210000, 0.150000, 0.500000, 0.370000)
@@ -8623,7 +8714,7 @@ Shader "ShaderRipperTest/VariantMonster"
 				// mul r2.x, cb0[8].z, l(0.500000)
 				r2.x = cb0[8].z * 0.5;
 				// lt r2.x, r1.x, r2.x
-				r2.x = (r1.x < r2.x) ? 1.0 : 0.0;
+				r2.x = (r1.x < r2.x) ? -1.0 : 0.0;
 				// mad r2.y, -r1.x, l(3.000000), l(1.000000)
 				r2.y = mad(-(r1.x), 3.0, 1.0);
 				// max r2.y, r2.y, l(0.000000)
@@ -8635,7 +8726,7 @@ Shader "ShaderRipperTest/VariantMonster"
 				// mad r3.xyz, r3.xyzx, cb0[8].zzzz, r0.xzwx
 				r3.xyz = float3(mad(r3.x, cb0[8].z, r0.x), mad(r3.y, cb0[8].z, r0.z), mad(r3.z, cb0[8].z, r0.w));
 				// lt r1.x, r1.x, l(0.400000)
-				r1.x = (r1.x < 0.4) ? 1.0 : 0.0;
+				r1.x = (r1.x < 0.4) ? -1.0 : 0.0;
 				// mul r4.xyz, r0.xzwx, l(0.920000, 0.920000, 0.920000, 0.000000)
 				r4.xyz = float3(r0.x * 0.92, r0.z * 0.92, r0.w * 0.92);
 				// movc r0.xzw, r1.xxxx, r4.xxyz, r0.xxzw
@@ -9499,7 +9590,7 @@ Shader "ShaderRipperTest/VariantMonster"
 				// mul r0.xzw, r0.xxzw, cb0[10].yyyy
 				r0.xzw = float3(r0.x * cb0[10].y, r0.z * cb0[10].y, r0.w * cb0[10].y);
 				// lt r1.x, l(0.500000), cb0[11].y
-				r1.x = (0.5 < cb0[11].y) ? 1.0 : 0.0;
+				r1.x = (0.5 < cb0[11].y) ? -1.0 : 0.0;
 				// mul r1.yz, v1.xxyx, cb1[6].xxyx
 				r1.yz = float2(v1.x * _ScreenParams.x, v1.y * _ScreenParams.y);
 				// mul r1.yz, r1.yyzy, l(0.000000, 127.099998, 311.700012, 0.000000)
@@ -9564,6 +9655,27 @@ Shader "ShaderRipperTest/VariantMonster"
 			//   unnamed single lanes are shared by the Float/Range prop(s): _Iterations, _Steps, _WarpDepth, _Threshold, _Contrast, _Emission, _Saturation, _ToggleDetail, _ToggleBands, _ToggleDither
 			// cb1 = UnityPerDraw  (declared by UnityCG.cginc)
 			// cb2 = UnityPerFrame  (declared by UnityCG.cginc)
+			float4 _MainTex_TexelSize;
+			float4 _NoiseTex_ST;
+			float4 _NoiseTex_TexelSize;
+			float4 _DetailTex_ST;
+			float4 _DetailTex_TexelSize;
+			float4 _MaskTex_ST;
+			float4 _MaskTex_TexelSize;
+			float4 _Color;
+			float4 _ColorC;
+			float4 _Params;
+			float4 _Params3;
+			float _Iterations;
+			float _Steps;
+			float _WarpDepth;
+			float _Threshold;
+			float _Contrast;
+			float _Emission;
+			float _Saturation;
+			float _ToggleDetail;
+			float _ToggleBands;
+			float _ToggleDither;
 			// cbuffer order confirmed by the asset's own register index
 			// $Globals cb0: 1 slot(s) named from the compiled constant-buffer member table
 			// $Globals cb0: 2 slot(s) named from the compiled constant-buffer member table
@@ -9602,7 +9714,7 @@ Shader "ShaderRipperTest/VariantMonster"
 				// sample r0.xyzw, v1.xyxx, t0.xyzw, s3
 				r0.xyzw = tex2D(_MaskTex, float2(v1.x, v1.y));
 				// lt r0.x, r0.w, cb0[9].w
-				r0.x = (r0.w < cb0[9].w) ? 1.0 : 0.0;
+				r0.x = (r0.w < cb0[9].w) ? -1.0 : 0.0;
 				// discard_nz r0.x
 				if (any(r0.x)) discard;
 				// mul r0.x, cb0[6].z, cb1[0].y
@@ -10044,7 +10156,7 @@ Shader "ShaderRipperTest/VariantMonster"
 				// mul r2.w, r2.z, r2.y
 				r2.w = r2.z * r2.y;
 				// lt r3.x, |r1.w|, |r1.z|
-				r3.x = (abs(r1.w) < abs(r1.z)) ? 1.0 : 0.0;
+				r3.x = (abs(r1.w) < abs(r1.z)) ? -1.0 : 0.0;
 				// mad r2.w, r2.w, l(-2.000000), l(1.570796)
 				r2.w = mad(r2.w, -2.0, 1.570796);
 				// and r2.w, r3.x, r2.w
@@ -10052,7 +10164,7 @@ Shader "ShaderRipperTest/VariantMonster"
 				// mad r2.y, r2.y, r2.z, r2.w
 				r2.y = mad(r2.y, r2.z, r2.w);
 				// lt r2.z, r1.w, -r1.w
-				r2.z = (r1.w < -(r1.w)) ? 1.0 : 0.0;
+				r2.z = (r1.w < -(r1.w)) ? -1.0 : 0.0;
 				// and r2.z, r2.z, l(0xc0490fdb)
 				r2.z = ((float)((int)(r2.z) & (int)(-3.141593)));
 				// add r2.y, r2.z, r2.y
@@ -10062,9 +10174,9 @@ Shader "ShaderRipperTest/VariantMonster"
 				// max r1.z, r1.w, r1.z
 				r1.z = max(r1.w, r1.z);
 				// lt r1.w, r2.z, -r2.z
-				r1.w = (r2.z < -(r2.z)) ? 1.0 : 0.0;
+				r1.w = (r2.z < -(r2.z)) ? -1.0 : 0.0;
 				// ge r1.z, r1.z, -r1.z
-				r1.z = (r1.z >= -(r1.z)) ? 1.0 : 0.0;
+				r1.z = (r1.z >= -(r1.z)) ? -1.0 : 0.0;
 				// and r1.z, r1.z, r1.w
 				r1.z = ((((r1.z) != 0.0) && ((r1.w) != 0.0)) ? 1.0 : 0.0);
 				// movc r1.z, r1.z, -r2.y, r2.y
@@ -10155,7 +10267,7 @@ Shader "ShaderRipperTest/VariantMonster"
 					// loop
 				for (;;) {
 					// ige r4.y, r4.x, r2.z
-					r4.y = (((int)(r4.x) >= (int)(r2.z)) ? 1 : 0);
+					r4.y = (((int)(r4.x) >= (int)(r2.z)) ? -1 : 0);
 					// breakc_nz r4.y
 					if (any(r4.y)) break;
 					// itof r4.y, r4.x
@@ -10577,7 +10689,7 @@ Shader "ShaderRipperTest/VariantMonster"
 						// loop
 					for (;;) {
 						// ige r6.x, r5.w, r2.w
-						r6.x = (((int)(r5.w) >= (int)(r2.w)) ? 1 : 0);
+						r6.x = (((int)(r5.w) >= (int)(r2.w)) ? -1 : 0);
 						// breakc_nz r6.x
 						if (any(r6.x)) break;
 						// itof r6.x, r5.w
@@ -10668,7 +10780,7 @@ Shader "ShaderRipperTest/VariantMonster"
 						// mad r6.z, |r6.z|, l(2.000000), r5.z
 						r6.z = mad(abs(r6.z), 2.0, r5.z);
 						// lt r6.w, l(2.200000), r6.z
-						r6.w = (2.2 < r6.z) ? 1.0 : 0.0;
+						r6.w = (2.2 < r6.z) ? -1.0 : 0.0;
 							// if_nz r6.w
 						if (any(r6.w)) {
 							// iadd r6.w, r5.w, l(1)
@@ -10702,7 +10814,7 @@ Shader "ShaderRipperTest/VariantMonster"
 					// mul r4.yz, r5.xxyx, l(0.000000, 1.040000, 1.040000, 0.000000)
 					r4.yz = float2(r5.x * 1.04, r5.y * 1.04);
 					// lt r6.xy, r5.zzzz, l(0.600000, 1.400000, 0.000000, 0.000000)
-					r6.xy = float2((r5.z < 0.6) ? 1.0 : 0.0, (r5.z < 1.4) ? 1.0 : 0.0);
+					r6.xy = float2((r5.z < 0.6) ? -1.0 : 0.0, (r5.z < 1.4) ? -1.0 : 0.0);
 					// add r6.zw, r5.xxxy, l(0.000000, 0.000000, 0.020000, 0.010000)
 					r6.zw = float2(r5.x + 0.02, r5.y + 0.01);
 					// mov_sat r5.xy, r5.xyxx
@@ -10714,7 +10826,7 @@ Shader "ShaderRipperTest/VariantMonster"
 					// movc r4.yz, r6.xxxx, r4.yyzy, r6.yyzy
 					r4.yz = float2(r6.x != 0.0 ? r4.y : r6.y, r6.x != 0.0 ? r4.z : r6.z);
 					// lt r4.w, l(1.500000), r4.y
-					r4.w = (1.5 < r4.y) ? 1.0 : 0.0;
+					r4.w = (1.5 < r4.y) ? -1.0 : 0.0;
 						// if_nz r4.w
 					if (any(r4.w)) {
 						// mov r3.z, r4.z
@@ -10730,7 +10842,7 @@ Shader "ShaderRipperTest/VariantMonster"
 				// endloop
 				}
 				// lt r2.z, l(0.500000), cb0[10].w
-				r2.z = (0.5 < cb0[10].w) ? 1.0 : 0.0;
+				r2.z = (0.5 < cb0[10].w) ? -1.0 : 0.0;
 					// if_nz r2.z
 				if (any(r2.z)) {
 					// mul r2.z, r0.x, l(0.250000)
@@ -10852,7 +10964,7 @@ Shader "ShaderRipperTest/VariantMonster"
 				// endif
 				}
 				// lt r2.z, l(0.500000), cb0[11].x
-				r2.z = (0.5 < cb0[11].x) ? 1.0 : 0.0;
+				r2.z = (0.5 < cb0[11].x) ? -1.0 : 0.0;
 					// if_nz r2.z
 				if (any(r2.z)) {
 					// mul r5.xyzw, cb0[8].wwww, l(0.300000, 0.520000, 0.740000, 0.960000)
@@ -10863,6 +10975,8 @@ Shader "ShaderRipperTest/VariantMonster"
 					r2.z = sin(r2.z);
 					// mad r2.w, r1.w, r5.x, -r0.x
 					r2.w = mad(r1.w, r5.x, -(r0.x));
+					// sincos null, r2.w, r2.w
+					r2.w = cos(r2.w);
 					// add r3.x, r1.w, r1.z
 					r3.x = r1.w + r1.z;
 					// mul r6.xyzw, r5.xyzw, r3.xxxx
@@ -10874,27 +10988,31 @@ Shader "ShaderRipperTest/VariantMonster"
 					// mad r3.w, r1.z, r5.y, r7.x
 					r3.w = mad(r1.z, r5.y, r7.x);
 					// sincos r3.yw, null, r3.yyyw
-					r3.yw = sin(r3.yyyw);
+					r3.yw = float2(sin(r3.y), sin(r3.w));
 					// add r2.z, r2.z, r3.w
 					r2.z = r2.z + r3.w;
 					// mad r3.w, r1.w, r5.y, -r7.x
 					r3.w = mad(r1.w, r5.y, -(r7.x));
+					// sincos null, r3.w, r3.w
+					r3.w = cos(r3.w);
 					// add r2.w, r2.w, r3.w
 					r2.w = r2.w + r3.w;
 					// mad r6.xyz, r6.yzwy, l(0.600000, 0.600000, 0.600000, 0.000000), r7.xyzx
 					r6.xyz = float3(mad(r6.y, 0.6, r7.x), mad(r6.z, 0.6, r7.y), mad(r6.w, 0.6, r7.z));
 					// sincos r6.xyz, null, r6.xyzx
-					r6.xyz = sin(r6.xyzx);
+					r6.xyz = float3(sin(r6.x), sin(r6.y), sin(r6.z));
 					// add r3.y, r3.y, r6.x
 					r3.y = r3.y + r6.x;
 					// mad r5.xy, r1.zzzz, r5.zwzz, r7.yzyy
 					r5.xy = float2(mad(r1.z, r5.z, r7.y), mad(r1.z, r5.w, r7.z));
 					// sincos r5.xy, null, r5.xyxx
-					r5.xy = sin(r5.xyxx);
+					r5.xy = float2(sin(r5.x), sin(r5.y));
 					// add r2.z, r2.z, r5.x
 					r2.z = r2.z + r5.x;
 					// mad r5.xz, r1.wwww, r5.zzwz, -r7.yyzy
 					r5.xz = float2(mad(r1.w, r5.z, -(r7.y)), mad(r1.w, r5.w, -(r7.z)));
+					// sincos null, r5.xz, r5.xxzx
+					r5.xz = float2(cos(r5.x), cos(r5.z));
 					// add r3.y, r6.y, r3.y
 					r3.y = r6.y + r3.y;
 					// add r2.zw, r2.zzzw, r5.yyyx
@@ -10913,6 +11031,8 @@ Shader "ShaderRipperTest/VariantMonster"
 					r2.z = r2.z + r3.w;
 					// mad r3.w, r1.w, r5.x, -r7.w
 					r3.w = mad(r1.w, r5.x, -(r7.w));
+					// sincos null, r3.w, r3.w
+					r3.w = cos(r3.w);
 					// add r2.w, r2.w, r3.w
 					r2.w = r2.w + r3.w;
 					// mul r3.xw, r3.xxxx, r5.xxxy
@@ -10933,6 +11053,8 @@ Shader "ShaderRipperTest/VariantMonster"
 					r6.x = r2.z + r4.w;
 					// mad r2.z, r1.w, r5.y, -r3.y
 					r2.z = mad(r1.w, r5.y, -(r3.y));
+					// sincos null, r2.z, r2.z
+					r2.z = cos(r2.z);
 					// add r6.y, r2.z, r2.w
 					r6.y = r2.z + r2.w;
 					// mad r2.z, r3.w, l(0.600000), r3.y
@@ -10976,7 +11098,7 @@ Shader "ShaderRipperTest/VariantMonster"
 					// loop
 				for (;;) {
 					// ige r4.w, r2.w, r2.y
-					r4.w = (((int)(r2.w) >= (int)(r2.y)) ? 1 : 0);
+					r4.w = (((int)(r2.w) >= (int)(r2.y)) ? -1 : 0);
 					// breakc_nz r4.w
 					if (any(r4.w)) break;
 					// itof r4.w, r2.w
@@ -11413,7 +11535,7 @@ Shader "ShaderRipperTest/VariantMonster"
 					// mad r4.w, r4.w, r5.x, r2.z
 					r4.w = mad(r4.w, r5.x, r2.z);
 					// lt r5.x, l(1.100000), r4.w
-					r5.x = (1.1 < r4.w) ? 1.0 : 0.0;
+					r5.x = (1.1 < r4.w) ? -1.0 : 0.0;
 						// if_nz r5.x
 					if (any(r5.x)) {
 						// mov r2.z, r4.w
@@ -11437,7 +11559,7 @@ Shader "ShaderRipperTest/VariantMonster"
 				// mul r0.y, r0.y, r1.y
 				r0.y = r0.y * r1.y;
 				// lt r1.y, r0.y, cb0[9].w
-				r1.y = (r0.y < cb0[9].w) ? 1.0 : 0.0;
+				r1.y = (r0.y < cb0[9].w) ? -1.0 : 0.0;
 				// discard_nz r1.y
 				if (any(r1.y)) discard;
 				// mul r5.xyzw, r0.xxxx, l(0.210000, 0.150000, 0.500000, 0.370000)
@@ -11930,7 +12052,7 @@ Shader "ShaderRipperTest/VariantMonster"
 				// mul r1.y, cb0[8].z, l(0.500000)
 				r1.y = cb0[8].z * 0.5;
 				// lt r1.y, r1.x, r1.y
-				r1.y = (r1.x < r1.y) ? 1.0 : 0.0;
+				r1.y = (r1.x < r1.y) ? -1.0 : 0.0;
 				// mad r2.y, -r1.x, l(3.000000), l(1.000000)
 				r2.y = mad(-(r1.x), 3.0, 1.0);
 				// max r2.y, r2.y, l(0.000000)
@@ -11942,7 +12064,7 @@ Shader "ShaderRipperTest/VariantMonster"
 				// mad r3.xyz, r3.xyzx, cb0[8].zzzz, r0.xzwx
 				r3.xyz = float3(mad(r3.x, cb0[8].z, r0.x), mad(r3.y, cb0[8].z, r0.z), mad(r3.z, cb0[8].z, r0.w));
 				// lt r1.x, r1.x, l(0.400000)
-				r1.x = (r1.x < 0.4) ? 1.0 : 0.0;
+				r1.x = (r1.x < 0.4) ? -1.0 : 0.0;
 				// mul r4.xyz, r0.xzwx, l(0.920000, 0.920000, 0.920000, 0.000000)
 				r4.xyz = float3(r0.x * 0.92, r0.z * 0.92, r0.w * 0.92);
 				// movc r0.xzw, r1.xxxx, r4.xxyz, r0.xxzw
@@ -12806,7 +12928,7 @@ Shader "ShaderRipperTest/VariantMonster"
 				// mul r0.xzw, r0.xxzw, cb0[10].yyyy
 				r0.xzw = float3(r0.x * cb0[10].y, r0.z * cb0[10].y, r0.w * cb0[10].y);
 				// lt r1.x, l(0.500000), cb0[11].y
-				r1.x = (0.5 < cb0[11].y) ? 1.0 : 0.0;
+				r1.x = (0.5 < cb0[11].y) ? -1.0 : 0.0;
 				// mul r1.yz, v1.xxyx, cb1[6].xxyx
 				r1.yz = float2(v1.x * _ScreenParams.x, v1.y * _ScreenParams.y);
 				// mul r1.yz, r1.yyzy, l(0.000000, 127.099998, 311.700012, 0.000000)
@@ -12871,6 +12993,27 @@ Shader "ShaderRipperTest/VariantMonster"
 			//   unnamed single lanes are shared by the Float/Range prop(s): _Iterations, _Steps, _WarpDepth, _Threshold, _Contrast, _Emission, _Saturation, _ToggleDetail, _ToggleBands, _ToggleDither
 			// cb1 = UnityPerDraw  (declared by UnityCG.cginc)
 			// cb2 = UnityPerFrame  (declared by UnityCG.cginc)
+			float4 _MainTex_TexelSize;
+			float4 _NoiseTex_ST;
+			float4 _NoiseTex_TexelSize;
+			float4 _DetailTex_ST;
+			float4 _DetailTex_TexelSize;
+			float4 _MaskTex_ST;
+			float4 _MaskTex_TexelSize;
+			float4 _Color;
+			float4 _ColorC;
+			float4 _Params;
+			float4 _Params3;
+			float _Iterations;
+			float _Steps;
+			float _WarpDepth;
+			float _Threshold;
+			float _Contrast;
+			float _Emission;
+			float _Saturation;
+			float _ToggleDetail;
+			float _ToggleBands;
+			float _ToggleDither;
 			// cbuffer order confirmed by the asset's own register index
 			// $Globals cb0: 1 slot(s) named from the compiled constant-buffer member table
 			// $Globals cb0: 2 slot(s) named from the compiled constant-buffer member table
@@ -12909,7 +13052,7 @@ Shader "ShaderRipperTest/VariantMonster"
 				// sample r0.xyzw, v1.xyxx, t0.xyzw, s3
 				r0.xyzw = tex2D(_MaskTex, float2(v1.x, v1.y));
 				// lt r0.x, r0.w, cb0[9].w
-				r0.x = (r0.w < cb0[9].w) ? 1.0 : 0.0;
+				r0.x = (r0.w < cb0[9].w) ? -1.0 : 0.0;
 				// discard_nz r0.x
 				if (any(r0.x)) discard;
 				// mul r0.x, cb0[6].z, cb1[0].y
@@ -13357,7 +13500,7 @@ Shader "ShaderRipperTest/VariantMonster"
 				// mul r2.z, r2.y, r2.x
 				r2.z = r2.y * r2.x;
 				// lt r2.w, |r1.z|, |r1.y|
-				r2.w = (abs(r1.z) < abs(r1.y)) ? 1.0 : 0.0;
+				r2.w = (abs(r1.z) < abs(r1.y)) ? -1.0 : 0.0;
 				// mad r2.z, r2.z, l(-2.000000), l(1.570796)
 				r2.z = mad(r2.z, -2.0, 1.570796);
 				// and r2.z, r2.w, r2.z
@@ -13365,7 +13508,7 @@ Shader "ShaderRipperTest/VariantMonster"
 				// mad r2.x, r2.x, r2.y, r2.z
 				r2.x = mad(r2.x, r2.y, r2.z);
 				// lt r2.y, r1.z, -r1.z
-				r2.y = (r1.z < -(r1.z)) ? 1.0 : 0.0;
+				r2.y = (r1.z < -(r1.z)) ? -1.0 : 0.0;
 				// and r2.y, r2.y, l(0xc0490fdb)
 				r2.y = ((float)((int)(r2.y) & (int)(-3.141593)));
 				// add r2.x, r2.y, r2.x
@@ -13375,9 +13518,9 @@ Shader "ShaderRipperTest/VariantMonster"
 				// max r1.y, r1.z, r1.y
 				r1.y = max(r1.z, r1.y);
 				// lt r1.z, r2.y, -r2.y
-				r1.z = (r2.y < -(r2.y)) ? 1.0 : 0.0;
+				r1.z = (r2.y < -(r2.y)) ? -1.0 : 0.0;
 				// ge r1.y, r1.y, -r1.y
-				r1.y = (r1.y >= -(r1.y)) ? 1.0 : 0.0;
+				r1.y = (r1.y >= -(r1.y)) ? -1.0 : 0.0;
 				// and r1.y, r1.y, r1.z
 				r1.y = ((((r1.y) != 0.0) && ((r1.z) != 0.0)) ? 1.0 : 0.0);
 				// movc r1.y, r1.y, -r2.x, r2.x
@@ -13438,7 +13581,7 @@ Shader "ShaderRipperTest/VariantMonster"
 					// loop
 				for (;;) {
 					// ige r4.y, r4.x, r2.z
-					r4.y = (((int)(r4.x) >= (int)(r2.z)) ? 1 : 0);
+					r4.y = (((int)(r4.x) >= (int)(r2.z)) ? -1 : 0);
 					// breakc_nz r4.y
 					if (any(r4.y)) break;
 					// itof r4.y, r4.x
@@ -13860,7 +14003,7 @@ Shader "ShaderRipperTest/VariantMonster"
 						// loop
 					for (;;) {
 						// ige r6.x, r5.w, r2.w
-						r6.x = (((int)(r5.w) >= (int)(r2.w)) ? 1 : 0);
+						r6.x = (((int)(r5.w) >= (int)(r2.w)) ? -1 : 0);
 						// breakc_nz r6.x
 						if (any(r6.x)) break;
 						// itof r6.x, r5.w
@@ -13951,7 +14094,7 @@ Shader "ShaderRipperTest/VariantMonster"
 						// mad r6.z, |r6.z|, l(2.000000), r5.z
 						r6.z = mad(abs(r6.z), 2.0, r5.z);
 						// lt r6.w, l(2.200000), r6.z
-						r6.w = (2.2 < r6.z) ? 1.0 : 0.0;
+						r6.w = (2.2 < r6.z) ? -1.0 : 0.0;
 							// if_nz r6.w
 						if (any(r6.w)) {
 							// iadd r6.w, r5.w, l(1)
@@ -13985,7 +14128,7 @@ Shader "ShaderRipperTest/VariantMonster"
 					// mul r4.yz, r5.xxyx, l(0.000000, 1.040000, 1.040000, 0.000000)
 					r4.yz = float2(r5.x * 1.04, r5.y * 1.04);
 					// lt r6.xy, r5.zzzz, l(0.600000, 1.400000, 0.000000, 0.000000)
-					r6.xy = float2((r5.z < 0.6) ? 1.0 : 0.0, (r5.z < 1.4) ? 1.0 : 0.0);
+					r6.xy = float2((r5.z < 0.6) ? -1.0 : 0.0, (r5.z < 1.4) ? -1.0 : 0.0);
 					// add r6.zw, r5.xxxy, l(0.000000, 0.000000, 0.020000, 0.010000)
 					r6.zw = float2(r5.x + 0.02, r5.y + 0.01);
 					// mov_sat r5.xy, r5.xyxx
@@ -13997,7 +14140,7 @@ Shader "ShaderRipperTest/VariantMonster"
 					// movc r4.yz, r6.xxxx, r4.yyzy, r6.yyzy
 					r4.yz = float2(r6.x != 0.0 ? r4.y : r6.y, r6.x != 0.0 ? r4.z : r6.z);
 					// lt r4.w, l(1.500000), r4.y
-					r4.w = (1.5 < r4.y) ? 1.0 : 0.0;
+					r4.w = (1.5 < r4.y) ? -1.0 : 0.0;
 						// if_nz r4.w
 					if (any(r4.w)) {
 						// mov r3.z, r4.z
@@ -14013,7 +14156,7 @@ Shader "ShaderRipperTest/VariantMonster"
 				// endloop
 				}
 				// lt r2.z, l(0.500000), cb0[10].w
-				r2.z = (0.5 < cb0[10].w) ? 1.0 : 0.0;
+				r2.z = (0.5 < cb0[10].w) ? -1.0 : 0.0;
 					// if_nz r2.z
 				if (any(r2.z)) {
 					// mul r2.z, r0.x, l(0.250000)
@@ -14135,7 +14278,7 @@ Shader "ShaderRipperTest/VariantMonster"
 				// endif
 				}
 				// lt r2.z, l(0.500000), cb0[11].x
-				r2.z = (0.5 < cb0[11].x) ? 1.0 : 0.0;
+				r2.z = (0.5 < cb0[11].x) ? -1.0 : 0.0;
 					// if_nz r2.z
 				if (any(r2.z)) {
 					// mul r5.xyzw, cb0[8].wwww, l(0.300000, 0.520000, 0.740000, 0.960000)
@@ -14146,6 +14289,8 @@ Shader "ShaderRipperTest/VariantMonster"
 					r2.z = sin(r2.z);
 					// mad r2.w, r1.z, r5.x, -r0.x
 					r2.w = mad(r1.z, r5.x, -(r0.x));
+					// sincos null, r2.w, r2.w
+					r2.w = cos(r2.w);
 					// add r3.x, r1.z, r1.y
 					r3.x = r1.z + r1.y;
 					// mul r6.xyzw, r5.xyzw, r3.xxxx
@@ -14157,27 +14302,31 @@ Shader "ShaderRipperTest/VariantMonster"
 					// mad r3.w, r1.y, r5.y, r7.x
 					r3.w = mad(r1.y, r5.y, r7.x);
 					// sincos r3.yw, null, r3.yyyw
-					r3.yw = sin(r3.yyyw);
+					r3.yw = float2(sin(r3.y), sin(r3.w));
 					// add r2.z, r2.z, r3.w
 					r2.z = r2.z + r3.w;
 					// mad r3.w, r1.z, r5.y, -r7.x
 					r3.w = mad(r1.z, r5.y, -(r7.x));
+					// sincos null, r3.w, r3.w
+					r3.w = cos(r3.w);
 					// add r2.w, r2.w, r3.w
 					r2.w = r2.w + r3.w;
 					// mad r6.xyz, r6.yzwy, l(0.600000, 0.600000, 0.600000, 0.000000), r7.xyzx
 					r6.xyz = float3(mad(r6.y, 0.6, r7.x), mad(r6.z, 0.6, r7.y), mad(r6.w, 0.6, r7.z));
 					// sincos r6.xyz, null, r6.xyzx
-					r6.xyz = sin(r6.xyzx);
+					r6.xyz = float3(sin(r6.x), sin(r6.y), sin(r6.z));
 					// add r3.y, r3.y, r6.x
 					r3.y = r3.y + r6.x;
 					// mad r5.xy, r1.yyyy, r5.zwzz, r7.yzyy
 					r5.xy = float2(mad(r1.y, r5.z, r7.y), mad(r1.y, r5.w, r7.z));
 					// sincos r5.xy, null, r5.xyxx
-					r5.xy = sin(r5.xyxx);
+					r5.xy = float2(sin(r5.x), sin(r5.y));
 					// add r2.z, r2.z, r5.x
 					r2.z = r2.z + r5.x;
 					// mad r5.xz, r1.zzzz, r5.zzwz, -r7.yyzy
 					r5.xz = float2(mad(r1.z, r5.z, -(r7.y)), mad(r1.z, r5.w, -(r7.z)));
+					// sincos null, r5.xz, r5.xxzx
+					r5.xz = float2(cos(r5.x), cos(r5.z));
 					// add r3.y, r6.y, r3.y
 					r3.y = r6.y + r3.y;
 					// add r2.zw, r2.zzzw, r5.yyyx
@@ -14196,6 +14345,8 @@ Shader "ShaderRipperTest/VariantMonster"
 					r2.z = r2.z + r3.w;
 					// mad r3.w, r1.z, r5.x, -r7.w
 					r3.w = mad(r1.z, r5.x, -(r7.w));
+					// sincos null, r3.w, r3.w
+					r3.w = cos(r3.w);
 					// add r2.w, r2.w, r3.w
 					r2.w = r2.w + r3.w;
 					// mul r3.xw, r3.xxxx, r5.xxxy
@@ -14216,6 +14367,8 @@ Shader "ShaderRipperTest/VariantMonster"
 					r6.x = r2.z + r4.w;
 					// mad r2.z, r1.z, r5.y, -r3.y
 					r2.z = mad(r1.z, r5.y, -(r3.y));
+					// sincos null, r2.z, r2.z
+					r2.z = cos(r2.z);
 					// add r6.y, r2.z, r2.w
 					r6.y = r2.z + r2.w;
 					// mad r2.z, r3.w, l(0.600000), r3.y
@@ -14257,7 +14410,7 @@ Shader "ShaderRipperTest/VariantMonster"
 					// loop
 				for (;;) {
 					// ige r4.w, r2.w, r2.y
-					r4.w = (((int)(r2.w) >= (int)(r2.y)) ? 1 : 0);
+					r4.w = (((int)(r2.w) >= (int)(r2.y)) ? -1 : 0);
 					// breakc_nz r4.w
 					if (any(r4.w)) break;
 					// itof r4.w, r2.w
@@ -14694,7 +14847,7 @@ Shader "ShaderRipperTest/VariantMonster"
 					// mad r4.w, r4.w, r5.x, r2.z
 					r4.w = mad(r4.w, r5.x, r2.z);
 					// lt r5.x, l(1.100000), r4.w
-					r5.x = (1.1 < r4.w) ? 1.0 : 0.0;
+					r5.x = (1.1 < r4.w) ? -1.0 : 0.0;
 						// if_nz r5.x
 					if (any(r5.x)) {
 						// mov r2.z, r4.w
@@ -14718,7 +14871,7 @@ Shader "ShaderRipperTest/VariantMonster"
 				// mul r0.y, r0.y, r2.x
 				r0.y = r0.y * r2.x;
 				// lt r2.x, r0.y, cb0[9].w
-				r2.x = (r0.y < cb0[9].w) ? 1.0 : 0.0;
+				r2.x = (r0.y < cb0[9].w) ? -1.0 : 0.0;
 				// discard_nz r2.x
 				if (any(r2.x)) discard;
 				// mul r5.xyzw, r0.xxxx, l(0.210000, 0.150000, 0.500000, 0.370000)
@@ -15201,7 +15354,7 @@ Shader "ShaderRipperTest/VariantMonster"
 				// mul r2.x, cb0[8].z, l(0.500000)
 				r2.x = cb0[8].z * 0.5;
 				// lt r2.x, r1.x, r2.x
-				r2.x = (r1.x < r2.x) ? 1.0 : 0.0;
+				r2.x = (r1.x < r2.x) ? -1.0 : 0.0;
 				// mad r2.y, -r1.x, l(3.000000), l(1.000000)
 				r2.y = mad(-(r1.x), 3.0, 1.0);
 				// max r2.y, r2.y, l(0.000000)
@@ -15213,7 +15366,7 @@ Shader "ShaderRipperTest/VariantMonster"
 				// mad r3.xyz, r3.xyzx, cb0[8].zzzz, r0.xzwx
 				r3.xyz = float3(mad(r3.x, cb0[8].z, r0.x), mad(r3.y, cb0[8].z, r0.z), mad(r3.z, cb0[8].z, r0.w));
 				// lt r1.x, r1.x, l(0.400000)
-				r1.x = (r1.x < 0.4) ? 1.0 : 0.0;
+				r1.x = (r1.x < 0.4) ? -1.0 : 0.0;
 				// mul r4.xyz, r0.xzwx, l(0.920000, 0.920000, 0.920000, 0.000000)
 				r4.xyz = float3(r0.x * 0.92, r0.z * 0.92, r0.w * 0.92);
 				// movc r0.xzw, r1.xxxx, r4.xxyz, r0.xxzw
@@ -16077,7 +16230,7 @@ Shader "ShaderRipperTest/VariantMonster"
 				// mul r0.xzw, r0.xxzw, cb0[10].yyyy
 				r0.xzw = float3(r0.x * cb0[10].y, r0.z * cb0[10].y, r0.w * cb0[10].y);
 				// lt r1.x, l(0.500000), cb0[11].y
-				r1.x = (0.5 < cb0[11].y) ? 1.0 : 0.0;
+				r1.x = (0.5 < cb0[11].y) ? -1.0 : 0.0;
 				// mul r1.yz, v1.xxyx, cb1[6].xxyx
 				r1.yz = float2(v1.x * _ScreenParams.x, v1.y * _ScreenParams.y);
 				// mul r1.yz, r1.yyzy, l(0.000000, 127.099998, 311.700012, 0.000000)
@@ -16142,6 +16295,27 @@ Shader "ShaderRipperTest/VariantMonster"
 			//   unnamed single lanes are shared by the Float/Range prop(s): _Iterations, _Steps, _WarpDepth, _Threshold, _Contrast, _Emission, _Saturation, _ToggleDetail, _ToggleBands, _ToggleDither
 			// cb1 = UnityPerDraw  (declared by UnityCG.cginc)
 			// cb2 = UnityPerFrame  (declared by UnityCG.cginc)
+			float4 _MainTex_TexelSize;
+			float4 _NoiseTex_ST;
+			float4 _NoiseTex_TexelSize;
+			float4 _DetailTex_ST;
+			float4 _DetailTex_TexelSize;
+			float4 _MaskTex_ST;
+			float4 _MaskTex_TexelSize;
+			float4 _Color;
+			float4 _ColorC;
+			float4 _Params;
+			float4 _Params3;
+			float _Iterations;
+			float _Steps;
+			float _WarpDepth;
+			float _Threshold;
+			float _Contrast;
+			float _Emission;
+			float _Saturation;
+			float _ToggleDetail;
+			float _ToggleBands;
+			float _ToggleDither;
 			// cbuffer order confirmed by the asset's own register index
 			// $Globals cb0: 1 slot(s) named from the compiled constant-buffer member table
 			// $Globals cb0: 2 slot(s) named from the compiled constant-buffer member table
@@ -16180,7 +16354,7 @@ Shader "ShaderRipperTest/VariantMonster"
 				// sample r0.xyzw, v1.xyxx, t0.xyzw, s3
 				r0.xyzw = tex2D(_MaskTex, float2(v1.x, v1.y));
 				// lt r0.x, r0.w, cb0[9].w
-				r0.x = (r0.w < cb0[9].w) ? 1.0 : 0.0;
+				r0.x = (r0.w < cb0[9].w) ? -1.0 : 0.0;
 				// discard_nz r0.x
 				if (any(r0.x)) discard;
 				// mul r0.x, cb0[6].z, cb1[0].y
@@ -16622,7 +16796,7 @@ Shader "ShaderRipperTest/VariantMonster"
 				// mul r2.w, r2.z, r2.y
 				r2.w = r2.z * r2.y;
 				// lt r3.x, |r1.w|, |r1.z|
-				r3.x = (abs(r1.w) < abs(r1.z)) ? 1.0 : 0.0;
+				r3.x = (abs(r1.w) < abs(r1.z)) ? -1.0 : 0.0;
 				// mad r2.w, r2.w, l(-2.000000), l(1.570796)
 				r2.w = mad(r2.w, -2.0, 1.570796);
 				// and r2.w, r3.x, r2.w
@@ -16630,7 +16804,7 @@ Shader "ShaderRipperTest/VariantMonster"
 				// mad r2.y, r2.y, r2.z, r2.w
 				r2.y = mad(r2.y, r2.z, r2.w);
 				// lt r2.z, r1.w, -r1.w
-				r2.z = (r1.w < -(r1.w)) ? 1.0 : 0.0;
+				r2.z = (r1.w < -(r1.w)) ? -1.0 : 0.0;
 				// and r2.z, r2.z, l(0xc0490fdb)
 				r2.z = ((float)((int)(r2.z) & (int)(-3.141593)));
 				// add r2.y, r2.z, r2.y
@@ -16640,9 +16814,9 @@ Shader "ShaderRipperTest/VariantMonster"
 				// max r1.z, r1.w, r1.z
 				r1.z = max(r1.w, r1.z);
 				// lt r1.w, r2.z, -r2.z
-				r1.w = (r2.z < -(r2.z)) ? 1.0 : 0.0;
+				r1.w = (r2.z < -(r2.z)) ? -1.0 : 0.0;
 				// ge r1.z, r1.z, -r1.z
-				r1.z = (r1.z >= -(r1.z)) ? 1.0 : 0.0;
+				r1.z = (r1.z >= -(r1.z)) ? -1.0 : 0.0;
 				// and r1.z, r1.z, r1.w
 				r1.z = ((((r1.z) != 0.0) && ((r1.w) != 0.0)) ? 1.0 : 0.0);
 				// movc r1.z, r1.z, -r2.y, r2.y
@@ -16733,7 +16907,7 @@ Shader "ShaderRipperTest/VariantMonster"
 					// loop
 				for (;;) {
 					// ige r4.y, r4.x, r2.z
-					r4.y = (((int)(r4.x) >= (int)(r2.z)) ? 1 : 0);
+					r4.y = (((int)(r4.x) >= (int)(r2.z)) ? -1 : 0);
 					// breakc_nz r4.y
 					if (any(r4.y)) break;
 					// itof r4.y, r4.x
@@ -17155,7 +17329,7 @@ Shader "ShaderRipperTest/VariantMonster"
 						// loop
 					for (;;) {
 						// ige r6.x, r5.w, r2.w
-						r6.x = (((int)(r5.w) >= (int)(r2.w)) ? 1 : 0);
+						r6.x = (((int)(r5.w) >= (int)(r2.w)) ? -1 : 0);
 						// breakc_nz r6.x
 						if (any(r6.x)) break;
 						// itof r6.x, r5.w
@@ -17246,7 +17420,7 @@ Shader "ShaderRipperTest/VariantMonster"
 						// mad r6.z, |r6.z|, l(2.000000), r5.z
 						r6.z = mad(abs(r6.z), 2.0, r5.z);
 						// lt r6.w, l(2.200000), r6.z
-						r6.w = (2.2 < r6.z) ? 1.0 : 0.0;
+						r6.w = (2.2 < r6.z) ? -1.0 : 0.0;
 							// if_nz r6.w
 						if (any(r6.w)) {
 							// iadd r6.w, r5.w, l(1)
@@ -17280,7 +17454,7 @@ Shader "ShaderRipperTest/VariantMonster"
 					// mul r4.yz, r5.xxyx, l(0.000000, 1.040000, 1.040000, 0.000000)
 					r4.yz = float2(r5.x * 1.04, r5.y * 1.04);
 					// lt r6.xy, r5.zzzz, l(0.600000, 1.400000, 0.000000, 0.000000)
-					r6.xy = float2((r5.z < 0.6) ? 1.0 : 0.0, (r5.z < 1.4) ? 1.0 : 0.0);
+					r6.xy = float2((r5.z < 0.6) ? -1.0 : 0.0, (r5.z < 1.4) ? -1.0 : 0.0);
 					// add r6.zw, r5.xxxy, l(0.000000, 0.000000, 0.020000, 0.010000)
 					r6.zw = float2(r5.x + 0.02, r5.y + 0.01);
 					// mov_sat r5.xy, r5.xyxx
@@ -17292,7 +17466,7 @@ Shader "ShaderRipperTest/VariantMonster"
 					// movc r4.yz, r6.xxxx, r4.yyzy, r6.yyzy
 					r4.yz = float2(r6.x != 0.0 ? r4.y : r6.y, r6.x != 0.0 ? r4.z : r6.z);
 					// lt r4.w, l(1.500000), r4.y
-					r4.w = (1.5 < r4.y) ? 1.0 : 0.0;
+					r4.w = (1.5 < r4.y) ? -1.0 : 0.0;
 						// if_nz r4.w
 					if (any(r4.w)) {
 						// mov r3.z, r4.z
@@ -17308,7 +17482,7 @@ Shader "ShaderRipperTest/VariantMonster"
 				// endloop
 				}
 				// lt r2.z, l(0.500000), cb0[10].w
-				r2.z = (0.5 < cb0[10].w) ? 1.0 : 0.0;
+				r2.z = (0.5 < cb0[10].w) ? -1.0 : 0.0;
 					// if_nz r2.z
 				if (any(r2.z)) {
 					// mul r2.z, r0.x, l(0.250000)
@@ -17430,7 +17604,7 @@ Shader "ShaderRipperTest/VariantMonster"
 				// endif
 				}
 				// lt r2.z, l(0.500000), cb0[11].x
-				r2.z = (0.5 < cb0[11].x) ? 1.0 : 0.0;
+				r2.z = (0.5 < cb0[11].x) ? -1.0 : 0.0;
 					// if_nz r2.z
 				if (any(r2.z)) {
 					// mul r5.xyzw, cb0[8].wwww, l(0.300000, 0.520000, 0.740000, 0.960000)
@@ -17441,6 +17615,8 @@ Shader "ShaderRipperTest/VariantMonster"
 					r2.z = sin(r2.z);
 					// mad r2.w, r1.w, r5.x, -r0.x
 					r2.w = mad(r1.w, r5.x, -(r0.x));
+					// sincos null, r2.w, r2.w
+					r2.w = cos(r2.w);
 					// add r3.x, r1.w, r1.z
 					r3.x = r1.w + r1.z;
 					// mul r6.xyzw, r5.xyzw, r3.xxxx
@@ -17452,27 +17628,31 @@ Shader "ShaderRipperTest/VariantMonster"
 					// mad r3.w, r1.z, r5.y, r7.x
 					r3.w = mad(r1.z, r5.y, r7.x);
 					// sincos r3.yw, null, r3.yyyw
-					r3.yw = sin(r3.yyyw);
+					r3.yw = float2(sin(r3.y), sin(r3.w));
 					// add r2.z, r2.z, r3.w
 					r2.z = r2.z + r3.w;
 					// mad r3.w, r1.w, r5.y, -r7.x
 					r3.w = mad(r1.w, r5.y, -(r7.x));
+					// sincos null, r3.w, r3.w
+					r3.w = cos(r3.w);
 					// add r2.w, r2.w, r3.w
 					r2.w = r2.w + r3.w;
 					// mad r6.xyz, r6.yzwy, l(0.600000, 0.600000, 0.600000, 0.000000), r7.xyzx
 					r6.xyz = float3(mad(r6.y, 0.6, r7.x), mad(r6.z, 0.6, r7.y), mad(r6.w, 0.6, r7.z));
 					// sincos r6.xyz, null, r6.xyzx
-					r6.xyz = sin(r6.xyzx);
+					r6.xyz = float3(sin(r6.x), sin(r6.y), sin(r6.z));
 					// add r3.y, r3.y, r6.x
 					r3.y = r3.y + r6.x;
 					// mad r5.xy, r1.zzzz, r5.zwzz, r7.yzyy
 					r5.xy = float2(mad(r1.z, r5.z, r7.y), mad(r1.z, r5.w, r7.z));
 					// sincos r5.xy, null, r5.xyxx
-					r5.xy = sin(r5.xyxx);
+					r5.xy = float2(sin(r5.x), sin(r5.y));
 					// add r2.z, r2.z, r5.x
 					r2.z = r2.z + r5.x;
 					// mad r5.xz, r1.wwww, r5.zzwz, -r7.yyzy
 					r5.xz = float2(mad(r1.w, r5.z, -(r7.y)), mad(r1.w, r5.w, -(r7.z)));
+					// sincos null, r5.xz, r5.xxzx
+					r5.xz = float2(cos(r5.x), cos(r5.z));
 					// add r3.y, r6.y, r3.y
 					r3.y = r6.y + r3.y;
 					// add r2.zw, r2.zzzw, r5.yyyx
@@ -17491,6 +17671,8 @@ Shader "ShaderRipperTest/VariantMonster"
 					r2.z = r2.z + r3.w;
 					// mad r3.w, r1.w, r5.x, -r7.w
 					r3.w = mad(r1.w, r5.x, -(r7.w));
+					// sincos null, r3.w, r3.w
+					r3.w = cos(r3.w);
 					// add r2.w, r2.w, r3.w
 					r2.w = r2.w + r3.w;
 					// mul r3.xw, r3.xxxx, r5.xxxy
@@ -17511,6 +17693,8 @@ Shader "ShaderRipperTest/VariantMonster"
 					r6.x = r2.z + r4.w;
 					// mad r2.z, r1.w, r5.y, -r3.y
 					r2.z = mad(r1.w, r5.y, -(r3.y));
+					// sincos null, r2.z, r2.z
+					r2.z = cos(r2.z);
 					// add r6.y, r2.z, r2.w
 					r6.y = r2.z + r2.w;
 					// mad r2.z, r3.w, l(0.600000), r3.y
@@ -17554,7 +17738,7 @@ Shader "ShaderRipperTest/VariantMonster"
 					// loop
 				for (;;) {
 					// ige r4.w, r2.w, r2.y
-					r4.w = (((int)(r2.w) >= (int)(r2.y)) ? 1 : 0);
+					r4.w = (((int)(r2.w) >= (int)(r2.y)) ? -1 : 0);
 					// breakc_nz r4.w
 					if (any(r4.w)) break;
 					// itof r4.w, r2.w
@@ -17991,7 +18175,7 @@ Shader "ShaderRipperTest/VariantMonster"
 					// mad r4.w, r4.w, r5.x, r2.z
 					r4.w = mad(r4.w, r5.x, r2.z);
 					// lt r5.x, l(1.100000), r4.w
-					r5.x = (1.1 < r4.w) ? 1.0 : 0.0;
+					r5.x = (1.1 < r4.w) ? -1.0 : 0.0;
 						// if_nz r5.x
 					if (any(r5.x)) {
 						// mov r2.z, r4.w
@@ -18015,7 +18199,7 @@ Shader "ShaderRipperTest/VariantMonster"
 				// mul r0.y, r0.y, r1.y
 				r0.y = r0.y * r1.y;
 				// lt r1.y, r0.y, cb0[9].w
-				r1.y = (r0.y < cb0[9].w) ? 1.0 : 0.0;
+				r1.y = (r0.y < cb0[9].w) ? -1.0 : 0.0;
 				// discard_nz r1.y
 				if (any(r1.y)) discard;
 				// mul r5.xyzw, r0.xxxx, l(0.210000, 0.150000, 0.500000, 0.370000)
@@ -18508,7 +18692,7 @@ Shader "ShaderRipperTest/VariantMonster"
 				// mul r1.y, cb0[8].z, l(0.500000)
 				r1.y = cb0[8].z * 0.5;
 				// lt r1.y, r1.x, r1.y
-				r1.y = (r1.x < r1.y) ? 1.0 : 0.0;
+				r1.y = (r1.x < r1.y) ? -1.0 : 0.0;
 				// mad r2.y, -r1.x, l(3.000000), l(1.000000)
 				r2.y = mad(-(r1.x), 3.0, 1.0);
 				// max r2.y, r2.y, l(0.000000)
@@ -18520,7 +18704,7 @@ Shader "ShaderRipperTest/VariantMonster"
 				// mad r3.xyz, r3.xyzx, cb0[8].zzzz, r0.xzwx
 				r3.xyz = float3(mad(r3.x, cb0[8].z, r0.x), mad(r3.y, cb0[8].z, r0.z), mad(r3.z, cb0[8].z, r0.w));
 				// lt r1.x, r1.x, l(0.400000)
-				r1.x = (r1.x < 0.4) ? 1.0 : 0.0;
+				r1.x = (r1.x < 0.4) ? -1.0 : 0.0;
 				// mul r4.xyz, r0.xzwx, l(0.920000, 0.920000, 0.920000, 0.000000)
 				r4.xyz = float3(r0.x * 0.92, r0.z * 0.92, r0.w * 0.92);
 				// movc r0.xzw, r1.xxxx, r4.xxyz, r0.xxzw
@@ -19384,7 +19568,7 @@ Shader "ShaderRipperTest/VariantMonster"
 				// mul r0.xzw, r0.xxzw, cb0[10].yyyy
 				r0.xzw = float3(r0.x * cb0[10].y, r0.z * cb0[10].y, r0.w * cb0[10].y);
 				// lt r1.x, l(0.500000), cb0[11].y
-				r1.x = (0.5 < cb0[11].y) ? 1.0 : 0.0;
+				r1.x = (0.5 < cb0[11].y) ? -1.0 : 0.0;
 				// mul r1.yz, v1.xxyx, cb1[6].xxyx
 				r1.yz = float2(v1.x * _ScreenParams.x, v1.y * _ScreenParams.y);
 				// mul r1.yz, r1.yyzy, l(0.000000, 127.099998, 311.700012, 0.000000)
@@ -19449,6 +19633,27 @@ Shader "ShaderRipperTest/VariantMonster"
 			//   unnamed single lanes are shared by the Float/Range prop(s): _Iterations, _Steps, _WarpDepth, _Threshold, _Contrast, _Emission, _Saturation, _ToggleDetail, _ToggleBands, _ToggleDither
 			// cb1 = UnityPerDraw  (declared by UnityCG.cginc)
 			// cb2 = UnityPerFrame  (declared by UnityCG.cginc)
+			float4 _MainTex_TexelSize;
+			float4 _NoiseTex_ST;
+			float4 _NoiseTex_TexelSize;
+			float4 _DetailTex_ST;
+			float4 _DetailTex_TexelSize;
+			float4 _MaskTex_ST;
+			float4 _MaskTex_TexelSize;
+			float4 _Color;
+			float4 _ColorC;
+			float4 _Params;
+			float4 _Params3;
+			float _Iterations;
+			float _Steps;
+			float _WarpDepth;
+			float _Threshold;
+			float _Contrast;
+			float _Emission;
+			float _Saturation;
+			float _ToggleDetail;
+			float _ToggleBands;
+			float _ToggleDither;
 			// cbuffer order confirmed by the asset's own register index
 			// $Globals cb0: 1 slot(s) named from the compiled constant-buffer member table
 			// $Globals cb0: 2 slot(s) named from the compiled constant-buffer member table
@@ -19487,7 +19692,7 @@ Shader "ShaderRipperTest/VariantMonster"
 				// sample r0.xyzw, v1.xyxx, t0.xyzw, s3
 				r0.xyzw = tex2D(_MaskTex, float2(v1.x, v1.y));
 				// lt r0.x, r0.w, cb0[9].w
-				r0.x = (r0.w < cb0[9].w) ? 1.0 : 0.0;
+				r0.x = (r0.w < cb0[9].w) ? -1.0 : 0.0;
 				// discard_nz r0.x
 				if (any(r0.x)) discard;
 				// mul r0.x, cb0[6].z, cb1[0].y
@@ -19935,7 +20140,7 @@ Shader "ShaderRipperTest/VariantMonster"
 				// mul r2.z, r2.y, r2.x
 				r2.z = r2.y * r2.x;
 				// lt r2.w, |r1.z|, |r1.y|
-				r2.w = (abs(r1.z) < abs(r1.y)) ? 1.0 : 0.0;
+				r2.w = (abs(r1.z) < abs(r1.y)) ? -1.0 : 0.0;
 				// mad r2.z, r2.z, l(-2.000000), l(1.570796)
 				r2.z = mad(r2.z, -2.0, 1.570796);
 				// and r2.z, r2.w, r2.z
@@ -19943,7 +20148,7 @@ Shader "ShaderRipperTest/VariantMonster"
 				// mad r2.x, r2.x, r2.y, r2.z
 				r2.x = mad(r2.x, r2.y, r2.z);
 				// lt r2.y, r1.z, -r1.z
-				r2.y = (r1.z < -(r1.z)) ? 1.0 : 0.0;
+				r2.y = (r1.z < -(r1.z)) ? -1.0 : 0.0;
 				// and r2.y, r2.y, l(0xc0490fdb)
 				r2.y = ((float)((int)(r2.y) & (int)(-3.141593)));
 				// add r2.x, r2.y, r2.x
@@ -19953,9 +20158,9 @@ Shader "ShaderRipperTest/VariantMonster"
 				// max r1.y, r1.z, r1.y
 				r1.y = max(r1.z, r1.y);
 				// lt r1.z, r2.y, -r2.y
-				r1.z = (r2.y < -(r2.y)) ? 1.0 : 0.0;
+				r1.z = (r2.y < -(r2.y)) ? -1.0 : 0.0;
 				// ge r1.y, r1.y, -r1.y
-				r1.y = (r1.y >= -(r1.y)) ? 1.0 : 0.0;
+				r1.y = (r1.y >= -(r1.y)) ? -1.0 : 0.0;
 				// and r1.y, r1.y, r1.z
 				r1.y = ((((r1.y) != 0.0) && ((r1.z) != 0.0)) ? 1.0 : 0.0);
 				// movc r1.y, r1.y, -r2.x, r2.x
@@ -20016,7 +20221,7 @@ Shader "ShaderRipperTest/VariantMonster"
 					// loop
 				for (;;) {
 					// ige r4.y, r4.x, r2.z
-					r4.y = (((int)(r4.x) >= (int)(r2.z)) ? 1 : 0);
+					r4.y = (((int)(r4.x) >= (int)(r2.z)) ? -1 : 0);
 					// breakc_nz r4.y
 					if (any(r4.y)) break;
 					// itof r4.y, r4.x
@@ -20438,7 +20643,7 @@ Shader "ShaderRipperTest/VariantMonster"
 						// loop
 					for (;;) {
 						// ige r6.x, r5.w, r2.w
-						r6.x = (((int)(r5.w) >= (int)(r2.w)) ? 1 : 0);
+						r6.x = (((int)(r5.w) >= (int)(r2.w)) ? -1 : 0);
 						// breakc_nz r6.x
 						if (any(r6.x)) break;
 						// itof r6.x, r5.w
@@ -20529,7 +20734,7 @@ Shader "ShaderRipperTest/VariantMonster"
 						// mad r6.z, |r6.z|, l(2.000000), r5.z
 						r6.z = mad(abs(r6.z), 2.0, r5.z);
 						// lt r6.w, l(2.200000), r6.z
-						r6.w = (2.2 < r6.z) ? 1.0 : 0.0;
+						r6.w = (2.2 < r6.z) ? -1.0 : 0.0;
 							// if_nz r6.w
 						if (any(r6.w)) {
 							// iadd r6.w, r5.w, l(1)
@@ -20563,7 +20768,7 @@ Shader "ShaderRipperTest/VariantMonster"
 					// mul r4.yz, r5.xxyx, l(0.000000, 1.040000, 1.040000, 0.000000)
 					r4.yz = float2(r5.x * 1.04, r5.y * 1.04);
 					// lt r6.xy, r5.zzzz, l(0.600000, 1.400000, 0.000000, 0.000000)
-					r6.xy = float2((r5.z < 0.6) ? 1.0 : 0.0, (r5.z < 1.4) ? 1.0 : 0.0);
+					r6.xy = float2((r5.z < 0.6) ? -1.0 : 0.0, (r5.z < 1.4) ? -1.0 : 0.0);
 					// add r6.zw, r5.xxxy, l(0.000000, 0.000000, 0.020000, 0.010000)
 					r6.zw = float2(r5.x + 0.02, r5.y + 0.01);
 					// mov_sat r5.xy, r5.xyxx
@@ -20575,7 +20780,7 @@ Shader "ShaderRipperTest/VariantMonster"
 					// movc r4.yz, r6.xxxx, r4.yyzy, r6.yyzy
 					r4.yz = float2(r6.x != 0.0 ? r4.y : r6.y, r6.x != 0.0 ? r4.z : r6.z);
 					// lt r4.w, l(1.500000), r4.y
-					r4.w = (1.5 < r4.y) ? 1.0 : 0.0;
+					r4.w = (1.5 < r4.y) ? -1.0 : 0.0;
 						// if_nz r4.w
 					if (any(r4.w)) {
 						// mov r3.z, r4.z
@@ -20591,7 +20796,7 @@ Shader "ShaderRipperTest/VariantMonster"
 				// endloop
 				}
 				// lt r2.z, l(0.500000), cb0[10].w
-				r2.z = (0.5 < cb0[10].w) ? 1.0 : 0.0;
+				r2.z = (0.5 < cb0[10].w) ? -1.0 : 0.0;
 					// if_nz r2.z
 				if (any(r2.z)) {
 					// mul r2.z, r0.x, l(0.250000)
@@ -20713,7 +20918,7 @@ Shader "ShaderRipperTest/VariantMonster"
 				// endif
 				}
 				// lt r2.z, l(0.500000), cb0[11].x
-				r2.z = (0.5 < cb0[11].x) ? 1.0 : 0.0;
+				r2.z = (0.5 < cb0[11].x) ? -1.0 : 0.0;
 					// if_nz r2.z
 				if (any(r2.z)) {
 					// mul r5.xyzw, cb0[8].wwww, l(0.300000, 0.520000, 0.740000, 0.960000)
@@ -20724,6 +20929,8 @@ Shader "ShaderRipperTest/VariantMonster"
 					r2.z = sin(r2.z);
 					// mad r2.w, r1.z, r5.x, -r0.x
 					r2.w = mad(r1.z, r5.x, -(r0.x));
+					// sincos null, r2.w, r2.w
+					r2.w = cos(r2.w);
 					// add r3.x, r1.z, r1.y
 					r3.x = r1.z + r1.y;
 					// mul r6.xyzw, r5.xyzw, r3.xxxx
@@ -20735,27 +20942,31 @@ Shader "ShaderRipperTest/VariantMonster"
 					// mad r3.w, r1.y, r5.y, r7.x
 					r3.w = mad(r1.y, r5.y, r7.x);
 					// sincos r3.yw, null, r3.yyyw
-					r3.yw = sin(r3.yyyw);
+					r3.yw = float2(sin(r3.y), sin(r3.w));
 					// add r2.z, r2.z, r3.w
 					r2.z = r2.z + r3.w;
 					// mad r3.w, r1.z, r5.y, -r7.x
 					r3.w = mad(r1.z, r5.y, -(r7.x));
+					// sincos null, r3.w, r3.w
+					r3.w = cos(r3.w);
 					// add r2.w, r2.w, r3.w
 					r2.w = r2.w + r3.w;
 					// mad r6.xyz, r6.yzwy, l(0.600000, 0.600000, 0.600000, 0.000000), r7.xyzx
 					r6.xyz = float3(mad(r6.y, 0.6, r7.x), mad(r6.z, 0.6, r7.y), mad(r6.w, 0.6, r7.z));
 					// sincos r6.xyz, null, r6.xyzx
-					r6.xyz = sin(r6.xyzx);
+					r6.xyz = float3(sin(r6.x), sin(r6.y), sin(r6.z));
 					// add r3.y, r3.y, r6.x
 					r3.y = r3.y + r6.x;
 					// mad r5.xy, r1.yyyy, r5.zwzz, r7.yzyy
 					r5.xy = float2(mad(r1.y, r5.z, r7.y), mad(r1.y, r5.w, r7.z));
 					// sincos r5.xy, null, r5.xyxx
-					r5.xy = sin(r5.xyxx);
+					r5.xy = float2(sin(r5.x), sin(r5.y));
 					// add r2.z, r2.z, r5.x
 					r2.z = r2.z + r5.x;
 					// mad r5.xz, r1.zzzz, r5.zzwz, -r7.yyzy
 					r5.xz = float2(mad(r1.z, r5.z, -(r7.y)), mad(r1.z, r5.w, -(r7.z)));
+					// sincos null, r5.xz, r5.xxzx
+					r5.xz = float2(cos(r5.x), cos(r5.z));
 					// add r3.y, r6.y, r3.y
 					r3.y = r6.y + r3.y;
 					// add r2.zw, r2.zzzw, r5.yyyx
@@ -20774,6 +20985,8 @@ Shader "ShaderRipperTest/VariantMonster"
 					r2.z = r2.z + r3.w;
 					// mad r3.w, r1.z, r5.x, -r7.w
 					r3.w = mad(r1.z, r5.x, -(r7.w));
+					// sincos null, r3.w, r3.w
+					r3.w = cos(r3.w);
 					// add r2.w, r2.w, r3.w
 					r2.w = r2.w + r3.w;
 					// mul r3.xw, r3.xxxx, r5.xxxy
@@ -20794,6 +21007,8 @@ Shader "ShaderRipperTest/VariantMonster"
 					r6.x = r2.z + r4.w;
 					// mad r2.z, r1.z, r5.y, -r3.y
 					r2.z = mad(r1.z, r5.y, -(r3.y));
+					// sincos null, r2.z, r2.z
+					r2.z = cos(r2.z);
 					// add r6.y, r2.z, r2.w
 					r6.y = r2.z + r2.w;
 					// mad r2.z, r3.w, l(0.600000), r3.y
@@ -20835,7 +21050,7 @@ Shader "ShaderRipperTest/VariantMonster"
 					// loop
 				for (;;) {
 					// ige r4.w, r2.w, r2.y
-					r4.w = (((int)(r2.w) >= (int)(r2.y)) ? 1 : 0);
+					r4.w = (((int)(r2.w) >= (int)(r2.y)) ? -1 : 0);
 					// breakc_nz r4.w
 					if (any(r4.w)) break;
 					// itof r4.w, r2.w
@@ -21272,7 +21487,7 @@ Shader "ShaderRipperTest/VariantMonster"
 					// mad r4.w, r4.w, r5.x, r2.z
 					r4.w = mad(r4.w, r5.x, r2.z);
 					// lt r5.x, l(1.100000), r4.w
-					r5.x = (1.1 < r4.w) ? 1.0 : 0.0;
+					r5.x = (1.1 < r4.w) ? -1.0 : 0.0;
 						// if_nz r5.x
 					if (any(r5.x)) {
 						// mov r2.z, r4.w
@@ -21296,7 +21511,7 @@ Shader "ShaderRipperTest/VariantMonster"
 				// mul r0.y, r0.y, r2.x
 				r0.y = r0.y * r2.x;
 				// lt r2.x, r0.y, cb0[9].w
-				r2.x = (r0.y < cb0[9].w) ? 1.0 : 0.0;
+				r2.x = (r0.y < cb0[9].w) ? -1.0 : 0.0;
 				// discard_nz r2.x
 				if (any(r2.x)) discard;
 				// mul r5.xyzw, r0.xxxx, l(0.210000, 0.150000, 0.500000, 0.370000)
@@ -21755,7 +21970,7 @@ Shader "ShaderRipperTest/VariantMonster"
 				// mad r3.xyw, -r7.xyxz, r3.xyxw, l(1.000000, 1.000000, 0.000000, 1.000000)
 				r3.xyw = float3(mad(-(r7.x), r3.x, 1.0), mad(-(r7.y), r3.y, 1.0), mad(-(r7.z), r3.w, 1.0));
 				// ge r0.xzw, r0.xxzw, l(0.500000, 0.000000, 0.500000, 0.500000)
-				r0.xzw = float3((r0.x >= 0.5) ? 1.0 : 0.0, (r0.z >= 0.5) ? 1.0 : 0.0, (r0.w >= 0.5) ? 1.0 : 0.0);
+				r0.xzw = float3((r0.x >= 0.5) ? -1.0 : 0.0, (r0.z >= 0.5) ? -1.0 : 0.0, (r0.w >= 0.5) ? -1.0 : 0.0);
 				// and r0.xzw, r0.xxzw, l(0x3f800000, 0, 0x3f800000, 0x3f800000)
 				r0.xzw = float3((((r0.x) != 0.0) ? 1.0 : 0.0), (((r0.z) != 0.0) ? 1.0 : 0.0), (((r0.w) != 0.0) ? 1.0 : 0.0));
 				// mad r2.xyw, -r2.xyxw, l(2.000000, 2.000000, 0.000000, 2.000000), r3.xyxw
@@ -21797,7 +22012,7 @@ Shader "ShaderRipperTest/VariantMonster"
 				// mul r2.x, cb0[8].z, l(0.500000)
 				r2.x = cb0[8].z * 0.5;
 				// lt r2.x, r1.x, r2.x
-				r2.x = (r1.x < r2.x) ? 1.0 : 0.0;
+				r2.x = (r1.x < r2.x) ? -1.0 : 0.0;
 				// mad r2.y, -r1.x, l(3.000000), l(1.000000)
 				r2.y = mad(-(r1.x), 3.0, 1.0);
 				// max r2.y, r2.y, l(0.000000)
@@ -21809,7 +22024,7 @@ Shader "ShaderRipperTest/VariantMonster"
 				// mad r3.xyz, r3.xyzx, cb0[8].zzzz, r0.xzwx
 				r3.xyz = float3(mad(r3.x, cb0[8].z, r0.x), mad(r3.y, cb0[8].z, r0.z), mad(r3.z, cb0[8].z, r0.w));
 				// lt r1.x, r1.x, l(0.400000)
-				r1.x = (r1.x < 0.4) ? 1.0 : 0.0;
+				r1.x = (r1.x < 0.4) ? -1.0 : 0.0;
 				// mul r4.xyz, r0.xzwx, l(0.920000, 0.920000, 0.920000, 0.000000)
 				r4.xyz = float3(r0.x * 0.92, r0.z * 0.92, r0.w * 0.92);
 				// movc r0.xzw, r1.xxxx, r4.xxyz, r0.xxzw
@@ -22673,7 +22888,7 @@ Shader "ShaderRipperTest/VariantMonster"
 				// mul r0.xzw, r0.xxzw, cb0[10].yyyy
 				r0.xzw = float3(r0.x * cb0[10].y, r0.z * cb0[10].y, r0.w * cb0[10].y);
 				// lt r1.x, l(0.500000), cb0[11].y
-				r1.x = (0.5 < cb0[11].y) ? 1.0 : 0.0;
+				r1.x = (0.5 < cb0[11].y) ? -1.0 : 0.0;
 				// mul r1.yz, v1.xxyx, cb1[6].xxyx
 				r1.yz = float2(v1.x * _ScreenParams.x, v1.y * _ScreenParams.y);
 				// mul r1.yz, r1.yyzy, l(0.000000, 127.099998, 311.700012, 0.000000)
@@ -22738,6 +22953,27 @@ Shader "ShaderRipperTest/VariantMonster"
 			//   unnamed single lanes are shared by the Float/Range prop(s): _Iterations, _Steps, _WarpDepth, _Threshold, _Contrast, _Emission, _Saturation, _ToggleDetail, _ToggleBands, _ToggleDither
 			// cb1 = UnityPerDraw  (declared by UnityCG.cginc)
 			// cb2 = UnityPerFrame  (declared by UnityCG.cginc)
+			float4 _MainTex_TexelSize;
+			float4 _NoiseTex_ST;
+			float4 _NoiseTex_TexelSize;
+			float4 _DetailTex_ST;
+			float4 _DetailTex_TexelSize;
+			float4 _MaskTex_ST;
+			float4 _MaskTex_TexelSize;
+			float4 _Color;
+			float4 _ColorC;
+			float4 _Params;
+			float4 _Params3;
+			float _Iterations;
+			float _Steps;
+			float _WarpDepth;
+			float _Threshold;
+			float _Contrast;
+			float _Emission;
+			float _Saturation;
+			float _ToggleDetail;
+			float _ToggleBands;
+			float _ToggleDither;
 			// cbuffer order confirmed by the asset's own register index
 			// $Globals cb0: 1 slot(s) named from the compiled constant-buffer member table
 			// $Globals cb0: 2 slot(s) named from the compiled constant-buffer member table
@@ -22776,7 +23012,7 @@ Shader "ShaderRipperTest/VariantMonster"
 				// sample r0.xyzw, v1.xyxx, t0.xyzw, s3
 				r0.xyzw = tex2D(_MaskTex, float2(v1.x, v1.y));
 				// lt r0.x, r0.w, cb0[9].w
-				r0.x = (r0.w < cb0[9].w) ? 1.0 : 0.0;
+				r0.x = (r0.w < cb0[9].w) ? -1.0 : 0.0;
 				// discard_nz r0.x
 				if (any(r0.x)) discard;
 				// mul r0.x, cb0[6].z, cb1[0].y
@@ -23218,7 +23454,7 @@ Shader "ShaderRipperTest/VariantMonster"
 				// mul r2.w, r2.z, r2.y
 				r2.w = r2.z * r2.y;
 				// lt r3.x, |r1.w|, |r1.z|
-				r3.x = (abs(r1.w) < abs(r1.z)) ? 1.0 : 0.0;
+				r3.x = (abs(r1.w) < abs(r1.z)) ? -1.0 : 0.0;
 				// mad r2.w, r2.w, l(-2.000000), l(1.570796)
 				r2.w = mad(r2.w, -2.0, 1.570796);
 				// and r2.w, r3.x, r2.w
@@ -23226,7 +23462,7 @@ Shader "ShaderRipperTest/VariantMonster"
 				// mad r2.y, r2.y, r2.z, r2.w
 				r2.y = mad(r2.y, r2.z, r2.w);
 				// lt r2.z, r1.w, -r1.w
-				r2.z = (r1.w < -(r1.w)) ? 1.0 : 0.0;
+				r2.z = (r1.w < -(r1.w)) ? -1.0 : 0.0;
 				// and r2.z, r2.z, l(0xc0490fdb)
 				r2.z = ((float)((int)(r2.z) & (int)(-3.141593)));
 				// add r2.y, r2.z, r2.y
@@ -23236,9 +23472,9 @@ Shader "ShaderRipperTest/VariantMonster"
 				// max r1.z, r1.w, r1.z
 				r1.z = max(r1.w, r1.z);
 				// lt r1.w, r2.z, -r2.z
-				r1.w = (r2.z < -(r2.z)) ? 1.0 : 0.0;
+				r1.w = (r2.z < -(r2.z)) ? -1.0 : 0.0;
 				// ge r1.z, r1.z, -r1.z
-				r1.z = (r1.z >= -(r1.z)) ? 1.0 : 0.0;
+				r1.z = (r1.z >= -(r1.z)) ? -1.0 : 0.0;
 				// and r1.z, r1.z, r1.w
 				r1.z = ((((r1.z) != 0.0) && ((r1.w) != 0.0)) ? 1.0 : 0.0);
 				// movc r1.z, r1.z, -r2.y, r2.y
@@ -23329,7 +23565,7 @@ Shader "ShaderRipperTest/VariantMonster"
 					// loop
 				for (;;) {
 					// ige r4.y, r4.x, r2.z
-					r4.y = (((int)(r4.x) >= (int)(r2.z)) ? 1 : 0);
+					r4.y = (((int)(r4.x) >= (int)(r2.z)) ? -1 : 0);
 					// breakc_nz r4.y
 					if (any(r4.y)) break;
 					// itof r4.y, r4.x
@@ -23751,7 +23987,7 @@ Shader "ShaderRipperTest/VariantMonster"
 						// loop
 					for (;;) {
 						// ige r6.x, r5.w, r2.w
-						r6.x = (((int)(r5.w) >= (int)(r2.w)) ? 1 : 0);
+						r6.x = (((int)(r5.w) >= (int)(r2.w)) ? -1 : 0);
 						// breakc_nz r6.x
 						if (any(r6.x)) break;
 						// itof r6.x, r5.w
@@ -23842,7 +24078,7 @@ Shader "ShaderRipperTest/VariantMonster"
 						// mad r6.z, |r6.z|, l(2.000000), r5.z
 						r6.z = mad(abs(r6.z), 2.0, r5.z);
 						// lt r6.w, l(2.200000), r6.z
-						r6.w = (2.2 < r6.z) ? 1.0 : 0.0;
+						r6.w = (2.2 < r6.z) ? -1.0 : 0.0;
 							// if_nz r6.w
 						if (any(r6.w)) {
 							// iadd r6.w, r5.w, l(1)
@@ -23876,7 +24112,7 @@ Shader "ShaderRipperTest/VariantMonster"
 					// mul r4.yz, r5.xxyx, l(0.000000, 1.040000, 1.040000, 0.000000)
 					r4.yz = float2(r5.x * 1.04, r5.y * 1.04);
 					// lt r6.xy, r5.zzzz, l(0.600000, 1.400000, 0.000000, 0.000000)
-					r6.xy = float2((r5.z < 0.6) ? 1.0 : 0.0, (r5.z < 1.4) ? 1.0 : 0.0);
+					r6.xy = float2((r5.z < 0.6) ? -1.0 : 0.0, (r5.z < 1.4) ? -1.0 : 0.0);
 					// add r6.zw, r5.xxxy, l(0.000000, 0.000000, 0.020000, 0.010000)
 					r6.zw = float2(r5.x + 0.02, r5.y + 0.01);
 					// mov_sat r5.xy, r5.xyxx
@@ -23888,7 +24124,7 @@ Shader "ShaderRipperTest/VariantMonster"
 					// movc r4.yz, r6.xxxx, r4.yyzy, r6.yyzy
 					r4.yz = float2(r6.x != 0.0 ? r4.y : r6.y, r6.x != 0.0 ? r4.z : r6.z);
 					// lt r4.w, l(1.500000), r4.y
-					r4.w = (1.5 < r4.y) ? 1.0 : 0.0;
+					r4.w = (1.5 < r4.y) ? -1.0 : 0.0;
 						// if_nz r4.w
 					if (any(r4.w)) {
 						// mov r3.z, r4.z
@@ -23904,7 +24140,7 @@ Shader "ShaderRipperTest/VariantMonster"
 				// endloop
 				}
 				// lt r2.z, l(0.500000), cb0[10].w
-				r2.z = (0.5 < cb0[10].w) ? 1.0 : 0.0;
+				r2.z = (0.5 < cb0[10].w) ? -1.0 : 0.0;
 					// if_nz r2.z
 				if (any(r2.z)) {
 					// mul r2.z, r0.x, l(0.250000)
@@ -24026,7 +24262,7 @@ Shader "ShaderRipperTest/VariantMonster"
 				// endif
 				}
 				// lt r2.z, l(0.500000), cb0[11].x
-				r2.z = (0.5 < cb0[11].x) ? 1.0 : 0.0;
+				r2.z = (0.5 < cb0[11].x) ? -1.0 : 0.0;
 					// if_nz r2.z
 				if (any(r2.z)) {
 					// mul r5.xyzw, cb0[8].wwww, l(0.300000, 0.520000, 0.740000, 0.960000)
@@ -24037,6 +24273,8 @@ Shader "ShaderRipperTest/VariantMonster"
 					r2.z = sin(r2.z);
 					// mad r2.w, r1.w, r5.x, -r0.x
 					r2.w = mad(r1.w, r5.x, -(r0.x));
+					// sincos null, r2.w, r2.w
+					r2.w = cos(r2.w);
 					// add r3.x, r1.w, r1.z
 					r3.x = r1.w + r1.z;
 					// mul r6.xyzw, r5.xyzw, r3.xxxx
@@ -24048,27 +24286,31 @@ Shader "ShaderRipperTest/VariantMonster"
 					// mad r3.w, r1.z, r5.y, r7.x
 					r3.w = mad(r1.z, r5.y, r7.x);
 					// sincos r3.yw, null, r3.yyyw
-					r3.yw = sin(r3.yyyw);
+					r3.yw = float2(sin(r3.y), sin(r3.w));
 					// add r2.z, r2.z, r3.w
 					r2.z = r2.z + r3.w;
 					// mad r3.w, r1.w, r5.y, -r7.x
 					r3.w = mad(r1.w, r5.y, -(r7.x));
+					// sincos null, r3.w, r3.w
+					r3.w = cos(r3.w);
 					// add r2.w, r2.w, r3.w
 					r2.w = r2.w + r3.w;
 					// mad r6.xyz, r6.yzwy, l(0.600000, 0.600000, 0.600000, 0.000000), r7.xyzx
 					r6.xyz = float3(mad(r6.y, 0.6, r7.x), mad(r6.z, 0.6, r7.y), mad(r6.w, 0.6, r7.z));
 					// sincos r6.xyz, null, r6.xyzx
-					r6.xyz = sin(r6.xyzx);
+					r6.xyz = float3(sin(r6.x), sin(r6.y), sin(r6.z));
 					// add r3.y, r3.y, r6.x
 					r3.y = r3.y + r6.x;
 					// mad r5.xy, r1.zzzz, r5.zwzz, r7.yzyy
 					r5.xy = float2(mad(r1.z, r5.z, r7.y), mad(r1.z, r5.w, r7.z));
 					// sincos r5.xy, null, r5.xyxx
-					r5.xy = sin(r5.xyxx);
+					r5.xy = float2(sin(r5.x), sin(r5.y));
 					// add r2.z, r2.z, r5.x
 					r2.z = r2.z + r5.x;
 					// mad r5.xz, r1.wwww, r5.zzwz, -r7.yyzy
 					r5.xz = float2(mad(r1.w, r5.z, -(r7.y)), mad(r1.w, r5.w, -(r7.z)));
+					// sincos null, r5.xz, r5.xxzx
+					r5.xz = float2(cos(r5.x), cos(r5.z));
 					// add r3.y, r6.y, r3.y
 					r3.y = r6.y + r3.y;
 					// add r2.zw, r2.zzzw, r5.yyyx
@@ -24087,6 +24329,8 @@ Shader "ShaderRipperTest/VariantMonster"
 					r2.z = r2.z + r3.w;
 					// mad r3.w, r1.w, r5.x, -r7.w
 					r3.w = mad(r1.w, r5.x, -(r7.w));
+					// sincos null, r3.w, r3.w
+					r3.w = cos(r3.w);
 					// add r2.w, r2.w, r3.w
 					r2.w = r2.w + r3.w;
 					// mul r3.xw, r3.xxxx, r5.xxxy
@@ -24107,6 +24351,8 @@ Shader "ShaderRipperTest/VariantMonster"
 					r6.x = r2.z + r4.w;
 					// mad r2.z, r1.w, r5.y, -r3.y
 					r2.z = mad(r1.w, r5.y, -(r3.y));
+					// sincos null, r2.z, r2.z
+					r2.z = cos(r2.z);
 					// add r6.y, r2.z, r2.w
 					r6.y = r2.z + r2.w;
 					// mad r2.z, r3.w, l(0.600000), r3.y
@@ -24150,7 +24396,7 @@ Shader "ShaderRipperTest/VariantMonster"
 					// loop
 				for (;;) {
 					// ige r4.w, r2.w, r2.y
-					r4.w = (((int)(r2.w) >= (int)(r2.y)) ? 1 : 0);
+					r4.w = (((int)(r2.w) >= (int)(r2.y)) ? -1 : 0);
 					// breakc_nz r4.w
 					if (any(r4.w)) break;
 					// itof r4.w, r2.w
@@ -24587,7 +24833,7 @@ Shader "ShaderRipperTest/VariantMonster"
 					// mad r4.w, r4.w, r5.x, r2.z
 					r4.w = mad(r4.w, r5.x, r2.z);
 					// lt r5.x, l(1.100000), r4.w
-					r5.x = (1.1 < r4.w) ? 1.0 : 0.0;
+					r5.x = (1.1 < r4.w) ? -1.0 : 0.0;
 						// if_nz r5.x
 					if (any(r5.x)) {
 						// mov r2.z, r4.w
@@ -24611,7 +24857,7 @@ Shader "ShaderRipperTest/VariantMonster"
 				// mul r0.y, r0.y, r1.y
 				r0.y = r0.y * r1.y;
 				// lt r1.y, r0.y, cb0[9].w
-				r1.y = (r0.y < cb0[9].w) ? 1.0 : 0.0;
+				r1.y = (r0.y < cb0[9].w) ? -1.0 : 0.0;
 				// discard_nz r1.y
 				if (any(r1.y)) discard;
 				// mul r5.xyzw, r0.xxxx, l(0.210000, 0.150000, 0.500000, 0.370000)
@@ -25080,7 +25326,7 @@ Shader "ShaderRipperTest/VariantMonster"
 				// mad r3.xyw, -r8.xyxz, r3.xyxw, l(1.000000, 1.000000, 0.000000, 1.000000)
 				r3.xyw = float3(mad(-(r8.x), r3.x, 1.0), mad(-(r8.y), r3.y, 1.0), mad(-(r8.z), r3.w, 1.0));
 				// ge r0.xzw, r0.xxzw, l(0.500000, 0.000000, 0.500000, 0.500000)
-				r0.xzw = float3((r0.x >= 0.5) ? 1.0 : 0.0, (r0.z >= 0.5) ? 1.0 : 0.0, (r0.w >= 0.5) ? 1.0 : 0.0);
+				r0.xzw = float3((r0.x >= 0.5) ? -1.0 : 0.0, (r0.z >= 0.5) ? -1.0 : 0.0, (r0.w >= 0.5) ? -1.0 : 0.0);
 				// and r0.xzw, r0.xxzw, l(0x3f800000, 0, 0x3f800000, 0x3f800000)
 				r0.xzw = float3((((r0.x) != 0.0) ? 1.0 : 0.0), (((r0.z) != 0.0) ? 1.0 : 0.0), (((r0.w) != 0.0) ? 1.0 : 0.0));
 				// mad r3.xyw, -r6.xyxz, l(2.000000, 2.000000, 0.000000, 2.000000), r3.xyxw
@@ -25122,7 +25368,7 @@ Shader "ShaderRipperTest/VariantMonster"
 				// mul r1.y, cb0[8].z, l(0.500000)
 				r1.y = cb0[8].z * 0.5;
 				// lt r1.y, r1.x, r1.y
-				r1.y = (r1.x < r1.y) ? 1.0 : 0.0;
+				r1.y = (r1.x < r1.y) ? -1.0 : 0.0;
 				// mad r2.y, -r1.x, l(3.000000), l(1.000000)
 				r2.y = mad(-(r1.x), 3.0, 1.0);
 				// max r2.y, r2.y, l(0.000000)
@@ -25134,7 +25380,7 @@ Shader "ShaderRipperTest/VariantMonster"
 				// mad r3.xyz, r3.xyzx, cb0[8].zzzz, r0.xzwx
 				r3.xyz = float3(mad(r3.x, cb0[8].z, r0.x), mad(r3.y, cb0[8].z, r0.z), mad(r3.z, cb0[8].z, r0.w));
 				// lt r1.x, r1.x, l(0.400000)
-				r1.x = (r1.x < 0.4) ? 1.0 : 0.0;
+				r1.x = (r1.x < 0.4) ? -1.0 : 0.0;
 				// mul r4.xyz, r0.xzwx, l(0.920000, 0.920000, 0.920000, 0.000000)
 				r4.xyz = float3(r0.x * 0.92, r0.z * 0.92, r0.w * 0.92);
 				// movc r0.xzw, r1.xxxx, r4.xxyz, r0.xxzw
@@ -25998,7 +26244,7 @@ Shader "ShaderRipperTest/VariantMonster"
 				// mul r0.xzw, r0.xxzw, cb0[10].yyyy
 				r0.xzw = float3(r0.x * cb0[10].y, r0.z * cb0[10].y, r0.w * cb0[10].y);
 				// lt r1.x, l(0.500000), cb0[11].y
-				r1.x = (0.5 < cb0[11].y) ? 1.0 : 0.0;
+				r1.x = (0.5 < cb0[11].y) ? -1.0 : 0.0;
 				// mul r1.yz, v1.xxyx, cb1[6].xxyx
 				r1.yz = float2(v1.x * _ScreenParams.x, v1.y * _ScreenParams.y);
 				// mul r1.yz, r1.yyzy, l(0.000000, 127.099998, 311.700012, 0.000000)
@@ -26063,6 +26309,27 @@ Shader "ShaderRipperTest/VariantMonster"
 			//   unnamed single lanes are shared by the Float/Range prop(s): _Iterations, _Steps, _WarpDepth, _Threshold, _Contrast, _Emission, _Saturation, _ToggleDetail, _ToggleBands, _ToggleDither
 			// cb1 = UnityPerDraw  (declared by UnityCG.cginc)
 			// cb2 = UnityPerFrame  (declared by UnityCG.cginc)
+			float4 _MainTex_TexelSize;
+			float4 _NoiseTex_ST;
+			float4 _NoiseTex_TexelSize;
+			float4 _DetailTex_ST;
+			float4 _DetailTex_TexelSize;
+			float4 _MaskTex_ST;
+			float4 _MaskTex_TexelSize;
+			float4 _Color;
+			float4 _ColorC;
+			float4 _Params;
+			float4 _Params3;
+			float _Iterations;
+			float _Steps;
+			float _WarpDepth;
+			float _Threshold;
+			float _Contrast;
+			float _Emission;
+			float _Saturation;
+			float _ToggleDetail;
+			float _ToggleBands;
+			float _ToggleDither;
 			// cbuffer order confirmed by the asset's own register index
 			// $Globals cb0: 1 slot(s) named from the compiled constant-buffer member table
 			// $Globals cb0: 2 slot(s) named from the compiled constant-buffer member table
@@ -26101,7 +26368,7 @@ Shader "ShaderRipperTest/VariantMonster"
 				// sample r0.xyzw, v1.xyxx, t0.xyzw, s3
 				r0.xyzw = tex2D(_MaskTex, float2(v1.x, v1.y));
 				// lt r0.x, r0.w, cb0[9].w
-				r0.x = (r0.w < cb0[9].w) ? 1.0 : 0.0;
+				r0.x = (r0.w < cb0[9].w) ? -1.0 : 0.0;
 				// discard_nz r0.x
 				if (any(r0.x)) discard;
 				// mul r0.x, cb0[6].z, cb1[0].y
@@ -26549,7 +26816,7 @@ Shader "ShaderRipperTest/VariantMonster"
 				// mul r2.z, r2.y, r2.x
 				r2.z = r2.y * r2.x;
 				// lt r2.w, |r1.z|, |r1.y|
-				r2.w = (abs(r1.z) < abs(r1.y)) ? 1.0 : 0.0;
+				r2.w = (abs(r1.z) < abs(r1.y)) ? -1.0 : 0.0;
 				// mad r2.z, r2.z, l(-2.000000), l(1.570796)
 				r2.z = mad(r2.z, -2.0, 1.570796);
 				// and r2.z, r2.w, r2.z
@@ -26557,7 +26824,7 @@ Shader "ShaderRipperTest/VariantMonster"
 				// mad r2.x, r2.x, r2.y, r2.z
 				r2.x = mad(r2.x, r2.y, r2.z);
 				// lt r2.y, r1.z, -r1.z
-				r2.y = (r1.z < -(r1.z)) ? 1.0 : 0.0;
+				r2.y = (r1.z < -(r1.z)) ? -1.0 : 0.0;
 				// and r2.y, r2.y, l(0xc0490fdb)
 				r2.y = ((float)((int)(r2.y) & (int)(-3.141593)));
 				// add r2.x, r2.y, r2.x
@@ -26567,9 +26834,9 @@ Shader "ShaderRipperTest/VariantMonster"
 				// max r1.y, r1.z, r1.y
 				r1.y = max(r1.z, r1.y);
 				// lt r1.z, r2.y, -r2.y
-				r1.z = (r2.y < -(r2.y)) ? 1.0 : 0.0;
+				r1.z = (r2.y < -(r2.y)) ? -1.0 : 0.0;
 				// ge r1.y, r1.y, -r1.y
-				r1.y = (r1.y >= -(r1.y)) ? 1.0 : 0.0;
+				r1.y = (r1.y >= -(r1.y)) ? -1.0 : 0.0;
 				// and r1.y, r1.y, r1.z
 				r1.y = ((((r1.y) != 0.0) && ((r1.z) != 0.0)) ? 1.0 : 0.0);
 				// movc r1.y, r1.y, -r2.x, r2.x
@@ -26630,7 +26897,7 @@ Shader "ShaderRipperTest/VariantMonster"
 					// loop
 				for (;;) {
 					// ige r4.y, r4.x, r2.z
-					r4.y = (((int)(r4.x) >= (int)(r2.z)) ? 1 : 0);
+					r4.y = (((int)(r4.x) >= (int)(r2.z)) ? -1 : 0);
 					// breakc_nz r4.y
 					if (any(r4.y)) break;
 					// itof r4.y, r4.x
@@ -27052,7 +27319,7 @@ Shader "ShaderRipperTest/VariantMonster"
 						// loop
 					for (;;) {
 						// ige r6.x, r5.w, r2.w
-						r6.x = (((int)(r5.w) >= (int)(r2.w)) ? 1 : 0);
+						r6.x = (((int)(r5.w) >= (int)(r2.w)) ? -1 : 0);
 						// breakc_nz r6.x
 						if (any(r6.x)) break;
 						// itof r6.x, r5.w
@@ -27143,7 +27410,7 @@ Shader "ShaderRipperTest/VariantMonster"
 						// mad r6.z, |r6.z|, l(2.000000), r5.z
 						r6.z = mad(abs(r6.z), 2.0, r5.z);
 						// lt r6.w, l(2.200000), r6.z
-						r6.w = (2.2 < r6.z) ? 1.0 : 0.0;
+						r6.w = (2.2 < r6.z) ? -1.0 : 0.0;
 							// if_nz r6.w
 						if (any(r6.w)) {
 							// iadd r6.w, r5.w, l(1)
@@ -27177,7 +27444,7 @@ Shader "ShaderRipperTest/VariantMonster"
 					// mul r4.yz, r5.xxyx, l(0.000000, 1.040000, 1.040000, 0.000000)
 					r4.yz = float2(r5.x * 1.04, r5.y * 1.04);
 					// lt r6.xy, r5.zzzz, l(0.600000, 1.400000, 0.000000, 0.000000)
-					r6.xy = float2((r5.z < 0.6) ? 1.0 : 0.0, (r5.z < 1.4) ? 1.0 : 0.0);
+					r6.xy = float2((r5.z < 0.6) ? -1.0 : 0.0, (r5.z < 1.4) ? -1.0 : 0.0);
 					// add r6.zw, r5.xxxy, l(0.000000, 0.000000, 0.020000, 0.010000)
 					r6.zw = float2(r5.x + 0.02, r5.y + 0.01);
 					// mov_sat r5.xy, r5.xyxx
@@ -27189,7 +27456,7 @@ Shader "ShaderRipperTest/VariantMonster"
 					// movc r4.yz, r6.xxxx, r4.yyzy, r6.yyzy
 					r4.yz = float2(r6.x != 0.0 ? r4.y : r6.y, r6.x != 0.0 ? r4.z : r6.z);
 					// lt r4.w, l(1.500000), r4.y
-					r4.w = (1.5 < r4.y) ? 1.0 : 0.0;
+					r4.w = (1.5 < r4.y) ? -1.0 : 0.0;
 						// if_nz r4.w
 					if (any(r4.w)) {
 						// mov r3.z, r4.z
@@ -27205,7 +27472,7 @@ Shader "ShaderRipperTest/VariantMonster"
 				// endloop
 				}
 				// lt r2.z, l(0.500000), cb0[10].w
-				r2.z = (0.5 < cb0[10].w) ? 1.0 : 0.0;
+				r2.z = (0.5 < cb0[10].w) ? -1.0 : 0.0;
 					// if_nz r2.z
 				if (any(r2.z)) {
 					// mul r2.z, r0.x, l(0.250000)
@@ -27327,7 +27594,7 @@ Shader "ShaderRipperTest/VariantMonster"
 				// endif
 				}
 				// lt r2.z, l(0.500000), cb0[11].x
-				r2.z = (0.5 < cb0[11].x) ? 1.0 : 0.0;
+				r2.z = (0.5 < cb0[11].x) ? -1.0 : 0.0;
 					// if_nz r2.z
 				if (any(r2.z)) {
 					// mul r5.xyzw, cb0[8].wwww, l(0.300000, 0.520000, 0.740000, 0.960000)
@@ -27338,6 +27605,8 @@ Shader "ShaderRipperTest/VariantMonster"
 					r2.z = sin(r2.z);
 					// mad r2.w, r1.z, r5.x, -r0.x
 					r2.w = mad(r1.z, r5.x, -(r0.x));
+					// sincos null, r2.w, r2.w
+					r2.w = cos(r2.w);
 					// add r3.x, r1.z, r1.y
 					r3.x = r1.z + r1.y;
 					// mul r6.xyzw, r5.xyzw, r3.xxxx
@@ -27349,27 +27618,31 @@ Shader "ShaderRipperTest/VariantMonster"
 					// mad r3.w, r1.y, r5.y, r7.x
 					r3.w = mad(r1.y, r5.y, r7.x);
 					// sincos r3.yw, null, r3.yyyw
-					r3.yw = sin(r3.yyyw);
+					r3.yw = float2(sin(r3.y), sin(r3.w));
 					// add r2.z, r2.z, r3.w
 					r2.z = r2.z + r3.w;
 					// mad r3.w, r1.z, r5.y, -r7.x
 					r3.w = mad(r1.z, r5.y, -(r7.x));
+					// sincos null, r3.w, r3.w
+					r3.w = cos(r3.w);
 					// add r2.w, r2.w, r3.w
 					r2.w = r2.w + r3.w;
 					// mad r6.xyz, r6.yzwy, l(0.600000, 0.600000, 0.600000, 0.000000), r7.xyzx
 					r6.xyz = float3(mad(r6.y, 0.6, r7.x), mad(r6.z, 0.6, r7.y), mad(r6.w, 0.6, r7.z));
 					// sincos r6.xyz, null, r6.xyzx
-					r6.xyz = sin(r6.xyzx);
+					r6.xyz = float3(sin(r6.x), sin(r6.y), sin(r6.z));
 					// add r3.y, r3.y, r6.x
 					r3.y = r3.y + r6.x;
 					// mad r5.xy, r1.yyyy, r5.zwzz, r7.yzyy
 					r5.xy = float2(mad(r1.y, r5.z, r7.y), mad(r1.y, r5.w, r7.z));
 					// sincos r5.xy, null, r5.xyxx
-					r5.xy = sin(r5.xyxx);
+					r5.xy = float2(sin(r5.x), sin(r5.y));
 					// add r2.z, r2.z, r5.x
 					r2.z = r2.z + r5.x;
 					// mad r5.xz, r1.zzzz, r5.zzwz, -r7.yyzy
 					r5.xz = float2(mad(r1.z, r5.z, -(r7.y)), mad(r1.z, r5.w, -(r7.z)));
+					// sincos null, r5.xz, r5.xxzx
+					r5.xz = float2(cos(r5.x), cos(r5.z));
 					// add r3.y, r6.y, r3.y
 					r3.y = r6.y + r3.y;
 					// add r2.zw, r2.zzzw, r5.yyyx
@@ -27388,6 +27661,8 @@ Shader "ShaderRipperTest/VariantMonster"
 					r2.z = r2.z + r3.w;
 					// mad r3.w, r1.z, r5.x, -r7.w
 					r3.w = mad(r1.z, r5.x, -(r7.w));
+					// sincos null, r3.w, r3.w
+					r3.w = cos(r3.w);
 					// add r2.w, r2.w, r3.w
 					r2.w = r2.w + r3.w;
 					// mul r3.xw, r3.xxxx, r5.xxxy
@@ -27408,6 +27683,8 @@ Shader "ShaderRipperTest/VariantMonster"
 					r6.x = r2.z + r4.w;
 					// mad r2.z, r1.z, r5.y, -r3.y
 					r2.z = mad(r1.z, r5.y, -(r3.y));
+					// sincos null, r2.z, r2.z
+					r2.z = cos(r2.z);
 					// add r6.y, r2.z, r2.w
 					r6.y = r2.z + r2.w;
 					// mad r2.z, r3.w, l(0.600000), r3.y
@@ -27449,7 +27726,7 @@ Shader "ShaderRipperTest/VariantMonster"
 					// loop
 				for (;;) {
 					// ige r4.w, r2.w, r2.y
-					r4.w = (((int)(r2.w) >= (int)(r2.y)) ? 1 : 0);
+					r4.w = (((int)(r2.w) >= (int)(r2.y)) ? -1 : 0);
 					// breakc_nz r4.w
 					if (any(r4.w)) break;
 					// itof r4.w, r2.w
@@ -27886,7 +28163,7 @@ Shader "ShaderRipperTest/VariantMonster"
 					// mad r4.w, r4.w, r5.x, r2.z
 					r4.w = mad(r4.w, r5.x, r2.z);
 					// lt r5.x, l(1.100000), r4.w
-					r5.x = (1.1 < r4.w) ? 1.0 : 0.0;
+					r5.x = (1.1 < r4.w) ? -1.0 : 0.0;
 						// if_nz r5.x
 					if (any(r5.x)) {
 						// mov r2.z, r4.w
@@ -27910,7 +28187,7 @@ Shader "ShaderRipperTest/VariantMonster"
 				// mul r0.y, r0.y, r2.x
 				r0.y = r0.y * r2.x;
 				// lt r2.x, r0.y, cb0[9].w
-				r2.x = (r0.y < cb0[9].w) ? 1.0 : 0.0;
+				r2.x = (r0.y < cb0[9].w) ? -1.0 : 0.0;
 				// discard_nz r2.x
 				if (any(r2.x)) discard;
 				// mul r5.xyzw, r0.xxxx, l(0.210000, 0.150000, 0.500000, 0.370000)
@@ -28397,7 +28674,7 @@ Shader "ShaderRipperTest/VariantMonster"
 				// mul r2.x, cb0[8].z, l(0.500000)
 				r2.x = cb0[8].z * 0.5;
 				// lt r2.x, r1.x, r2.x
-				r2.x = (r1.x < r2.x) ? 1.0 : 0.0;
+				r2.x = (r1.x < r2.x) ? -1.0 : 0.0;
 				// mad r2.y, -r1.x, l(3.000000), l(1.000000)
 				r2.y = mad(-(r1.x), 3.0, 1.0);
 				// max r2.y, r2.y, l(0.000000)
@@ -28409,7 +28686,7 @@ Shader "ShaderRipperTest/VariantMonster"
 				// mad r3.xyz, r3.xyzx, cb0[8].zzzz, r0.xzwx
 				r3.xyz = float3(mad(r3.x, cb0[8].z, r0.x), mad(r3.y, cb0[8].z, r0.z), mad(r3.z, cb0[8].z, r0.w));
 				// lt r1.x, r1.x, l(0.400000)
-				r1.x = (r1.x < 0.4) ? 1.0 : 0.0;
+				r1.x = (r1.x < 0.4) ? -1.0 : 0.0;
 				// mul r4.xyz, r0.xzwx, l(0.920000, 0.920000, 0.920000, 0.000000)
 				r4.xyz = float3(r0.x * 0.92, r0.z * 0.92, r0.w * 0.92);
 				// movc r0.xzw, r1.xxxx, r4.xxyz, r0.xxzw
@@ -29273,7 +29550,7 @@ Shader "ShaderRipperTest/VariantMonster"
 				// mul r0.xzw, r0.xxzw, cb0[10].yyyy
 				r0.xzw = float3(r0.x * cb0[10].y, r0.z * cb0[10].y, r0.w * cb0[10].y);
 				// lt r1.x, l(0.500000), cb0[11].y
-				r1.x = (0.5 < cb0[11].y) ? 1.0 : 0.0;
+				r1.x = (0.5 < cb0[11].y) ? -1.0 : 0.0;
 				// mul r1.yz, v1.xxyx, cb1[6].xxyx
 				r1.yz = float2(v1.x * _ScreenParams.x, v1.y * _ScreenParams.y);
 				// mul r1.yz, r1.yyzy, l(0.000000, 127.099998, 311.700012, 0.000000)
@@ -29338,6 +29615,27 @@ Shader "ShaderRipperTest/VariantMonster"
 			//   unnamed single lanes are shared by the Float/Range prop(s): _Iterations, _Steps, _WarpDepth, _Threshold, _Contrast, _Emission, _Saturation, _ToggleDetail, _ToggleBands, _ToggleDither
 			// cb1 = UnityPerDraw  (declared by UnityCG.cginc)
 			// cb2 = UnityPerFrame  (declared by UnityCG.cginc)
+			float4 _MainTex_TexelSize;
+			float4 _NoiseTex_ST;
+			float4 _NoiseTex_TexelSize;
+			float4 _DetailTex_ST;
+			float4 _DetailTex_TexelSize;
+			float4 _MaskTex_ST;
+			float4 _MaskTex_TexelSize;
+			float4 _Color;
+			float4 _ColorC;
+			float4 _Params;
+			float4 _Params3;
+			float _Iterations;
+			float _Steps;
+			float _WarpDepth;
+			float _Threshold;
+			float _Contrast;
+			float _Emission;
+			float _Saturation;
+			float _ToggleDetail;
+			float _ToggleBands;
+			float _ToggleDither;
 			// cbuffer order confirmed by the asset's own register index
 			// $Globals cb0: 1 slot(s) named from the compiled constant-buffer member table
 			// $Globals cb0: 2 slot(s) named from the compiled constant-buffer member table
@@ -29376,7 +29674,7 @@ Shader "ShaderRipperTest/VariantMonster"
 				// sample r0.xyzw, v1.xyxx, t0.xyzw, s3
 				r0.xyzw = tex2D(_MaskTex, float2(v1.x, v1.y));
 				// lt r0.x, r0.w, cb0[9].w
-				r0.x = (r0.w < cb0[9].w) ? 1.0 : 0.0;
+				r0.x = (r0.w < cb0[9].w) ? -1.0 : 0.0;
 				// discard_nz r0.x
 				if (any(r0.x)) discard;
 				// mul r0.x, cb0[6].z, cb1[0].y
@@ -29818,7 +30116,7 @@ Shader "ShaderRipperTest/VariantMonster"
 				// mul r2.w, r2.z, r2.y
 				r2.w = r2.z * r2.y;
 				// lt r3.x, |r1.w|, |r1.z|
-				r3.x = (abs(r1.w) < abs(r1.z)) ? 1.0 : 0.0;
+				r3.x = (abs(r1.w) < abs(r1.z)) ? -1.0 : 0.0;
 				// mad r2.w, r2.w, l(-2.000000), l(1.570796)
 				r2.w = mad(r2.w, -2.0, 1.570796);
 				// and r2.w, r3.x, r2.w
@@ -29826,7 +30124,7 @@ Shader "ShaderRipperTest/VariantMonster"
 				// mad r2.y, r2.y, r2.z, r2.w
 				r2.y = mad(r2.y, r2.z, r2.w);
 				// lt r2.z, r1.w, -r1.w
-				r2.z = (r1.w < -(r1.w)) ? 1.0 : 0.0;
+				r2.z = (r1.w < -(r1.w)) ? -1.0 : 0.0;
 				// and r2.z, r2.z, l(0xc0490fdb)
 				r2.z = ((float)((int)(r2.z) & (int)(-3.141593)));
 				// add r2.y, r2.z, r2.y
@@ -29836,9 +30134,9 @@ Shader "ShaderRipperTest/VariantMonster"
 				// max r1.z, r1.w, r1.z
 				r1.z = max(r1.w, r1.z);
 				// lt r1.w, r2.z, -r2.z
-				r1.w = (r2.z < -(r2.z)) ? 1.0 : 0.0;
+				r1.w = (r2.z < -(r2.z)) ? -1.0 : 0.0;
 				// ge r1.z, r1.z, -r1.z
-				r1.z = (r1.z >= -(r1.z)) ? 1.0 : 0.0;
+				r1.z = (r1.z >= -(r1.z)) ? -1.0 : 0.0;
 				// and r1.z, r1.z, r1.w
 				r1.z = ((((r1.z) != 0.0) && ((r1.w) != 0.0)) ? 1.0 : 0.0);
 				// movc r1.z, r1.z, -r2.y, r2.y
@@ -29929,7 +30227,7 @@ Shader "ShaderRipperTest/VariantMonster"
 					// loop
 				for (;;) {
 					// ige r4.y, r4.x, r2.z
-					r4.y = (((int)(r4.x) >= (int)(r2.z)) ? 1 : 0);
+					r4.y = (((int)(r4.x) >= (int)(r2.z)) ? -1 : 0);
 					// breakc_nz r4.y
 					if (any(r4.y)) break;
 					// itof r4.y, r4.x
@@ -30351,7 +30649,7 @@ Shader "ShaderRipperTest/VariantMonster"
 						// loop
 					for (;;) {
 						// ige r6.x, r5.w, r2.w
-						r6.x = (((int)(r5.w) >= (int)(r2.w)) ? 1 : 0);
+						r6.x = (((int)(r5.w) >= (int)(r2.w)) ? -1 : 0);
 						// breakc_nz r6.x
 						if (any(r6.x)) break;
 						// itof r6.x, r5.w
@@ -30442,7 +30740,7 @@ Shader "ShaderRipperTest/VariantMonster"
 						// mad r6.z, |r6.z|, l(2.000000), r5.z
 						r6.z = mad(abs(r6.z), 2.0, r5.z);
 						// lt r6.w, l(2.200000), r6.z
-						r6.w = (2.2 < r6.z) ? 1.0 : 0.0;
+						r6.w = (2.2 < r6.z) ? -1.0 : 0.0;
 							// if_nz r6.w
 						if (any(r6.w)) {
 							// iadd r6.w, r5.w, l(1)
@@ -30476,7 +30774,7 @@ Shader "ShaderRipperTest/VariantMonster"
 					// mul r4.yz, r5.xxyx, l(0.000000, 1.040000, 1.040000, 0.000000)
 					r4.yz = float2(r5.x * 1.04, r5.y * 1.04);
 					// lt r6.xy, r5.zzzz, l(0.600000, 1.400000, 0.000000, 0.000000)
-					r6.xy = float2((r5.z < 0.6) ? 1.0 : 0.0, (r5.z < 1.4) ? 1.0 : 0.0);
+					r6.xy = float2((r5.z < 0.6) ? -1.0 : 0.0, (r5.z < 1.4) ? -1.0 : 0.0);
 					// add r6.zw, r5.xxxy, l(0.000000, 0.000000, 0.020000, 0.010000)
 					r6.zw = float2(r5.x + 0.02, r5.y + 0.01);
 					// mov_sat r5.xy, r5.xyxx
@@ -30488,7 +30786,7 @@ Shader "ShaderRipperTest/VariantMonster"
 					// movc r4.yz, r6.xxxx, r4.yyzy, r6.yyzy
 					r4.yz = float2(r6.x != 0.0 ? r4.y : r6.y, r6.x != 0.0 ? r4.z : r6.z);
 					// lt r4.w, l(1.500000), r4.y
-					r4.w = (1.5 < r4.y) ? 1.0 : 0.0;
+					r4.w = (1.5 < r4.y) ? -1.0 : 0.0;
 						// if_nz r4.w
 					if (any(r4.w)) {
 						// mov r3.z, r4.z
@@ -30504,7 +30802,7 @@ Shader "ShaderRipperTest/VariantMonster"
 				// endloop
 				}
 				// lt r2.z, l(0.500000), cb0[10].w
-				r2.z = (0.5 < cb0[10].w) ? 1.0 : 0.0;
+				r2.z = (0.5 < cb0[10].w) ? -1.0 : 0.0;
 					// if_nz r2.z
 				if (any(r2.z)) {
 					// mul r2.z, r0.x, l(0.250000)
@@ -30626,7 +30924,7 @@ Shader "ShaderRipperTest/VariantMonster"
 				// endif
 				}
 				// lt r2.z, l(0.500000), cb0[11].x
-				r2.z = (0.5 < cb0[11].x) ? 1.0 : 0.0;
+				r2.z = (0.5 < cb0[11].x) ? -1.0 : 0.0;
 					// if_nz r2.z
 				if (any(r2.z)) {
 					// mul r5.xyzw, cb0[8].wwww, l(0.300000, 0.520000, 0.740000, 0.960000)
@@ -30637,6 +30935,8 @@ Shader "ShaderRipperTest/VariantMonster"
 					r2.z = sin(r2.z);
 					// mad r2.w, r1.w, r5.x, -r0.x
 					r2.w = mad(r1.w, r5.x, -(r0.x));
+					// sincos null, r2.w, r2.w
+					r2.w = cos(r2.w);
 					// add r3.x, r1.w, r1.z
 					r3.x = r1.w + r1.z;
 					// mul r6.xyzw, r5.xyzw, r3.xxxx
@@ -30648,27 +30948,31 @@ Shader "ShaderRipperTest/VariantMonster"
 					// mad r3.w, r1.z, r5.y, r7.x
 					r3.w = mad(r1.z, r5.y, r7.x);
 					// sincos r3.yw, null, r3.yyyw
-					r3.yw = sin(r3.yyyw);
+					r3.yw = float2(sin(r3.y), sin(r3.w));
 					// add r2.z, r2.z, r3.w
 					r2.z = r2.z + r3.w;
 					// mad r3.w, r1.w, r5.y, -r7.x
 					r3.w = mad(r1.w, r5.y, -(r7.x));
+					// sincos null, r3.w, r3.w
+					r3.w = cos(r3.w);
 					// add r2.w, r2.w, r3.w
 					r2.w = r2.w + r3.w;
 					// mad r6.xyz, r6.yzwy, l(0.600000, 0.600000, 0.600000, 0.000000), r7.xyzx
 					r6.xyz = float3(mad(r6.y, 0.6, r7.x), mad(r6.z, 0.6, r7.y), mad(r6.w, 0.6, r7.z));
 					// sincos r6.xyz, null, r6.xyzx
-					r6.xyz = sin(r6.xyzx);
+					r6.xyz = float3(sin(r6.x), sin(r6.y), sin(r6.z));
 					// add r3.y, r3.y, r6.x
 					r3.y = r3.y + r6.x;
 					// mad r5.xy, r1.zzzz, r5.zwzz, r7.yzyy
 					r5.xy = float2(mad(r1.z, r5.z, r7.y), mad(r1.z, r5.w, r7.z));
 					// sincos r5.xy, null, r5.xyxx
-					r5.xy = sin(r5.xyxx);
+					r5.xy = float2(sin(r5.x), sin(r5.y));
 					// add r2.z, r2.z, r5.x
 					r2.z = r2.z + r5.x;
 					// mad r5.xz, r1.wwww, r5.zzwz, -r7.yyzy
 					r5.xz = float2(mad(r1.w, r5.z, -(r7.y)), mad(r1.w, r5.w, -(r7.z)));
+					// sincos null, r5.xz, r5.xxzx
+					r5.xz = float2(cos(r5.x), cos(r5.z));
 					// add r3.y, r6.y, r3.y
 					r3.y = r6.y + r3.y;
 					// add r2.zw, r2.zzzw, r5.yyyx
@@ -30687,6 +30991,8 @@ Shader "ShaderRipperTest/VariantMonster"
 					r2.z = r2.z + r3.w;
 					// mad r3.w, r1.w, r5.x, -r7.w
 					r3.w = mad(r1.w, r5.x, -(r7.w));
+					// sincos null, r3.w, r3.w
+					r3.w = cos(r3.w);
 					// add r2.w, r2.w, r3.w
 					r2.w = r2.w + r3.w;
 					// mul r3.xw, r3.xxxx, r5.xxxy
@@ -30707,6 +31013,8 @@ Shader "ShaderRipperTest/VariantMonster"
 					r6.x = r2.z + r4.w;
 					// mad r2.z, r1.w, r5.y, -r3.y
 					r2.z = mad(r1.w, r5.y, -(r3.y));
+					// sincos null, r2.z, r2.z
+					r2.z = cos(r2.z);
 					// add r6.y, r2.z, r2.w
 					r6.y = r2.z + r2.w;
 					// mad r2.z, r3.w, l(0.600000), r3.y
@@ -30750,7 +31058,7 @@ Shader "ShaderRipperTest/VariantMonster"
 					// loop
 				for (;;) {
 					// ige r4.w, r2.w, r2.y
-					r4.w = (((int)(r2.w) >= (int)(r2.y)) ? 1 : 0);
+					r4.w = (((int)(r2.w) >= (int)(r2.y)) ? -1 : 0);
 					// breakc_nz r4.w
 					if (any(r4.w)) break;
 					// itof r4.w, r2.w
@@ -31187,7 +31495,7 @@ Shader "ShaderRipperTest/VariantMonster"
 					// mad r4.w, r4.w, r5.x, r2.z
 					r4.w = mad(r4.w, r5.x, r2.z);
 					// lt r5.x, l(1.100000), r4.w
-					r5.x = (1.1 < r4.w) ? 1.0 : 0.0;
+					r5.x = (1.1 < r4.w) ? -1.0 : 0.0;
 						// if_nz r5.x
 					if (any(r5.x)) {
 						// mov r2.z, r4.w
@@ -31211,7 +31519,7 @@ Shader "ShaderRipperTest/VariantMonster"
 				// mul r0.y, r0.y, r1.y
 				r0.y = r0.y * r1.y;
 				// lt r1.y, r0.y, cb0[9].w
-				r1.y = (r0.y < cb0[9].w) ? 1.0 : 0.0;
+				r1.y = (r0.y < cb0[9].w) ? -1.0 : 0.0;
 				// discard_nz r1.y
 				if (any(r1.y)) discard;
 				// mul r5.xyzw, r0.xxxx, l(0.210000, 0.150000, 0.500000, 0.370000)
@@ -31708,7 +32016,7 @@ Shader "ShaderRipperTest/VariantMonster"
 				// mul r1.y, cb0[8].z, l(0.500000)
 				r1.y = cb0[8].z * 0.5;
 				// lt r1.y, r1.x, r1.y
-				r1.y = (r1.x < r1.y) ? 1.0 : 0.0;
+				r1.y = (r1.x < r1.y) ? -1.0 : 0.0;
 				// mad r2.y, -r1.x, l(3.000000), l(1.000000)
 				r2.y = mad(-(r1.x), 3.0, 1.0);
 				// max r2.y, r2.y, l(0.000000)
@@ -31720,7 +32028,7 @@ Shader "ShaderRipperTest/VariantMonster"
 				// mad r3.xyz, r3.xyzx, cb0[8].zzzz, r0.xzwx
 				r3.xyz = float3(mad(r3.x, cb0[8].z, r0.x), mad(r3.y, cb0[8].z, r0.z), mad(r3.z, cb0[8].z, r0.w));
 				// lt r1.x, r1.x, l(0.400000)
-				r1.x = (r1.x < 0.4) ? 1.0 : 0.0;
+				r1.x = (r1.x < 0.4) ? -1.0 : 0.0;
 				// mul r4.xyz, r0.xzwx, l(0.920000, 0.920000, 0.920000, 0.000000)
 				r4.xyz = float3(r0.x * 0.92, r0.z * 0.92, r0.w * 0.92);
 				// movc r0.xzw, r1.xxxx, r4.xxyz, r0.xxzw
@@ -32584,7 +32892,7 @@ Shader "ShaderRipperTest/VariantMonster"
 				// mul r0.xzw, r0.xxzw, cb0[10].yyyy
 				r0.xzw = float3(r0.x * cb0[10].y, r0.z * cb0[10].y, r0.w * cb0[10].y);
 				// lt r1.x, l(0.500000), cb0[11].y
-				r1.x = (0.5 < cb0[11].y) ? 1.0 : 0.0;
+				r1.x = (0.5 < cb0[11].y) ? -1.0 : 0.0;
 				// mul r1.yz, v1.xxyx, cb1[6].xxyx
 				r1.yz = float2(v1.x * _ScreenParams.x, v1.y * _ScreenParams.y);
 				// mul r1.yz, r1.yyzy, l(0.000000, 127.099998, 311.700012, 0.000000)
@@ -32649,6 +32957,27 @@ Shader "ShaderRipperTest/VariantMonster"
 			//   unnamed single lanes are shared by the Float/Range prop(s): _Iterations, _Steps, _WarpDepth, _Threshold, _Contrast, _Emission, _Saturation, _ToggleDetail, _ToggleBands, _ToggleDither
 			// cb1 = UnityPerDraw  (declared by UnityCG.cginc)
 			// cb2 = UnityPerFrame  (declared by UnityCG.cginc)
+			float4 _MainTex_TexelSize;
+			float4 _NoiseTex_ST;
+			float4 _NoiseTex_TexelSize;
+			float4 _DetailTex_ST;
+			float4 _DetailTex_TexelSize;
+			float4 _MaskTex_ST;
+			float4 _MaskTex_TexelSize;
+			float4 _Color;
+			float4 _ColorC;
+			float4 _Params;
+			float4 _Params3;
+			float _Iterations;
+			float _Steps;
+			float _WarpDepth;
+			float _Threshold;
+			float _Contrast;
+			float _Emission;
+			float _Saturation;
+			float _ToggleDetail;
+			float _ToggleBands;
+			float _ToggleDither;
 			// cbuffer order confirmed by the asset's own register index
 			// $Globals cb0: 1 slot(s) named from the compiled constant-buffer member table
 			// $Globals cb0: 2 slot(s) named from the compiled constant-buffer member table
@@ -32687,7 +33016,7 @@ Shader "ShaderRipperTest/VariantMonster"
 				// sample r0.xyzw, v1.xyxx, t0.xyzw, s3
 				r0.xyzw = tex2D(_MaskTex, float2(v1.x, v1.y));
 				// lt r0.x, r0.w, cb0[9].w
-				r0.x = (r0.w < cb0[9].w) ? 1.0 : 0.0;
+				r0.x = (r0.w < cb0[9].w) ? -1.0 : 0.0;
 				// discard_nz r0.x
 				if (any(r0.x)) discard;
 				// mul r0.x, cb0[6].z, cb1[0].y
@@ -33129,7 +33458,7 @@ Shader "ShaderRipperTest/VariantMonster"
 				// mul r2.y, r1.w, r2.x
 				r2.y = r1.w * r2.x;
 				// lt r2.z, |r0.w|, |r0.z|
-				r2.z = (abs(r0.w) < abs(r0.z)) ? 1.0 : 0.0;
+				r2.z = (abs(r0.w) < abs(r0.z)) ? -1.0 : 0.0;
 				// mad r2.y, r2.y, l(-2.000000), l(1.570796)
 				r2.y = mad(r2.y, -2.0, 1.570796);
 				// and r2.y, r2.z, r2.y
@@ -33137,7 +33466,7 @@ Shader "ShaderRipperTest/VariantMonster"
 				// mad r1.w, r1.w, r2.x, r2.y
 				r1.w = mad(r1.w, r2.x, r2.y);
 				// lt r2.x, r0.w, -r0.w
-				r2.x = (r0.w < -(r0.w)) ? 1.0 : 0.0;
+				r2.x = (r0.w < -(r0.w)) ? -1.0 : 0.0;
 				// and r2.x, r2.x, l(0xc0490fdb)
 				r2.x = ((float)((int)(r2.x) & (int)(-3.141593)));
 				// add r1.w, r1.w, r2.x
@@ -33147,9 +33476,9 @@ Shader "ShaderRipperTest/VariantMonster"
 				// max r0.z, r0.w, r0.z
 				r0.z = max(r0.w, r0.z);
 				// lt r0.w, r2.x, -r2.x
-				r0.w = (r2.x < -(r2.x)) ? 1.0 : 0.0;
+				r0.w = (r2.x < -(r2.x)) ? -1.0 : 0.0;
 				// ge r0.z, r0.z, -r0.z
-				r0.z = (r0.z >= -(r0.z)) ? 1.0 : 0.0;
+				r0.z = (r0.z >= -(r0.z)) ? -1.0 : 0.0;
 				// and r0.z, r0.z, r0.w
 				r0.z = ((((r0.z) != 0.0) && ((r0.w) != 0.0)) ? 1.0 : 0.0);
 				// movc r0.z, r0.z, -r1.w, r1.w
@@ -33238,7 +33567,7 @@ Shader "ShaderRipperTest/VariantMonster"
 					// loop
 				for (;;) {
 					// ige r3.w, r3.z, r2.x
-					r3.w = (((int)(r3.z) >= (int)(r2.x)) ? 1 : 0);
+					r3.w = (((int)(r3.z) >= (int)(r2.x)) ? -1 : 0);
 					// breakc_nz r3.w
 					if (any(r3.w)) break;
 					// itof r3.w, r3.z
@@ -33652,7 +33981,7 @@ Shader "ShaderRipperTest/VariantMonster"
 						// loop
 					for (;;) {
 						// ige r5.z, r5.y, r2.y
-						r5.z = (((int)(r5.y) >= (int)(r2.y)) ? 1 : 0);
+						r5.z = (((int)(r5.y) >= (int)(r2.y)) ? -1 : 0);
 						// breakc_nz r5.z
 						if (any(r5.z)) break;
 						// itof r5.z, r5.y
@@ -33745,7 +34074,7 @@ Shader "ShaderRipperTest/VariantMonster"
 						// mad r6.x, |r6.x|, l(2.000000), r5.x
 						r6.x = mad(abs(r6.x), 2.0, r5.x);
 						// lt r6.y, l(2.200000), r6.x
-						r6.y = (2.2 < r6.x) ? 1.0 : 0.0;
+						r6.y = (2.2 < r6.x) ? -1.0 : 0.0;
 							// if_nz r6.y
 						if (any(r6.y)) {
 							// iadd r6.y, r5.y, l(1)
@@ -33779,7 +34108,7 @@ Shader "ShaderRipperTest/VariantMonster"
 					// mul r4.xy, r4.zwzz, l(1.040000, 1.040000, 0.000000, 0.000000)
 					r4.xy = float2(r4.z * 1.04, r4.w * 1.04);
 					// lt r5.yz, r5.xxxx, l(0.000000, 0.600000, 1.400000, 0.000000)
-					r5.yz = float2((r5.x < 0.6) ? 1.0 : 0.0, (r5.x < 1.4) ? 1.0 : 0.0);
+					r5.yz = float2((r5.x < 0.6) ? -1.0 : 0.0, (r5.x < 1.4) ? -1.0 : 0.0);
 					// add r6.xy, r4.zwzz, l(0.020000, 0.010000, 0.000000, 0.000000)
 					r6.xy = float2(r4.z + 0.02, r4.w + 0.01);
 					// mov_sat r4.zw, r4.zzzw
@@ -33791,7 +34120,7 @@ Shader "ShaderRipperTest/VariantMonster"
 					// movc r4.xy, r5.yyyy, r4.xyxx, r5.zwzz
 					r4.xy = float2(r5.y != 0.0 ? r4.x : r5.z, r5.y != 0.0 ? r4.y : r5.w);
 					// lt r3.w, l(1.500000), r4.x
-					r3.w = (1.5 < r4.x) ? 1.0 : 0.0;
+					r3.w = (1.5 < r4.x) ? -1.0 : 0.0;
 						// if_nz r3.w
 					if (any(r3.w)) {
 						// mov r3.x, r4.y
@@ -33807,7 +34136,7 @@ Shader "ShaderRipperTest/VariantMonster"
 				// endloop
 				}
 				// lt r2.x, l(0.500000), cb0[10].w
-				r2.x = (0.5 < cb0[10].w) ? 1.0 : 0.0;
+				r2.x = (0.5 < cb0[10].w) ? -1.0 : 0.0;
 					// if_nz r2.x
 				if (any(r2.x)) {
 					// mul r2.x, r0.x, l(0.250000)
@@ -33929,7 +34258,7 @@ Shader "ShaderRipperTest/VariantMonster"
 				// endif
 				}
 				// lt r2.w, l(0.500000), cb0[11].x
-				r2.w = (0.5 < cb0[11].x) ? 1.0 : 0.0;
+				r2.w = (0.5 < cb0[11].x) ? -1.0 : 0.0;
 					// if_nz r2.w
 				if (any(r2.w)) {
 					// mul r4.xyzw, cb0[8].wwww, l(0.300000, 0.520000, 0.740000, 0.960000)
@@ -33940,6 +34269,8 @@ Shader "ShaderRipperTest/VariantMonster"
 					r2.w = sin(r2.w);
 					// mad r3.y, r0.w, r4.x, -r0.x
 					r3.y = mad(r0.w, r4.x, -(r0.x));
+					// sincos null, r3.y, r3.y
+					r3.y = cos(r3.y);
 					// add r3.z, r0.w, r0.z
 					r3.z = r0.w + r0.z;
 					// mul r5.xyzw, r4.xyzw, r3.zzzz
@@ -33958,22 +34289,26 @@ Shader "ShaderRipperTest/VariantMonster"
 					r2.w = r2.w + r4.x;
 					// mad r4.x, r0.w, r4.y, -r6.x
 					r4.x = mad(r0.w, r4.y, -(r6.x));
+					// sincos null, r4.x, r4.x
+					r4.x = cos(r4.x);
 					// add r3.y, r3.y, r4.x
 					r3.y = r3.y + r4.x;
 					// mad r5.xyz, r5.yzwy, l(0.600000, 0.600000, 0.600000, 0.000000), r6.xyzx
 					r5.xyz = float3(mad(r5.y, 0.6, r6.x), mad(r5.z, 0.6, r6.y), mad(r5.w, 0.6, r6.z));
 					// sincos r5.xyz, null, r5.xyzx
-					r5.xyz = sin(r5.xyzx);
+					r5.xyz = float3(sin(r5.x), sin(r5.y), sin(r5.z));
 					// add r3.w, r3.w, r5.x
 					r3.w = r3.w + r5.x;
 					// mad r4.xy, r0.zzzz, r4.zwzz, r6.yzyy
 					r4.xy = float2(mad(r0.z, r4.z, r6.y), mad(r0.z, r4.w, r6.z));
 					// sincos r4.xy, null, r4.xyxx
-					r4.xy = sin(r4.xyxx);
+					r4.xy = float2(sin(r4.x), sin(r4.y));
 					// add r2.w, r2.w, r4.x
 					r2.w = r2.w + r4.x;
 					// mad r4.xz, r0.wwww, r4.zzwz, -r6.yyzy
 					r4.xz = float2(mad(r0.w, r4.z, -(r6.y)), mad(r0.w, r4.w, -(r6.z)));
+					// sincos null, r4.xz, r4.xxzx
+					r4.xz = float2(cos(r4.x), cos(r4.z));
 					// add r3.y, r3.y, r4.x
 					r3.y = r3.y + r4.x;
 					// add r3.w, r5.y, r3.w
@@ -33994,6 +34329,8 @@ Shader "ShaderRipperTest/VariantMonster"
 					r2.w = r2.w + r4.z;
 					// mad r4.z, r0.w, r4.x, -r6.w
 					r4.z = mad(r0.w, r4.x, -(r6.w));
+					// sincos null, r4.z, r4.z
+					r4.z = cos(r4.z);
 					// add r3.y, r3.y, r4.z
 					r3.y = r3.y + r4.z;
 					// mul r4.xz, r3.zzzz, r4.xxyx
@@ -34014,6 +34351,8 @@ Shader "ShaderRipperTest/VariantMonster"
 					r5.x = r2.w + r4.x;
 					// mad r2.w, r0.w, r4.y, -r3.w
 					r2.w = mad(r0.w, r4.y, -(r3.w));
+					// sincos null, r2.w, r2.w
+					r2.w = cos(r2.w);
 					// add r5.y, r2.w, r3.y
 					r5.y = r2.w + r3.y;
 					// mad r2.w, r4.z, l(0.600000), r3.w
@@ -34057,7 +34396,7 @@ Shader "ShaderRipperTest/VariantMonster"
 					// loop
 				for (;;) {
 					// ige r4.y, r4.x, r1.w
-					r4.y = (((int)(r4.x) >= (int)(r1.w)) ? 1 : 0);
+					r4.y = (((int)(r4.x) >= (int)(r1.w)) ? -1 : 0);
 					// breakc_nz r4.y
 					if (any(r4.y)) break;
 					// itof r4.y, r4.x
@@ -34484,7 +34823,7 @@ Shader "ShaderRipperTest/VariantMonster"
 					// mad r4.y, r4.y, r4.z, r2.w
 					r4.y = mad(r4.y, r4.z, r2.w);
 					// lt r4.z, l(1.100000), r4.y
-					r4.z = (1.1 < r4.y) ? 1.0 : 0.0;
+					r4.z = (1.1 < r4.y) ? -1.0 : 0.0;
 						// if_nz r4.z
 					if (any(r4.z)) {
 						// mov r2.w, r4.y
@@ -34508,7 +34847,7 @@ Shader "ShaderRipperTest/VariantMonster"
 				// mul r0.y, r0.y, r1.x
 				r0.y = r0.y * r1.x;
 				// lt r1.x, r0.y, cb0[9].w
-				r1.x = (r0.y < cb0[9].w) ? 1.0 : 0.0;
+				r1.x = (r0.y < cb0[9].w) ? -1.0 : 0.0;
 				// discard_nz r1.x
 				if (any(r1.x)) discard;
 				// mad r1.xyw, r2.xyxz, l(0.900000, 0.900000, 0.000000, 0.900000), l(0.600000, 0.600000, 0.000000, 0.600000)
@@ -34546,7 +34885,7 @@ Shader "ShaderRipperTest/VariantMonster"
 				// mul r2.y, cb0[8].z, l(0.500000)
 				r2.y = cb0[8].z * 0.5;
 				// lt r2.y, r2.x, r2.y
-				r2.y = (r2.x < r2.y) ? 1.0 : 0.0;
+				r2.y = (r2.x < r2.y) ? -1.0 : 0.0;
 				// mad r2.z, -r2.x, l(3.000000), l(1.000000)
 				r2.z = mad(-(r2.x), 3.0, 1.0);
 				// max r2.z, r2.z, l(0.000000)
@@ -34558,7 +34897,7 @@ Shader "ShaderRipperTest/VariantMonster"
 				// mad r3.xyz, r3.xyzx, cb0[8].zzzz, r1.xywx
 				r3.xyz = float3(mad(r3.x, cb0[8].z, r1.x), mad(r3.y, cb0[8].z, r1.y), mad(r3.z, cb0[8].z, r1.w));
 				// lt r2.x, r2.x, l(0.400000)
-				r2.x = (r2.x < 0.4) ? 1.0 : 0.0;
+				r2.x = (r2.x < 0.4) ? -1.0 : 0.0;
 				// mul r4.xyz, r1.xywx, l(0.920000, 0.920000, 0.920000, 0.000000)
 				r4.xyz = float3(r1.x * 0.92, r1.y * 0.92, r1.w * 0.92);
 				// movc r1.xyw, r2.xxxx, r4.xyxz, r1.xyxw
@@ -35416,7 +35755,7 @@ Shader "ShaderRipperTest/VariantMonster"
 				// mul r0.xzw, r0.xxzw, cb0[10].yyyy
 				r0.xzw = float3(r0.x * cb0[10].y, r0.z * cb0[10].y, r0.w * cb0[10].y);
 				// lt r1.x, l(0.500000), cb0[11].y
-				r1.x = (0.5 < cb0[11].y) ? 1.0 : 0.0;
+				r1.x = (0.5 < cb0[11].y) ? -1.0 : 0.0;
 				// mul r1.yz, v1.xxyx, cb1[6].xxyx
 				r1.yz = float2(v1.x * _ScreenParams.x, v1.y * _ScreenParams.y);
 				// mul r1.yz, r1.yyzy, l(0.000000, 127.099998, 311.700012, 0.000000)
@@ -35480,6 +35819,28 @@ Shader "ShaderRipperTest/VariantMonster"
 			//   unnamed single lanes are shared by the Float/Range prop(s): _Iterations, _Steps, _WarpDepth, _Threshold, _Contrast, _Emission, _Saturation, _ToggleDetail, _ToggleBands, _ToggleDither
 			// cb1 = UnityPerDraw  (declared by UnityCG.cginc)
 			// cb2 = UnityPerFrame  (declared by UnityCG.cginc)
+			float4 _MainTex_TexelSize;
+			float4 _NoiseTex_ST;
+			float4 _NoiseTex_TexelSize;
+			float4 _DetailTex_ST;
+			float4 _DetailTex_TexelSize;
+			float4 _MaskTex_ST;
+			float4 _MaskTex_TexelSize;
+			float4 _Color;
+			float4 _ColorC;
+			float4 _Params;
+			float4 _Params2;
+			float4 _Params3;
+			float _Iterations;
+			float _Steps;
+			float _WarpDepth;
+			float _Threshold;
+			float _Contrast;
+			float _Emission;
+			float _Saturation;
+			float _ToggleDetail;
+			float _ToggleBands;
+			float _ToggleDither;
 			// cbuffer order confirmed by the asset's own register index
 			// $Globals cb0: 1 slot(s) named from the compiled constant-buffer member table
 
@@ -35517,7 +35878,7 @@ Shader "ShaderRipperTest/VariantMonster"
 				// sample r0.xyzw, v1.xyxx, t0.xyzw, s3
 				r0.xyzw = tex2D(_MaskTex, float2(v1.x, v1.y));
 				// lt r0.x, r0.w, cb0[9].w
-				r0.x = (r0.w < cb0[9].w) ? 1.0 : 0.0;
+				r0.x = (r0.w < cb0[9].w) ? -1.0 : 0.0;
 				// discard_nz r0.x
 				if (any(r0.x)) discard;
 				// mul r0.x, cb0[6].z, cb1[0].y
@@ -35965,7 +36326,7 @@ Shader "ShaderRipperTest/VariantMonster"
 				// mul r2.z, r2.y, r2.x
 				r2.z = r2.y * r2.x;
 				// lt r2.w, |r1.z|, |r1.y|
-				r2.w = (abs(r1.z) < abs(r1.y)) ? 1.0 : 0.0;
+				r2.w = (abs(r1.z) < abs(r1.y)) ? -1.0 : 0.0;
 				// mad r2.z, r2.z, l(-2.000000), l(1.570796)
 				r2.z = mad(r2.z, -2.0, 1.570796);
 				// and r2.z, r2.w, r2.z
@@ -35973,7 +36334,7 @@ Shader "ShaderRipperTest/VariantMonster"
 				// mad r2.x, r2.x, r2.y, r2.z
 				r2.x = mad(r2.x, r2.y, r2.z);
 				// lt r2.y, r1.z, -r1.z
-				r2.y = (r1.z < -(r1.z)) ? 1.0 : 0.0;
+				r2.y = (r1.z < -(r1.z)) ? -1.0 : 0.0;
 				// and r2.y, r2.y, l(0xc0490fdb)
 				r2.y = ((float)((int)(r2.y) & (int)(-3.141593)));
 				// add r2.x, r2.y, r2.x
@@ -35983,9 +36344,9 @@ Shader "ShaderRipperTest/VariantMonster"
 				// max r1.y, r1.z, r1.y
 				r1.y = max(r1.z, r1.y);
 				// lt r1.z, r2.y, -r2.y
-				r1.z = (r2.y < -(r2.y)) ? 1.0 : 0.0;
+				r1.z = (r2.y < -(r2.y)) ? -1.0 : 0.0;
 				// ge r1.y, r1.y, -r1.y
-				r1.y = (r1.y >= -(r1.y)) ? 1.0 : 0.0;
+				r1.y = (r1.y >= -(r1.y)) ? -1.0 : 0.0;
 				// and r1.y, r1.y, r1.z
 				r1.y = ((((r1.y) != 0.0) && ((r1.z) != 0.0)) ? 1.0 : 0.0);
 				// movc r1.y, r1.y, -r2.x, r2.x
@@ -36046,7 +36407,7 @@ Shader "ShaderRipperTest/VariantMonster"
 					// loop
 				for (;;) {
 					// ige r3.w, r3.z, r2.x
-					r3.w = (((int)(r3.z) >= (int)(r2.x)) ? 1 : 0);
+					r3.w = (((int)(r3.z) >= (int)(r2.x)) ? -1 : 0);
 					// breakc_nz r3.w
 					if (any(r3.w)) break;
 					// itof r3.w, r3.z
@@ -36460,7 +36821,7 @@ Shader "ShaderRipperTest/VariantMonster"
 						// loop
 					for (;;) {
 						// ige r5.z, r5.y, r2.y
-						r5.z = (((int)(r5.y) >= (int)(r2.y)) ? 1 : 0);
+						r5.z = (((int)(r5.y) >= (int)(r2.y)) ? -1 : 0);
 						// breakc_nz r5.z
 						if (any(r5.z)) break;
 						// itof r5.z, r5.y
@@ -36553,7 +36914,7 @@ Shader "ShaderRipperTest/VariantMonster"
 						// mad r6.x, |r6.x|, l(2.000000), r5.x
 						r6.x = mad(abs(r6.x), 2.0, r5.x);
 						// lt r6.y, l(2.200000), r6.x
-						r6.y = (2.2 < r6.x) ? 1.0 : 0.0;
+						r6.y = (2.2 < r6.x) ? -1.0 : 0.0;
 							// if_nz r6.y
 						if (any(r6.y)) {
 							// iadd r6.y, r5.y, l(1)
@@ -36587,7 +36948,7 @@ Shader "ShaderRipperTest/VariantMonster"
 					// mul r4.xy, r4.zwzz, l(1.040000, 1.040000, 0.000000, 0.000000)
 					r4.xy = float2(r4.z * 1.04, r4.w * 1.04);
 					// lt r5.yz, r5.xxxx, l(0.000000, 0.600000, 1.400000, 0.000000)
-					r5.yz = float2((r5.x < 0.6) ? 1.0 : 0.0, (r5.x < 1.4) ? 1.0 : 0.0);
+					r5.yz = float2((r5.x < 0.6) ? -1.0 : 0.0, (r5.x < 1.4) ? -1.0 : 0.0);
 					// add r6.xy, r4.zwzz, l(0.020000, 0.010000, 0.000000, 0.000000)
 					r6.xy = float2(r4.z + 0.02, r4.w + 0.01);
 					// mov_sat r4.zw, r4.zzzw
@@ -36599,7 +36960,7 @@ Shader "ShaderRipperTest/VariantMonster"
 					// movc r4.xy, r5.yyyy, r4.xyxx, r5.zwzz
 					r4.xy = float2(r5.y != 0.0 ? r4.x : r5.z, r5.y != 0.0 ? r4.y : r5.w);
 					// lt r3.w, l(1.500000), r4.x
-					r3.w = (1.5 < r4.x) ? 1.0 : 0.0;
+					r3.w = (1.5 < r4.x) ? -1.0 : 0.0;
 						// if_nz r3.w
 					if (any(r3.w)) {
 						// mov r3.x, r4.y
@@ -36615,7 +36976,7 @@ Shader "ShaderRipperTest/VariantMonster"
 				// endloop
 				}
 				// lt r2.x, l(0.500000), cb0[10].w
-				r2.x = (0.5 < cb0[10].w) ? 1.0 : 0.0;
+				r2.x = (0.5 < cb0[10].w) ? -1.0 : 0.0;
 					// if_nz r2.x
 				if (any(r2.x)) {
 					// mul r2.x, r0.x, l(0.250000)
@@ -36737,7 +37098,7 @@ Shader "ShaderRipperTest/VariantMonster"
 				// endif
 				}
 				// lt r2.w, l(0.500000), cb0[11].x
-				r2.w = (0.5 < cb0[11].x) ? 1.0 : 0.0;
+				r2.w = (0.5 < cb0[11].x) ? -1.0 : 0.0;
 					// if_nz r2.w
 				if (any(r2.w)) {
 					// mul r4.xyzw, cb0[8].wwww, l(0.300000, 0.520000, 0.740000, 0.960000)
@@ -36748,6 +37109,8 @@ Shader "ShaderRipperTest/VariantMonster"
 					r2.w = sin(r2.w);
 					// mad r3.y, r1.z, r4.x, -r0.x
 					r3.y = mad(r1.z, r4.x, -(r0.x));
+					// sincos null, r3.y, r3.y
+					r3.y = cos(r3.y);
 					// add r3.z, r1.z, r1.y
 					r3.z = r1.z + r1.y;
 					// mul r5.xyzw, r4.xyzw, r3.zzzz
@@ -36766,22 +37129,26 @@ Shader "ShaderRipperTest/VariantMonster"
 					r2.w = r2.w + r4.x;
 					// mad r4.x, r1.z, r4.y, -r6.x
 					r4.x = mad(r1.z, r4.y, -(r6.x));
+					// sincos null, r4.x, r4.x
+					r4.x = cos(r4.x);
 					// add r3.y, r3.y, r4.x
 					r3.y = r3.y + r4.x;
 					// mad r5.xyz, r5.yzwy, l(0.600000, 0.600000, 0.600000, 0.000000), r6.xyzx
 					r5.xyz = float3(mad(r5.y, 0.6, r6.x), mad(r5.z, 0.6, r6.y), mad(r5.w, 0.6, r6.z));
 					// sincos r5.xyz, null, r5.xyzx
-					r5.xyz = sin(r5.xyzx);
+					r5.xyz = float3(sin(r5.x), sin(r5.y), sin(r5.z));
 					// add r3.w, r3.w, r5.x
 					r3.w = r3.w + r5.x;
 					// mad r4.xy, r1.yyyy, r4.zwzz, r6.yzyy
 					r4.xy = float2(mad(r1.y, r4.z, r6.y), mad(r1.y, r4.w, r6.z));
 					// sincos r4.xy, null, r4.xyxx
-					r4.xy = sin(r4.xyxx);
+					r4.xy = float2(sin(r4.x), sin(r4.y));
 					// add r2.w, r2.w, r4.x
 					r2.w = r2.w + r4.x;
 					// mad r4.xz, r1.zzzz, r4.zzwz, -r6.yyzy
 					r4.xz = float2(mad(r1.z, r4.z, -(r6.y)), mad(r1.z, r4.w, -(r6.z)));
+					// sincos null, r4.xz, r4.xxzx
+					r4.xz = float2(cos(r4.x), cos(r4.z));
 					// add r3.y, r3.y, r4.x
 					r3.y = r3.y + r4.x;
 					// add r3.w, r5.y, r3.w
@@ -36802,6 +37169,8 @@ Shader "ShaderRipperTest/VariantMonster"
 					r2.w = r2.w + r4.z;
 					// mad r4.z, r1.z, r4.x, -r6.w
 					r4.z = mad(r1.z, r4.x, -(r6.w));
+					// sincos null, r4.z, r4.z
+					r4.z = cos(r4.z);
 					// add r3.y, r3.y, r4.z
 					r3.y = r3.y + r4.z;
 					// mul r4.xz, r3.zzzz, r4.xxyx
@@ -36822,6 +37191,8 @@ Shader "ShaderRipperTest/VariantMonster"
 					r5.x = r2.w + r4.x;
 					// mad r2.w, r1.z, r4.y, -r3.w
 					r2.w = mad(r1.z, r4.y, -(r3.w));
+					// sincos null, r2.w, r2.w
+					r2.w = cos(r2.w);
 					// add r5.y, r2.w, r3.y
 					r5.y = r2.w + r3.y;
 					// mad r2.w, r4.z, l(0.600000), r3.w
@@ -36849,7 +37220,7 @@ Shader "ShaderRipperTest/VariantMonster"
 				// mul r0.y, r0.y, r1.w
 				r0.y = r0.y * r1.w;
 				// lt r1.w, r0.y, cb0[9].w
-				r1.w = (r0.y < cb0[9].w) ? 1.0 : 0.0;
+				r1.w = (r0.y < cb0[9].w) ? -1.0 : 0.0;
 				// discard_nz r1.w
 				if (any(r1.w)) discard;
 				// mul r4.xy, r0.xxxx, l(0.210000, 0.150000, 0.000000, 0.000000)
@@ -37334,7 +37705,7 @@ Shader "ShaderRipperTest/VariantMonster"
 				// mul r1.y, cb0[8].z, l(0.500000)
 				r1.y = cb0[8].z * 0.5;
 				// lt r1.y, r1.x, r1.y
-				r1.y = (r1.x < r1.y) ? 1.0 : 0.0;
+				r1.y = (r1.x < r1.y) ? -1.0 : 0.0;
 				// mad r1.z, -r1.x, l(3.000000), l(1.000000)
 				r1.z = mad(-(r1.x), 3.0, 1.0);
 				// max r1.z, r1.z, l(0.000000)
@@ -37346,7 +37717,7 @@ Shader "ShaderRipperTest/VariantMonster"
 				// mad r2.xyz, r2.xyzx, cb0[8].zzzz, r0.xzwx
 				r2.xyz = float3(mad(r2.x, cb0[8].z, r0.x), mad(r2.y, cb0[8].z, r0.z), mad(r2.z, cb0[8].z, r0.w));
 				// lt r1.x, r1.x, l(0.400000)
-				r1.x = (r1.x < 0.4) ? 1.0 : 0.0;
+				r1.x = (r1.x < 0.4) ? -1.0 : 0.0;
 				// mul r3.xyz, r0.xzwx, l(0.920000, 0.920000, 0.920000, 0.000000)
 				r3.xyz = float3(r0.x * 0.92, r0.z * 0.92, r0.w * 0.92);
 				// movc r0.xzw, r1.xxxx, r3.xxyz, r0.xxzw
@@ -37368,7 +37739,7 @@ Shader "ShaderRipperTest/VariantMonster"
 				// mul r0.xzw, r0.xxzw, cb0[10].yyyy
 				r0.xzw = float3(r0.x * cb0[10].y, r0.z * cb0[10].y, r0.w * cb0[10].y);
 				// lt r1.x, l(0.500000), cb0[11].y
-				r1.x = (0.5 < cb0[11].y) ? 1.0 : 0.0;
+				r1.x = (0.5 < cb0[11].y) ? -1.0 : 0.0;
 				// mul r1.yz, v1.xxyx, cb1[6].xxyx
 				r1.yz = float2(v1.x * _ScreenParams.x, v1.y * _ScreenParams.y);
 				// mul r1.yz, r1.yyzy, l(0.000000, 127.099998, 311.700012, 0.000000)
@@ -37433,6 +37804,27 @@ Shader "ShaderRipperTest/VariantMonster"
 			//   unnamed single lanes are shared by the Float/Range prop(s): _Iterations, _Steps, _WarpDepth, _Threshold, _Contrast, _Emission, _Saturation, _ToggleDetail, _ToggleBands, _ToggleDither
 			// cb1 = UnityPerDraw  (declared by UnityCG.cginc)
 			// cb2 = UnityPerFrame  (declared by UnityCG.cginc)
+			float4 _MainTex_TexelSize;
+			float4 _NoiseTex_ST;
+			float4 _NoiseTex_TexelSize;
+			float4 _DetailTex_ST;
+			float4 _DetailTex_TexelSize;
+			float4 _MaskTex_ST;
+			float4 _MaskTex_TexelSize;
+			float4 _Color;
+			float4 _ColorC;
+			float4 _Params;
+			float4 _Params3;
+			float _Iterations;
+			float _Steps;
+			float _WarpDepth;
+			float _Threshold;
+			float _Contrast;
+			float _Emission;
+			float _Saturation;
+			float _ToggleDetail;
+			float _ToggleBands;
+			float _ToggleDither;
 			// cbuffer order confirmed by the asset's own register index
 			// $Globals cb0: 1 slot(s) named from the compiled constant-buffer member table
 			// $Globals cb0: 2 slot(s) named from the compiled constant-buffer member table
@@ -37471,7 +37863,7 @@ Shader "ShaderRipperTest/VariantMonster"
 				// sample r0.xyzw, v1.xyxx, t0.xyzw, s3
 				r0.xyzw = tex2D(_MaskTex, float2(v1.x, v1.y));
 				// lt r0.x, r0.w, cb0[9].w
-				r0.x = (r0.w < cb0[9].w) ? 1.0 : 0.0;
+				r0.x = (r0.w < cb0[9].w) ? -1.0 : 0.0;
 				// discard_nz r0.x
 				if (any(r0.x)) discard;
 				// mul r0.x, cb0[6].z, cb1[0].y
@@ -37913,7 +38305,7 @@ Shader "ShaderRipperTest/VariantMonster"
 				// mul r2.w, r2.z, r2.y
 				r2.w = r2.z * r2.y;
 				// lt r3.x, |r1.w|, |r1.z|
-				r3.x = (abs(r1.w) < abs(r1.z)) ? 1.0 : 0.0;
+				r3.x = (abs(r1.w) < abs(r1.z)) ? -1.0 : 0.0;
 				// mad r2.w, r2.w, l(-2.000000), l(1.570796)
 				r2.w = mad(r2.w, -2.0, 1.570796);
 				// and r2.w, r3.x, r2.w
@@ -37921,7 +38313,7 @@ Shader "ShaderRipperTest/VariantMonster"
 				// mad r2.y, r2.y, r2.z, r2.w
 				r2.y = mad(r2.y, r2.z, r2.w);
 				// lt r2.z, r1.w, -r1.w
-				r2.z = (r1.w < -(r1.w)) ? 1.0 : 0.0;
+				r2.z = (r1.w < -(r1.w)) ? -1.0 : 0.0;
 				// and r2.z, r2.z, l(0xc0490fdb)
 				r2.z = ((float)((int)(r2.z) & (int)(-3.141593)));
 				// add r2.y, r2.z, r2.y
@@ -37931,9 +38323,9 @@ Shader "ShaderRipperTest/VariantMonster"
 				// max r1.z, r1.w, r1.z
 				r1.z = max(r1.w, r1.z);
 				// lt r1.w, r2.z, -r2.z
-				r1.w = (r2.z < -(r2.z)) ? 1.0 : 0.0;
+				r1.w = (r2.z < -(r2.z)) ? -1.0 : 0.0;
 				// ge r1.z, r1.z, -r1.z
-				r1.z = (r1.z >= -(r1.z)) ? 1.0 : 0.0;
+				r1.z = (r1.z >= -(r1.z)) ? -1.0 : 0.0;
 				// and r1.z, r1.z, r1.w
 				r1.z = ((((r1.z) != 0.0) && ((r1.w) != 0.0)) ? 1.0 : 0.0);
 				// movc r1.z, r1.z, -r2.y, r2.y
@@ -38024,7 +38416,7 @@ Shader "ShaderRipperTest/VariantMonster"
 					// loop
 				for (;;) {
 					// ige r3.w, r3.z, r2.x
-					r3.w = (((int)(r3.z) >= (int)(r2.x)) ? 1 : 0);
+					r3.w = (((int)(r3.z) >= (int)(r2.x)) ? -1 : 0);
 					// breakc_nz r3.w
 					if (any(r3.w)) break;
 					// itof r3.w, r3.z
@@ -38438,7 +38830,7 @@ Shader "ShaderRipperTest/VariantMonster"
 						// loop
 					for (;;) {
 						// ige r5.z, r5.y, r2.y
-						r5.z = (((int)(r5.y) >= (int)(r2.y)) ? 1 : 0);
+						r5.z = (((int)(r5.y) >= (int)(r2.y)) ? -1 : 0);
 						// breakc_nz r5.z
 						if (any(r5.z)) break;
 						// itof r5.z, r5.y
@@ -38531,7 +38923,7 @@ Shader "ShaderRipperTest/VariantMonster"
 						// mad r6.x, |r6.x|, l(2.000000), r5.x
 						r6.x = mad(abs(r6.x), 2.0, r5.x);
 						// lt r6.y, l(2.200000), r6.x
-						r6.y = (2.2 < r6.x) ? 1.0 : 0.0;
+						r6.y = (2.2 < r6.x) ? -1.0 : 0.0;
 							// if_nz r6.y
 						if (any(r6.y)) {
 							// iadd r6.y, r5.y, l(1)
@@ -38565,7 +38957,7 @@ Shader "ShaderRipperTest/VariantMonster"
 					// mul r4.xy, r4.zwzz, l(1.040000, 1.040000, 0.000000, 0.000000)
 					r4.xy = float2(r4.z * 1.04, r4.w * 1.04);
 					// lt r5.yz, r5.xxxx, l(0.000000, 0.600000, 1.400000, 0.000000)
-					r5.yz = float2((r5.x < 0.6) ? 1.0 : 0.0, (r5.x < 1.4) ? 1.0 : 0.0);
+					r5.yz = float2((r5.x < 0.6) ? -1.0 : 0.0, (r5.x < 1.4) ? -1.0 : 0.0);
 					// add r6.xy, r4.zwzz, l(0.020000, 0.010000, 0.000000, 0.000000)
 					r6.xy = float2(r4.z + 0.02, r4.w + 0.01);
 					// mov_sat r4.zw, r4.zzzw
@@ -38577,7 +38969,7 @@ Shader "ShaderRipperTest/VariantMonster"
 					// movc r4.xy, r5.yyyy, r4.xyxx, r5.zwzz
 					r4.xy = float2(r5.y != 0.0 ? r4.x : r5.z, r5.y != 0.0 ? r4.y : r5.w);
 					// lt r3.w, l(1.500000), r4.x
-					r3.w = (1.5 < r4.x) ? 1.0 : 0.0;
+					r3.w = (1.5 < r4.x) ? -1.0 : 0.0;
 						// if_nz r3.w
 					if (any(r3.w)) {
 						// mov r3.x, r4.y
@@ -38593,7 +38985,7 @@ Shader "ShaderRipperTest/VariantMonster"
 				// endloop
 				}
 				// lt r2.x, l(0.500000), cb0[10].w
-				r2.x = (0.5 < cb0[10].w) ? 1.0 : 0.0;
+				r2.x = (0.5 < cb0[10].w) ? -1.0 : 0.0;
 					// if_nz r2.x
 				if (any(r2.x)) {
 					// mul r2.x, r0.x, l(0.250000)
@@ -38715,7 +39107,7 @@ Shader "ShaderRipperTest/VariantMonster"
 				// endif
 				}
 				// lt r2.w, l(0.500000), cb0[11].x
-				r2.w = (0.5 < cb0[11].x) ? 1.0 : 0.0;
+				r2.w = (0.5 < cb0[11].x) ? -1.0 : 0.0;
 					// if_nz r2.w
 				if (any(r2.w)) {
 					// mul r4.xyzw, cb0[8].wwww, l(0.300000, 0.520000, 0.740000, 0.960000)
@@ -38726,6 +39118,8 @@ Shader "ShaderRipperTest/VariantMonster"
 					r2.w = sin(r2.w);
 					// mad r3.y, r1.w, r4.x, -r0.x
 					r3.y = mad(r1.w, r4.x, -(r0.x));
+					// sincos null, r3.y, r3.y
+					r3.y = cos(r3.y);
 					// add r3.z, r1.w, r1.z
 					r3.z = r1.w + r1.z;
 					// mul r5.xyzw, r4.xyzw, r3.zzzz
@@ -38744,22 +39138,26 @@ Shader "ShaderRipperTest/VariantMonster"
 					r2.w = r2.w + r4.x;
 					// mad r4.x, r1.w, r4.y, -r6.x
 					r4.x = mad(r1.w, r4.y, -(r6.x));
+					// sincos null, r4.x, r4.x
+					r4.x = cos(r4.x);
 					// add r3.y, r3.y, r4.x
 					r3.y = r3.y + r4.x;
 					// mad r5.xyz, r5.yzwy, l(0.600000, 0.600000, 0.600000, 0.000000), r6.xyzx
 					r5.xyz = float3(mad(r5.y, 0.6, r6.x), mad(r5.z, 0.6, r6.y), mad(r5.w, 0.6, r6.z));
 					// sincos r5.xyz, null, r5.xyzx
-					r5.xyz = sin(r5.xyzx);
+					r5.xyz = float3(sin(r5.x), sin(r5.y), sin(r5.z));
 					// add r3.w, r3.w, r5.x
 					r3.w = r3.w + r5.x;
 					// mad r4.xy, r1.zzzz, r4.zwzz, r6.yzyy
 					r4.xy = float2(mad(r1.z, r4.z, r6.y), mad(r1.z, r4.w, r6.z));
 					// sincos r4.xy, null, r4.xyxx
-					r4.xy = sin(r4.xyxx);
+					r4.xy = float2(sin(r4.x), sin(r4.y));
 					// add r2.w, r2.w, r4.x
 					r2.w = r2.w + r4.x;
 					// mad r4.xz, r1.wwww, r4.zzwz, -r6.yyzy
 					r4.xz = float2(mad(r1.w, r4.z, -(r6.y)), mad(r1.w, r4.w, -(r6.z)));
+					// sincos null, r4.xz, r4.xxzx
+					r4.xz = float2(cos(r4.x), cos(r4.z));
 					// add r3.y, r3.y, r4.x
 					r3.y = r3.y + r4.x;
 					// add r3.w, r5.y, r3.w
@@ -38780,6 +39178,8 @@ Shader "ShaderRipperTest/VariantMonster"
 					r2.w = r2.w + r4.z;
 					// mad r4.z, r1.w, r4.x, -r6.w
 					r4.z = mad(r1.w, r4.x, -(r6.w));
+					// sincos null, r4.z, r4.z
+					r4.z = cos(r4.z);
 					// add r3.y, r3.y, r4.z
 					r3.y = r3.y + r4.z;
 					// mul r4.xz, r3.zzzz, r4.xxyx
@@ -38800,6 +39200,8 @@ Shader "ShaderRipperTest/VariantMonster"
 					r5.x = r2.w + r4.x;
 					// mad r2.w, r1.w, r4.y, -r3.w
 					r2.w = mad(r1.w, r4.y, -(r3.w));
+					// sincos null, r2.w, r2.w
+					r2.w = cos(r2.w);
 					// add r5.y, r2.w, r3.y
 					r5.y = r2.w + r3.y;
 					// mad r2.w, r4.z, l(0.600000), r3.w
@@ -38827,7 +39229,7 @@ Shader "ShaderRipperTest/VariantMonster"
 				// mul r0.y, r0.y, r1.y
 				r0.y = r0.y * r1.y;
 				// lt r1.y, r0.y, cb0[9].w
-				r1.y = (r0.y < cb0[9].w) ? 1.0 : 0.0;
+				r1.y = (r0.y < cb0[9].w) ? -1.0 : 0.0;
 				// discard_nz r1.y
 				if (any(r1.y)) discard;
 				// mul r4.xy, r0.xxxx, l(0.210000, 0.150000, 0.000000, 0.000000)
@@ -39312,7 +39714,7 @@ Shader "ShaderRipperTest/VariantMonster"
 				// mul r1.y, cb0[8].z, l(0.500000)
 				r1.y = cb0[8].z * 0.5;
 				// lt r1.y, r1.x, r1.y
-				r1.y = (r1.x < r1.y) ? 1.0 : 0.0;
+				r1.y = (r1.x < r1.y) ? -1.0 : 0.0;
 				// mad r1.z, -r1.x, l(3.000000), l(1.000000)
 				r1.z = mad(-(r1.x), 3.0, 1.0);
 				// max r1.z, r1.z, l(0.000000)
@@ -39324,7 +39726,7 @@ Shader "ShaderRipperTest/VariantMonster"
 				// mad r2.xyz, r2.xyzx, cb0[8].zzzz, r0.xzwx
 				r2.xyz = float3(mad(r2.x, cb0[8].z, r0.x), mad(r2.y, cb0[8].z, r0.z), mad(r2.z, cb0[8].z, r0.w));
 				// lt r1.x, r1.x, l(0.400000)
-				r1.x = (r1.x < 0.4) ? 1.0 : 0.0;
+				r1.x = (r1.x < 0.4) ? -1.0 : 0.0;
 				// mul r3.xyz, r0.xzwx, l(0.920000, 0.920000, 0.920000, 0.000000)
 				r3.xyz = float3(r0.x * 0.92, r0.z * 0.92, r0.w * 0.92);
 				// movc r0.xzw, r1.xxxx, r3.xxyz, r0.xxzw
@@ -39346,7 +39748,7 @@ Shader "ShaderRipperTest/VariantMonster"
 				// mul r0.xzw, r0.xxzw, cb0[10].yyyy
 				r0.xzw = float3(r0.x * cb0[10].y, r0.z * cb0[10].y, r0.w * cb0[10].y);
 				// lt r1.x, l(0.500000), cb0[11].y
-				r1.x = (0.5 < cb0[11].y) ? 1.0 : 0.0;
+				r1.x = (0.5 < cb0[11].y) ? -1.0 : 0.0;
 				// mul r1.yz, v1.xxyx, cb1[6].xxyx
 				r1.yz = float2(v1.x * _ScreenParams.x, v1.y * _ScreenParams.y);
 				// mul r1.yz, r1.yyzy, l(0.000000, 127.099998, 311.700012, 0.000000)
@@ -39410,6 +39812,28 @@ Shader "ShaderRipperTest/VariantMonster"
 			//   unnamed single lanes are shared by the Float/Range prop(s): _Iterations, _Steps, _WarpDepth, _Threshold, _Contrast, _Emission, _Saturation, _ToggleDetail, _ToggleBands, _ToggleDither
 			// cb1 = UnityPerDraw  (declared by UnityCG.cginc)
 			// cb2 = UnityPerFrame  (declared by UnityCG.cginc)
+			float4 _MainTex_TexelSize;
+			float4 _NoiseTex_ST;
+			float4 _NoiseTex_TexelSize;
+			float4 _DetailTex_ST;
+			float4 _DetailTex_TexelSize;
+			float4 _MaskTex_ST;
+			float4 _MaskTex_TexelSize;
+			float4 _Color;
+			float4 _ColorC;
+			float4 _Params;
+			float4 _Params2;
+			float4 _Params3;
+			float _Iterations;
+			float _Steps;
+			float _WarpDepth;
+			float _Threshold;
+			float _Contrast;
+			float _Emission;
+			float _Saturation;
+			float _ToggleDetail;
+			float _ToggleBands;
+			float _ToggleDither;
 			// cbuffer order confirmed by the asset's own register index
 			// $Globals cb0: 1 slot(s) named from the compiled constant-buffer member table
 
@@ -39447,7 +39871,7 @@ Shader "ShaderRipperTest/VariantMonster"
 				// sample r0.xyzw, v1.xyxx, t0.xyzw, s3
 				r0.xyzw = tex2D(_MaskTex, float2(v1.x, v1.y));
 				// lt r0.x, r0.w, cb0[9].w
-				r0.x = (r0.w < cb0[9].w) ? 1.0 : 0.0;
+				r0.x = (r0.w < cb0[9].w) ? -1.0 : 0.0;
 				// discard_nz r0.x
 				if (any(r0.x)) discard;
 				// mul r0.x, cb0[6].z, cb1[0].y
@@ -39895,7 +40319,7 @@ Shader "ShaderRipperTest/VariantMonster"
 				// mul r2.z, r2.y, r2.x
 				r2.z = r2.y * r2.x;
 				// lt r2.w, |r1.z|, |r1.y|
-				r2.w = (abs(r1.z) < abs(r1.y)) ? 1.0 : 0.0;
+				r2.w = (abs(r1.z) < abs(r1.y)) ? -1.0 : 0.0;
 				// mad r2.z, r2.z, l(-2.000000), l(1.570796)
 				r2.z = mad(r2.z, -2.0, 1.570796);
 				// and r2.z, r2.w, r2.z
@@ -39903,7 +40327,7 @@ Shader "ShaderRipperTest/VariantMonster"
 				// mad r2.x, r2.x, r2.y, r2.z
 				r2.x = mad(r2.x, r2.y, r2.z);
 				// lt r2.y, r1.z, -r1.z
-				r2.y = (r1.z < -(r1.z)) ? 1.0 : 0.0;
+				r2.y = (r1.z < -(r1.z)) ? -1.0 : 0.0;
 				// and r2.y, r2.y, l(0xc0490fdb)
 				r2.y = ((float)((int)(r2.y) & (int)(-3.141593)));
 				// add r2.x, r2.y, r2.x
@@ -39913,9 +40337,9 @@ Shader "ShaderRipperTest/VariantMonster"
 				// max r1.y, r1.z, r1.y
 				r1.y = max(r1.z, r1.y);
 				// lt r1.z, r2.y, -r2.y
-				r1.z = (r2.y < -(r2.y)) ? 1.0 : 0.0;
+				r1.z = (r2.y < -(r2.y)) ? -1.0 : 0.0;
 				// ge r1.y, r1.y, -r1.y
-				r1.y = (r1.y >= -(r1.y)) ? 1.0 : 0.0;
+				r1.y = (r1.y >= -(r1.y)) ? -1.0 : 0.0;
 				// and r1.y, r1.y, r1.z
 				r1.y = ((((r1.y) != 0.0) && ((r1.z) != 0.0)) ? 1.0 : 0.0);
 				// movc r1.y, r1.y, -r2.x, r2.x
@@ -39976,7 +40400,7 @@ Shader "ShaderRipperTest/VariantMonster"
 					// loop
 				for (;;) {
 					// ige r3.w, r3.z, r2.x
-					r3.w = (((int)(r3.z) >= (int)(r2.x)) ? 1 : 0);
+					r3.w = (((int)(r3.z) >= (int)(r2.x)) ? -1 : 0);
 					// breakc_nz r3.w
 					if (any(r3.w)) break;
 					// itof r3.w, r3.z
@@ -40390,7 +40814,7 @@ Shader "ShaderRipperTest/VariantMonster"
 						// loop
 					for (;;) {
 						// ige r5.z, r5.y, r2.y
-						r5.z = (((int)(r5.y) >= (int)(r2.y)) ? 1 : 0);
+						r5.z = (((int)(r5.y) >= (int)(r2.y)) ? -1 : 0);
 						// breakc_nz r5.z
 						if (any(r5.z)) break;
 						// itof r5.z, r5.y
@@ -40483,7 +40907,7 @@ Shader "ShaderRipperTest/VariantMonster"
 						// mad r6.x, |r6.x|, l(2.000000), r5.x
 						r6.x = mad(abs(r6.x), 2.0, r5.x);
 						// lt r6.y, l(2.200000), r6.x
-						r6.y = (2.2 < r6.x) ? 1.0 : 0.0;
+						r6.y = (2.2 < r6.x) ? -1.0 : 0.0;
 							// if_nz r6.y
 						if (any(r6.y)) {
 							// iadd r6.y, r5.y, l(1)
@@ -40517,7 +40941,7 @@ Shader "ShaderRipperTest/VariantMonster"
 					// mul r4.xy, r4.zwzz, l(1.040000, 1.040000, 0.000000, 0.000000)
 					r4.xy = float2(r4.z * 1.04, r4.w * 1.04);
 					// lt r5.yz, r5.xxxx, l(0.000000, 0.600000, 1.400000, 0.000000)
-					r5.yz = float2((r5.x < 0.6) ? 1.0 : 0.0, (r5.x < 1.4) ? 1.0 : 0.0);
+					r5.yz = float2((r5.x < 0.6) ? -1.0 : 0.0, (r5.x < 1.4) ? -1.0 : 0.0);
 					// add r6.xy, r4.zwzz, l(0.020000, 0.010000, 0.000000, 0.000000)
 					r6.xy = float2(r4.z + 0.02, r4.w + 0.01);
 					// mov_sat r4.zw, r4.zzzw
@@ -40529,7 +40953,7 @@ Shader "ShaderRipperTest/VariantMonster"
 					// movc r4.xy, r5.yyyy, r4.xyxx, r5.zwzz
 					r4.xy = float2(r5.y != 0.0 ? r4.x : r5.z, r5.y != 0.0 ? r4.y : r5.w);
 					// lt r3.w, l(1.500000), r4.x
-					r3.w = (1.5 < r4.x) ? 1.0 : 0.0;
+					r3.w = (1.5 < r4.x) ? -1.0 : 0.0;
 						// if_nz r3.w
 					if (any(r3.w)) {
 						// mov r3.x, r4.y
@@ -40545,7 +40969,7 @@ Shader "ShaderRipperTest/VariantMonster"
 				// endloop
 				}
 				// lt r2.x, l(0.500000), cb0[10].w
-				r2.x = (0.5 < cb0[10].w) ? 1.0 : 0.0;
+				r2.x = (0.5 < cb0[10].w) ? -1.0 : 0.0;
 					// if_nz r2.x
 				if (any(r2.x)) {
 					// mul r2.x, r0.x, l(0.250000)
@@ -40667,7 +41091,7 @@ Shader "ShaderRipperTest/VariantMonster"
 				// endif
 				}
 				// lt r2.w, l(0.500000), cb0[11].x
-				r2.w = (0.5 < cb0[11].x) ? 1.0 : 0.0;
+				r2.w = (0.5 < cb0[11].x) ? -1.0 : 0.0;
 					// if_nz r2.w
 				if (any(r2.w)) {
 					// mul r4.xyzw, cb0[8].wwww, l(0.300000, 0.520000, 0.740000, 0.960000)
@@ -40678,6 +41102,8 @@ Shader "ShaderRipperTest/VariantMonster"
 					r2.w = sin(r2.w);
 					// mad r3.y, r1.z, r4.x, -r0.x
 					r3.y = mad(r1.z, r4.x, -(r0.x));
+					// sincos null, r3.y, r3.y
+					r3.y = cos(r3.y);
 					// add r3.z, r1.z, r1.y
 					r3.z = r1.z + r1.y;
 					// mul r5.xyzw, r4.xyzw, r3.zzzz
@@ -40696,22 +41122,26 @@ Shader "ShaderRipperTest/VariantMonster"
 					r2.w = r2.w + r4.x;
 					// mad r4.x, r1.z, r4.y, -r6.x
 					r4.x = mad(r1.z, r4.y, -(r6.x));
+					// sincos null, r4.x, r4.x
+					r4.x = cos(r4.x);
 					// add r3.y, r3.y, r4.x
 					r3.y = r3.y + r4.x;
 					// mad r5.xyz, r5.yzwy, l(0.600000, 0.600000, 0.600000, 0.000000), r6.xyzx
 					r5.xyz = float3(mad(r5.y, 0.6, r6.x), mad(r5.z, 0.6, r6.y), mad(r5.w, 0.6, r6.z));
 					// sincos r5.xyz, null, r5.xyzx
-					r5.xyz = sin(r5.xyzx);
+					r5.xyz = float3(sin(r5.x), sin(r5.y), sin(r5.z));
 					// add r3.w, r3.w, r5.x
 					r3.w = r3.w + r5.x;
 					// mad r4.xy, r1.yyyy, r4.zwzz, r6.yzyy
 					r4.xy = float2(mad(r1.y, r4.z, r6.y), mad(r1.y, r4.w, r6.z));
 					// sincos r4.xy, null, r4.xyxx
-					r4.xy = sin(r4.xyxx);
+					r4.xy = float2(sin(r4.x), sin(r4.y));
 					// add r2.w, r2.w, r4.x
 					r2.w = r2.w + r4.x;
 					// mad r4.xz, r1.zzzz, r4.zzwz, -r6.yyzy
 					r4.xz = float2(mad(r1.z, r4.z, -(r6.y)), mad(r1.z, r4.w, -(r6.z)));
+					// sincos null, r4.xz, r4.xxzx
+					r4.xz = float2(cos(r4.x), cos(r4.z));
 					// add r3.y, r3.y, r4.x
 					r3.y = r3.y + r4.x;
 					// add r3.w, r5.y, r3.w
@@ -40732,6 +41162,8 @@ Shader "ShaderRipperTest/VariantMonster"
 					r2.w = r2.w + r4.z;
 					// mad r4.z, r1.z, r4.x, -r6.w
 					r4.z = mad(r1.z, r4.x, -(r6.w));
+					// sincos null, r4.z, r4.z
+					r4.z = cos(r4.z);
 					// add r3.y, r3.y, r4.z
 					r3.y = r3.y + r4.z;
 					// mul r4.xz, r3.zzzz, r4.xxyx
@@ -40752,6 +41184,8 @@ Shader "ShaderRipperTest/VariantMonster"
 					r5.x = r2.w + r4.x;
 					// mad r2.w, r1.z, r4.y, -r3.w
 					r2.w = mad(r1.z, r4.y, -(r3.w));
+					// sincos null, r2.w, r2.w
+					r2.w = cos(r2.w);
 					// add r5.y, r2.w, r3.y
 					r5.y = r2.w + r3.y;
 					// mad r2.w, r4.z, l(0.600000), r3.w
@@ -40779,7 +41213,7 @@ Shader "ShaderRipperTest/VariantMonster"
 				// mul r0.y, r0.y, r1.w
 				r0.y = r0.y * r1.w;
 				// lt r1.w, r0.y, cb0[9].w
-				r1.w = (r0.y < cb0[9].w) ? 1.0 : 0.0;
+				r1.w = (r0.y < cb0[9].w) ? -1.0 : 0.0;
 				// discard_nz r1.w
 				if (any(r1.w)) discard;
 				// mul r4.xy, r0.xxxx, l(0.210000, 0.150000, 0.000000, 0.000000)
@@ -41264,7 +41698,7 @@ Shader "ShaderRipperTest/VariantMonster"
 				// mul r1.y, cb0[8].z, l(0.500000)
 				r1.y = cb0[8].z * 0.5;
 				// lt r1.y, r1.x, r1.y
-				r1.y = (r1.x < r1.y) ? 1.0 : 0.0;
+				r1.y = (r1.x < r1.y) ? -1.0 : 0.0;
 				// mad r1.z, -r1.x, l(3.000000), l(1.000000)
 				r1.z = mad(-(r1.x), 3.0, 1.0);
 				// max r1.z, r1.z, l(0.000000)
@@ -41276,7 +41710,7 @@ Shader "ShaderRipperTest/VariantMonster"
 				// mad r2.xyz, r2.xyzx, cb0[8].zzzz, r0.xzwx
 				r2.xyz = float3(mad(r2.x, cb0[8].z, r0.x), mad(r2.y, cb0[8].z, r0.z), mad(r2.z, cb0[8].z, r0.w));
 				// lt r1.x, r1.x, l(0.400000)
-				r1.x = (r1.x < 0.4) ? 1.0 : 0.0;
+				r1.x = (r1.x < 0.4) ? -1.0 : 0.0;
 				// mul r3.xyz, r0.xzwx, l(0.920000, 0.920000, 0.920000, 0.000000)
 				r3.xyz = float3(r0.x * 0.92, r0.z * 0.92, r0.w * 0.92);
 				// movc r0.xzw, r1.xxxx, r3.xxyz, r0.xxzw
@@ -41298,7 +41732,7 @@ Shader "ShaderRipperTest/VariantMonster"
 				// mul r0.xzw, r0.xxzw, cb0[10].yyyy
 				r0.xzw = float3(r0.x * cb0[10].y, r0.z * cb0[10].y, r0.w * cb0[10].y);
 				// lt r1.x, l(0.500000), cb0[11].y
-				r1.x = (0.5 < cb0[11].y) ? 1.0 : 0.0;
+				r1.x = (0.5 < cb0[11].y) ? -1.0 : 0.0;
 				// mul r1.yz, v1.xxyx, cb1[6].xxyx
 				r1.yz = float2(v1.x * _ScreenParams.x, v1.y * _ScreenParams.y);
 				// mul r1.yz, r1.yyzy, l(0.000000, 127.099998, 311.700012, 0.000000)
@@ -41363,6 +41797,27 @@ Shader "ShaderRipperTest/VariantMonster"
 			//   unnamed single lanes are shared by the Float/Range prop(s): _Iterations, _Steps, _WarpDepth, _Threshold, _Contrast, _Emission, _Saturation, _ToggleDetail, _ToggleBands, _ToggleDither
 			// cb1 = UnityPerDraw  (declared by UnityCG.cginc)
 			// cb2 = UnityPerFrame  (declared by UnityCG.cginc)
+			float4 _MainTex_TexelSize;
+			float4 _NoiseTex_ST;
+			float4 _NoiseTex_TexelSize;
+			float4 _DetailTex_ST;
+			float4 _DetailTex_TexelSize;
+			float4 _MaskTex_ST;
+			float4 _MaskTex_TexelSize;
+			float4 _Color;
+			float4 _ColorC;
+			float4 _Params;
+			float4 _Params3;
+			float _Iterations;
+			float _Steps;
+			float _WarpDepth;
+			float _Threshold;
+			float _Contrast;
+			float _Emission;
+			float _Saturation;
+			float _ToggleDetail;
+			float _ToggleBands;
+			float _ToggleDither;
 			// cbuffer order confirmed by the asset's own register index
 			// $Globals cb0: 1 slot(s) named from the compiled constant-buffer member table
 			// $Globals cb0: 2 slot(s) named from the compiled constant-buffer member table
@@ -41401,7 +41856,7 @@ Shader "ShaderRipperTest/VariantMonster"
 				// sample r0.xyzw, v1.xyxx, t0.xyzw, s3
 				r0.xyzw = tex2D(_MaskTex, float2(v1.x, v1.y));
 				// lt r0.x, r0.w, cb0[9].w
-				r0.x = (r0.w < cb0[9].w) ? 1.0 : 0.0;
+				r0.x = (r0.w < cb0[9].w) ? -1.0 : 0.0;
 				// discard_nz r0.x
 				if (any(r0.x)) discard;
 				// mul r0.x, cb0[6].z, cb1[0].y
@@ -41843,7 +42298,7 @@ Shader "ShaderRipperTest/VariantMonster"
 				// mul r2.w, r2.z, r2.y
 				r2.w = r2.z * r2.y;
 				// lt r3.x, |r1.w|, |r1.z|
-				r3.x = (abs(r1.w) < abs(r1.z)) ? 1.0 : 0.0;
+				r3.x = (abs(r1.w) < abs(r1.z)) ? -1.0 : 0.0;
 				// mad r2.w, r2.w, l(-2.000000), l(1.570796)
 				r2.w = mad(r2.w, -2.0, 1.570796);
 				// and r2.w, r3.x, r2.w
@@ -41851,7 +42306,7 @@ Shader "ShaderRipperTest/VariantMonster"
 				// mad r2.y, r2.y, r2.z, r2.w
 				r2.y = mad(r2.y, r2.z, r2.w);
 				// lt r2.z, r1.w, -r1.w
-				r2.z = (r1.w < -(r1.w)) ? 1.0 : 0.0;
+				r2.z = (r1.w < -(r1.w)) ? -1.0 : 0.0;
 				// and r2.z, r2.z, l(0xc0490fdb)
 				r2.z = ((float)((int)(r2.z) & (int)(-3.141593)));
 				// add r2.y, r2.z, r2.y
@@ -41861,9 +42316,9 @@ Shader "ShaderRipperTest/VariantMonster"
 				// max r1.z, r1.w, r1.z
 				r1.z = max(r1.w, r1.z);
 				// lt r1.w, r2.z, -r2.z
-				r1.w = (r2.z < -(r2.z)) ? 1.0 : 0.0;
+				r1.w = (r2.z < -(r2.z)) ? -1.0 : 0.0;
 				// ge r1.z, r1.z, -r1.z
-				r1.z = (r1.z >= -(r1.z)) ? 1.0 : 0.0;
+				r1.z = (r1.z >= -(r1.z)) ? -1.0 : 0.0;
 				// and r1.z, r1.z, r1.w
 				r1.z = ((((r1.z) != 0.0) && ((r1.w) != 0.0)) ? 1.0 : 0.0);
 				// movc r1.z, r1.z, -r2.y, r2.y
@@ -41954,7 +42409,7 @@ Shader "ShaderRipperTest/VariantMonster"
 					// loop
 				for (;;) {
 					// ige r3.w, r3.z, r2.x
-					r3.w = (((int)(r3.z) >= (int)(r2.x)) ? 1 : 0);
+					r3.w = (((int)(r3.z) >= (int)(r2.x)) ? -1 : 0);
 					// breakc_nz r3.w
 					if (any(r3.w)) break;
 					// itof r3.w, r3.z
@@ -42368,7 +42823,7 @@ Shader "ShaderRipperTest/VariantMonster"
 						// loop
 					for (;;) {
 						// ige r5.z, r5.y, r2.y
-						r5.z = (((int)(r5.y) >= (int)(r2.y)) ? 1 : 0);
+						r5.z = (((int)(r5.y) >= (int)(r2.y)) ? -1 : 0);
 						// breakc_nz r5.z
 						if (any(r5.z)) break;
 						// itof r5.z, r5.y
@@ -42461,7 +42916,7 @@ Shader "ShaderRipperTest/VariantMonster"
 						// mad r6.x, |r6.x|, l(2.000000), r5.x
 						r6.x = mad(abs(r6.x), 2.0, r5.x);
 						// lt r6.y, l(2.200000), r6.x
-						r6.y = (2.2 < r6.x) ? 1.0 : 0.0;
+						r6.y = (2.2 < r6.x) ? -1.0 : 0.0;
 							// if_nz r6.y
 						if (any(r6.y)) {
 							// iadd r6.y, r5.y, l(1)
@@ -42495,7 +42950,7 @@ Shader "ShaderRipperTest/VariantMonster"
 					// mul r4.xy, r4.zwzz, l(1.040000, 1.040000, 0.000000, 0.000000)
 					r4.xy = float2(r4.z * 1.04, r4.w * 1.04);
 					// lt r5.yz, r5.xxxx, l(0.000000, 0.600000, 1.400000, 0.000000)
-					r5.yz = float2((r5.x < 0.6) ? 1.0 : 0.0, (r5.x < 1.4) ? 1.0 : 0.0);
+					r5.yz = float2((r5.x < 0.6) ? -1.0 : 0.0, (r5.x < 1.4) ? -1.0 : 0.0);
 					// add r6.xy, r4.zwzz, l(0.020000, 0.010000, 0.000000, 0.000000)
 					r6.xy = float2(r4.z + 0.02, r4.w + 0.01);
 					// mov_sat r4.zw, r4.zzzw
@@ -42507,7 +42962,7 @@ Shader "ShaderRipperTest/VariantMonster"
 					// movc r4.xy, r5.yyyy, r4.xyxx, r5.zwzz
 					r4.xy = float2(r5.y != 0.0 ? r4.x : r5.z, r5.y != 0.0 ? r4.y : r5.w);
 					// lt r3.w, l(1.500000), r4.x
-					r3.w = (1.5 < r4.x) ? 1.0 : 0.0;
+					r3.w = (1.5 < r4.x) ? -1.0 : 0.0;
 						// if_nz r3.w
 					if (any(r3.w)) {
 						// mov r3.x, r4.y
@@ -42523,7 +42978,7 @@ Shader "ShaderRipperTest/VariantMonster"
 				// endloop
 				}
 				// lt r2.x, l(0.500000), cb0[10].w
-				r2.x = (0.5 < cb0[10].w) ? 1.0 : 0.0;
+				r2.x = (0.5 < cb0[10].w) ? -1.0 : 0.0;
 					// if_nz r2.x
 				if (any(r2.x)) {
 					// mul r2.x, r0.x, l(0.250000)
@@ -42645,7 +43100,7 @@ Shader "ShaderRipperTest/VariantMonster"
 				// endif
 				}
 				// lt r2.w, l(0.500000), cb0[11].x
-				r2.w = (0.5 < cb0[11].x) ? 1.0 : 0.0;
+				r2.w = (0.5 < cb0[11].x) ? -1.0 : 0.0;
 					// if_nz r2.w
 				if (any(r2.w)) {
 					// mul r4.xyzw, cb0[8].wwww, l(0.300000, 0.520000, 0.740000, 0.960000)
@@ -42656,6 +43111,8 @@ Shader "ShaderRipperTest/VariantMonster"
 					r2.w = sin(r2.w);
 					// mad r3.y, r1.w, r4.x, -r0.x
 					r3.y = mad(r1.w, r4.x, -(r0.x));
+					// sincos null, r3.y, r3.y
+					r3.y = cos(r3.y);
 					// add r3.z, r1.w, r1.z
 					r3.z = r1.w + r1.z;
 					// mul r5.xyzw, r4.xyzw, r3.zzzz
@@ -42674,22 +43131,26 @@ Shader "ShaderRipperTest/VariantMonster"
 					r2.w = r2.w + r4.x;
 					// mad r4.x, r1.w, r4.y, -r6.x
 					r4.x = mad(r1.w, r4.y, -(r6.x));
+					// sincos null, r4.x, r4.x
+					r4.x = cos(r4.x);
 					// add r3.y, r3.y, r4.x
 					r3.y = r3.y + r4.x;
 					// mad r5.xyz, r5.yzwy, l(0.600000, 0.600000, 0.600000, 0.000000), r6.xyzx
 					r5.xyz = float3(mad(r5.y, 0.6, r6.x), mad(r5.z, 0.6, r6.y), mad(r5.w, 0.6, r6.z));
 					// sincos r5.xyz, null, r5.xyzx
-					r5.xyz = sin(r5.xyzx);
+					r5.xyz = float3(sin(r5.x), sin(r5.y), sin(r5.z));
 					// add r3.w, r3.w, r5.x
 					r3.w = r3.w + r5.x;
 					// mad r4.xy, r1.zzzz, r4.zwzz, r6.yzyy
 					r4.xy = float2(mad(r1.z, r4.z, r6.y), mad(r1.z, r4.w, r6.z));
 					// sincos r4.xy, null, r4.xyxx
-					r4.xy = sin(r4.xyxx);
+					r4.xy = float2(sin(r4.x), sin(r4.y));
 					// add r2.w, r2.w, r4.x
 					r2.w = r2.w + r4.x;
 					// mad r4.xz, r1.wwww, r4.zzwz, -r6.yyzy
 					r4.xz = float2(mad(r1.w, r4.z, -(r6.y)), mad(r1.w, r4.w, -(r6.z)));
+					// sincos null, r4.xz, r4.xxzx
+					r4.xz = float2(cos(r4.x), cos(r4.z));
 					// add r3.y, r3.y, r4.x
 					r3.y = r3.y + r4.x;
 					// add r3.w, r5.y, r3.w
@@ -42710,6 +43171,8 @@ Shader "ShaderRipperTest/VariantMonster"
 					r2.w = r2.w + r4.z;
 					// mad r4.z, r1.w, r4.x, -r6.w
 					r4.z = mad(r1.w, r4.x, -(r6.w));
+					// sincos null, r4.z, r4.z
+					r4.z = cos(r4.z);
 					// add r3.y, r3.y, r4.z
 					r3.y = r3.y + r4.z;
 					// mul r4.xz, r3.zzzz, r4.xxyx
@@ -42730,6 +43193,8 @@ Shader "ShaderRipperTest/VariantMonster"
 					r5.x = r2.w + r4.x;
 					// mad r2.w, r1.w, r4.y, -r3.w
 					r2.w = mad(r1.w, r4.y, -(r3.w));
+					// sincos null, r2.w, r2.w
+					r2.w = cos(r2.w);
 					// add r5.y, r2.w, r3.y
 					r5.y = r2.w + r3.y;
 					// mad r2.w, r4.z, l(0.600000), r3.w
@@ -42757,7 +43222,7 @@ Shader "ShaderRipperTest/VariantMonster"
 				// mul r0.y, r0.y, r1.y
 				r0.y = r0.y * r1.y;
 				// lt r1.y, r0.y, cb0[9].w
-				r1.y = (r0.y < cb0[9].w) ? 1.0 : 0.0;
+				r1.y = (r0.y < cb0[9].w) ? -1.0 : 0.0;
 				// discard_nz r1.y
 				if (any(r1.y)) discard;
 				// mul r4.xy, r0.xxxx, l(0.210000, 0.150000, 0.000000, 0.000000)
@@ -43242,7 +43707,7 @@ Shader "ShaderRipperTest/VariantMonster"
 				// mul r1.y, cb0[8].z, l(0.500000)
 				r1.y = cb0[8].z * 0.5;
 				// lt r1.y, r1.x, r1.y
-				r1.y = (r1.x < r1.y) ? 1.0 : 0.0;
+				r1.y = (r1.x < r1.y) ? -1.0 : 0.0;
 				// mad r1.z, -r1.x, l(3.000000), l(1.000000)
 				r1.z = mad(-(r1.x), 3.0, 1.0);
 				// max r1.z, r1.z, l(0.000000)
@@ -43254,7 +43719,7 @@ Shader "ShaderRipperTest/VariantMonster"
 				// mad r2.xyz, r2.xyzx, cb0[8].zzzz, r0.xzwx
 				r2.xyz = float3(mad(r2.x, cb0[8].z, r0.x), mad(r2.y, cb0[8].z, r0.z), mad(r2.z, cb0[8].z, r0.w));
 				// lt r1.x, r1.x, l(0.400000)
-				r1.x = (r1.x < 0.4) ? 1.0 : 0.0;
+				r1.x = (r1.x < 0.4) ? -1.0 : 0.0;
 				// mul r3.xyz, r0.xzwx, l(0.920000, 0.920000, 0.920000, 0.000000)
 				r3.xyz = float3(r0.x * 0.92, r0.z * 0.92, r0.w * 0.92);
 				// movc r0.xzw, r1.xxxx, r3.xxyz, r0.xxzw
@@ -43276,7 +43741,7 @@ Shader "ShaderRipperTest/VariantMonster"
 				// mul r0.xzw, r0.xxzw, cb0[10].yyyy
 				r0.xzw = float3(r0.x * cb0[10].y, r0.z * cb0[10].y, r0.w * cb0[10].y);
 				// lt r1.x, l(0.500000), cb0[11].y
-				r1.x = (0.5 < cb0[11].y) ? 1.0 : 0.0;
+				r1.x = (0.5 < cb0[11].y) ? -1.0 : 0.0;
 				// mul r1.yz, v1.xxyx, cb1[6].xxyx
 				r1.yz = float2(v1.x * _ScreenParams.x, v1.y * _ScreenParams.y);
 				// mul r1.yz, r1.yyzy, l(0.000000, 127.099998, 311.700012, 0.000000)
@@ -43340,6 +43805,28 @@ Shader "ShaderRipperTest/VariantMonster"
 			//   unnamed single lanes are shared by the Float/Range prop(s): _Iterations, _Steps, _WarpDepth, _Threshold, _Contrast, _Emission, _Saturation, _ToggleDetail, _ToggleBands, _ToggleDither
 			// cb1 = UnityPerDraw  (declared by UnityCG.cginc)
 			// cb2 = UnityPerFrame  (declared by UnityCG.cginc)
+			float4 _MainTex_TexelSize;
+			float4 _NoiseTex_ST;
+			float4 _NoiseTex_TexelSize;
+			float4 _DetailTex_ST;
+			float4 _DetailTex_TexelSize;
+			float4 _MaskTex_ST;
+			float4 _MaskTex_TexelSize;
+			float4 _Color;
+			float4 _ColorC;
+			float4 _Params;
+			float4 _Params2;
+			float4 _Params3;
+			float _Iterations;
+			float _Steps;
+			float _WarpDepth;
+			float _Threshold;
+			float _Contrast;
+			float _Emission;
+			float _Saturation;
+			float _ToggleDetail;
+			float _ToggleBands;
+			float _ToggleDither;
 			// cbuffer order confirmed by the asset's own register index
 			// $Globals cb0: 1 slot(s) named from the compiled constant-buffer member table
 
@@ -43377,7 +43864,7 @@ Shader "ShaderRipperTest/VariantMonster"
 				// sample r0.xyzw, v1.xyxx, t0.xyzw, s3
 				r0.xyzw = tex2D(_MaskTex, float2(v1.x, v1.y));
 				// lt r0.x, r0.w, cb0[9].w
-				r0.x = (r0.w < cb0[9].w) ? 1.0 : 0.0;
+				r0.x = (r0.w < cb0[9].w) ? -1.0 : 0.0;
 				// discard_nz r0.x
 				if (any(r0.x)) discard;
 				// mul r0.x, cb0[6].z, cb1[0].y
@@ -43825,7 +44312,7 @@ Shader "ShaderRipperTest/VariantMonster"
 				// mul r2.z, r2.y, r2.x
 				r2.z = r2.y * r2.x;
 				// lt r2.w, |r1.z|, |r1.y|
-				r2.w = (abs(r1.z) < abs(r1.y)) ? 1.0 : 0.0;
+				r2.w = (abs(r1.z) < abs(r1.y)) ? -1.0 : 0.0;
 				// mad r2.z, r2.z, l(-2.000000), l(1.570796)
 				r2.z = mad(r2.z, -2.0, 1.570796);
 				// and r2.z, r2.w, r2.z
@@ -43833,7 +44320,7 @@ Shader "ShaderRipperTest/VariantMonster"
 				// mad r2.x, r2.x, r2.y, r2.z
 				r2.x = mad(r2.x, r2.y, r2.z);
 				// lt r2.y, r1.z, -r1.z
-				r2.y = (r1.z < -(r1.z)) ? 1.0 : 0.0;
+				r2.y = (r1.z < -(r1.z)) ? -1.0 : 0.0;
 				// and r2.y, r2.y, l(0xc0490fdb)
 				r2.y = ((float)((int)(r2.y) & (int)(-3.141593)));
 				// add r2.x, r2.y, r2.x
@@ -43843,9 +44330,9 @@ Shader "ShaderRipperTest/VariantMonster"
 				// max r1.y, r1.z, r1.y
 				r1.y = max(r1.z, r1.y);
 				// lt r1.z, r2.y, -r2.y
-				r1.z = (r2.y < -(r2.y)) ? 1.0 : 0.0;
+				r1.z = (r2.y < -(r2.y)) ? -1.0 : 0.0;
 				// ge r1.y, r1.y, -r1.y
-				r1.y = (r1.y >= -(r1.y)) ? 1.0 : 0.0;
+				r1.y = (r1.y >= -(r1.y)) ? -1.0 : 0.0;
 				// and r1.y, r1.y, r1.z
 				r1.y = ((((r1.y) != 0.0) && ((r1.z) != 0.0)) ? 1.0 : 0.0);
 				// movc r1.y, r1.y, -r2.x, r2.x
@@ -43906,7 +44393,7 @@ Shader "ShaderRipperTest/VariantMonster"
 					// loop
 				for (;;) {
 					// ige r3.w, r3.z, r2.x
-					r3.w = (((int)(r3.z) >= (int)(r2.x)) ? 1 : 0);
+					r3.w = (((int)(r3.z) >= (int)(r2.x)) ? -1 : 0);
 					// breakc_nz r3.w
 					if (any(r3.w)) break;
 					// itof r3.w, r3.z
@@ -44320,7 +44807,7 @@ Shader "ShaderRipperTest/VariantMonster"
 						// loop
 					for (;;) {
 						// ige r5.z, r5.y, r2.y
-						r5.z = (((int)(r5.y) >= (int)(r2.y)) ? 1 : 0);
+						r5.z = (((int)(r5.y) >= (int)(r2.y)) ? -1 : 0);
 						// breakc_nz r5.z
 						if (any(r5.z)) break;
 						// itof r5.z, r5.y
@@ -44413,7 +44900,7 @@ Shader "ShaderRipperTest/VariantMonster"
 						// mad r6.x, |r6.x|, l(2.000000), r5.x
 						r6.x = mad(abs(r6.x), 2.0, r5.x);
 						// lt r6.y, l(2.200000), r6.x
-						r6.y = (2.2 < r6.x) ? 1.0 : 0.0;
+						r6.y = (2.2 < r6.x) ? -1.0 : 0.0;
 							// if_nz r6.y
 						if (any(r6.y)) {
 							// iadd r6.y, r5.y, l(1)
@@ -44447,7 +44934,7 @@ Shader "ShaderRipperTest/VariantMonster"
 					// mul r4.xy, r4.zwzz, l(1.040000, 1.040000, 0.000000, 0.000000)
 					r4.xy = float2(r4.z * 1.04, r4.w * 1.04);
 					// lt r5.yz, r5.xxxx, l(0.000000, 0.600000, 1.400000, 0.000000)
-					r5.yz = float2((r5.x < 0.6) ? 1.0 : 0.0, (r5.x < 1.4) ? 1.0 : 0.0);
+					r5.yz = float2((r5.x < 0.6) ? -1.0 : 0.0, (r5.x < 1.4) ? -1.0 : 0.0);
 					// add r6.xy, r4.zwzz, l(0.020000, 0.010000, 0.000000, 0.000000)
 					r6.xy = float2(r4.z + 0.02, r4.w + 0.01);
 					// mov_sat r4.zw, r4.zzzw
@@ -44459,7 +44946,7 @@ Shader "ShaderRipperTest/VariantMonster"
 					// movc r4.xy, r5.yyyy, r4.xyxx, r5.zwzz
 					r4.xy = float2(r5.y != 0.0 ? r4.x : r5.z, r5.y != 0.0 ? r4.y : r5.w);
 					// lt r3.w, l(1.500000), r4.x
-					r3.w = (1.5 < r4.x) ? 1.0 : 0.0;
+					r3.w = (1.5 < r4.x) ? -1.0 : 0.0;
 						// if_nz r3.w
 					if (any(r3.w)) {
 						// mov r3.x, r4.y
@@ -44475,7 +44962,7 @@ Shader "ShaderRipperTest/VariantMonster"
 				// endloop
 				}
 				// lt r2.x, l(0.500000), cb0[10].w
-				r2.x = (0.5 < cb0[10].w) ? 1.0 : 0.0;
+				r2.x = (0.5 < cb0[10].w) ? -1.0 : 0.0;
 					// if_nz r2.x
 				if (any(r2.x)) {
 					// mul r2.x, r0.x, l(0.250000)
@@ -44597,7 +45084,7 @@ Shader "ShaderRipperTest/VariantMonster"
 				// endif
 				}
 				// lt r2.w, l(0.500000), cb0[11].x
-				r2.w = (0.5 < cb0[11].x) ? 1.0 : 0.0;
+				r2.w = (0.5 < cb0[11].x) ? -1.0 : 0.0;
 					// if_nz r2.w
 				if (any(r2.w)) {
 					// mul r4.xyzw, cb0[8].wwww, l(0.300000, 0.520000, 0.740000, 0.960000)
@@ -44608,6 +45095,8 @@ Shader "ShaderRipperTest/VariantMonster"
 					r2.w = sin(r2.w);
 					// mad r3.y, r1.z, r4.x, -r0.x
 					r3.y = mad(r1.z, r4.x, -(r0.x));
+					// sincos null, r3.y, r3.y
+					r3.y = cos(r3.y);
 					// add r3.z, r1.z, r1.y
 					r3.z = r1.z + r1.y;
 					// mul r5.xyzw, r4.xyzw, r3.zzzz
@@ -44626,22 +45115,26 @@ Shader "ShaderRipperTest/VariantMonster"
 					r2.w = r2.w + r4.x;
 					// mad r4.x, r1.z, r4.y, -r6.x
 					r4.x = mad(r1.z, r4.y, -(r6.x));
+					// sincos null, r4.x, r4.x
+					r4.x = cos(r4.x);
 					// add r3.y, r3.y, r4.x
 					r3.y = r3.y + r4.x;
 					// mad r5.xyz, r5.yzwy, l(0.600000, 0.600000, 0.600000, 0.000000), r6.xyzx
 					r5.xyz = float3(mad(r5.y, 0.6, r6.x), mad(r5.z, 0.6, r6.y), mad(r5.w, 0.6, r6.z));
 					// sincos r5.xyz, null, r5.xyzx
-					r5.xyz = sin(r5.xyzx);
+					r5.xyz = float3(sin(r5.x), sin(r5.y), sin(r5.z));
 					// add r3.w, r3.w, r5.x
 					r3.w = r3.w + r5.x;
 					// mad r4.xy, r1.yyyy, r4.zwzz, r6.yzyy
 					r4.xy = float2(mad(r1.y, r4.z, r6.y), mad(r1.y, r4.w, r6.z));
 					// sincos r4.xy, null, r4.xyxx
-					r4.xy = sin(r4.xyxx);
+					r4.xy = float2(sin(r4.x), sin(r4.y));
 					// add r2.w, r2.w, r4.x
 					r2.w = r2.w + r4.x;
 					// mad r4.xz, r1.zzzz, r4.zzwz, -r6.yyzy
 					r4.xz = float2(mad(r1.z, r4.z, -(r6.y)), mad(r1.z, r4.w, -(r6.z)));
+					// sincos null, r4.xz, r4.xxzx
+					r4.xz = float2(cos(r4.x), cos(r4.z));
 					// add r3.y, r3.y, r4.x
 					r3.y = r3.y + r4.x;
 					// add r3.w, r5.y, r3.w
@@ -44662,6 +45155,8 @@ Shader "ShaderRipperTest/VariantMonster"
 					r2.w = r2.w + r4.z;
 					// mad r4.z, r1.z, r4.x, -r6.w
 					r4.z = mad(r1.z, r4.x, -(r6.w));
+					// sincos null, r4.z, r4.z
+					r4.z = cos(r4.z);
 					// add r3.y, r3.y, r4.z
 					r3.y = r3.y + r4.z;
 					// mul r4.xz, r3.zzzz, r4.xxyx
@@ -44682,6 +45177,8 @@ Shader "ShaderRipperTest/VariantMonster"
 					r5.x = r2.w + r4.x;
 					// mad r2.w, r1.z, r4.y, -r3.w
 					r2.w = mad(r1.z, r4.y, -(r3.w));
+					// sincos null, r2.w, r2.w
+					r2.w = cos(r2.w);
 					// add r5.y, r2.w, r3.y
 					r5.y = r2.w + r3.y;
 					// mad r2.w, r4.z, l(0.600000), r3.w
@@ -44709,7 +45206,7 @@ Shader "ShaderRipperTest/VariantMonster"
 				// mul r0.y, r0.y, r1.w
 				r0.y = r0.y * r1.w;
 				// lt r1.w, r0.y, cb0[9].w
-				r1.w = (r0.y < cb0[9].w) ? 1.0 : 0.0;
+				r1.w = (r0.y < cb0[9].w) ? -1.0 : 0.0;
 				// discard_nz r1.w
 				if (any(r1.w)) discard;
 				// mul r4.xy, r0.xxxx, l(0.210000, 0.150000, 0.000000, 0.000000)
@@ -45170,7 +45667,7 @@ Shader "ShaderRipperTest/VariantMonster"
 				// mad r3.yzw, -r6.xxyz, r3.yyzw, l(0.000000, 1.000000, 1.000000, 1.000000)
 				r3.yzw = float3(mad(-(r6.x), r3.y, 1.0), mad(-(r6.y), r3.z, 1.0), mad(-(r6.z), r3.w, 1.0));
 				// ge r0.xzw, r0.xxzw, l(0.500000, 0.000000, 0.500000, 0.500000)
-				r0.xzw = float3((r0.x >= 0.5) ? 1.0 : 0.0, (r0.z >= 0.5) ? 1.0 : 0.0, (r0.w >= 0.5) ? 1.0 : 0.0);
+				r0.xzw = float3((r0.x >= 0.5) ? -1.0 : 0.0, (r0.z >= 0.5) ? -1.0 : 0.0, (r0.w >= 0.5) ? -1.0 : 0.0);
 				// and r0.xzw, r0.xxzw, l(0x3f800000, 0, 0x3f800000, 0x3f800000)
 				r0.xzw = float3((((r0.x) != 0.0) ? 1.0 : 0.0), (((r0.z) != 0.0) ? 1.0 : 0.0), (((r0.w) != 0.0) ? 1.0 : 0.0));
 				// mad r3.yzw, -r4.xxyz, l(0.000000, 2.000000, 2.000000, 2.000000), r3.yyzw
@@ -45212,7 +45709,7 @@ Shader "ShaderRipperTest/VariantMonster"
 				// mul r1.y, cb0[8].z, l(0.500000)
 				r1.y = cb0[8].z * 0.5;
 				// lt r1.y, r1.x, r1.y
-				r1.y = (r1.x < r1.y) ? 1.0 : 0.0;
+				r1.y = (r1.x < r1.y) ? -1.0 : 0.0;
 				// mad r1.z, -r1.x, l(3.000000), l(1.000000)
 				r1.z = mad(-(r1.x), 3.0, 1.0);
 				// max r1.z, r1.z, l(0.000000)
@@ -45224,7 +45721,7 @@ Shader "ShaderRipperTest/VariantMonster"
 				// mad r2.xyz, r2.xyzx, cb0[8].zzzz, r0.xzwx
 				r2.xyz = float3(mad(r2.x, cb0[8].z, r0.x), mad(r2.y, cb0[8].z, r0.z), mad(r2.z, cb0[8].z, r0.w));
 				// lt r1.x, r1.x, l(0.400000)
-				r1.x = (r1.x < 0.4) ? 1.0 : 0.0;
+				r1.x = (r1.x < 0.4) ? -1.0 : 0.0;
 				// mul r3.xyz, r0.xzwx, l(0.920000, 0.920000, 0.920000, 0.000000)
 				r3.xyz = float3(r0.x * 0.92, r0.z * 0.92, r0.w * 0.92);
 				// movc r0.xzw, r1.xxxx, r3.xxyz, r0.xxzw
@@ -45246,7 +45743,7 @@ Shader "ShaderRipperTest/VariantMonster"
 				// mul r0.xzw, r0.xxzw, cb0[10].yyyy
 				r0.xzw = float3(r0.x * cb0[10].y, r0.z * cb0[10].y, r0.w * cb0[10].y);
 				// lt r1.x, l(0.500000), cb0[11].y
-				r1.x = (0.5 < cb0[11].y) ? 1.0 : 0.0;
+				r1.x = (0.5 < cb0[11].y) ? -1.0 : 0.0;
 				// mul r1.yz, v1.xxyx, cb1[6].xxyx
 				r1.yz = float2(v1.x * _ScreenParams.x, v1.y * _ScreenParams.y);
 				// mul r1.yz, r1.yyzy, l(0.000000, 127.099998, 311.700012, 0.000000)
@@ -45311,6 +45808,27 @@ Shader "ShaderRipperTest/VariantMonster"
 			//   unnamed single lanes are shared by the Float/Range prop(s): _Iterations, _Steps, _WarpDepth, _Threshold, _Contrast, _Emission, _Saturation, _ToggleDetail, _ToggleBands, _ToggleDither
 			// cb1 = UnityPerDraw  (declared by UnityCG.cginc)
 			// cb2 = UnityPerFrame  (declared by UnityCG.cginc)
+			float4 _MainTex_TexelSize;
+			float4 _NoiseTex_ST;
+			float4 _NoiseTex_TexelSize;
+			float4 _DetailTex_ST;
+			float4 _DetailTex_TexelSize;
+			float4 _MaskTex_ST;
+			float4 _MaskTex_TexelSize;
+			float4 _Color;
+			float4 _ColorC;
+			float4 _Params;
+			float4 _Params3;
+			float _Iterations;
+			float _Steps;
+			float _WarpDepth;
+			float _Threshold;
+			float _Contrast;
+			float _Emission;
+			float _Saturation;
+			float _ToggleDetail;
+			float _ToggleBands;
+			float _ToggleDither;
 			// cbuffer order confirmed by the asset's own register index
 			// $Globals cb0: 1 slot(s) named from the compiled constant-buffer member table
 			// $Globals cb0: 2 slot(s) named from the compiled constant-buffer member table
@@ -45349,7 +45867,7 @@ Shader "ShaderRipperTest/VariantMonster"
 				// sample r0.xyzw, v1.xyxx, t0.xyzw, s3
 				r0.xyzw = tex2D(_MaskTex, float2(v1.x, v1.y));
 				// lt r0.x, r0.w, cb0[9].w
-				r0.x = (r0.w < cb0[9].w) ? 1.0 : 0.0;
+				r0.x = (r0.w < cb0[9].w) ? -1.0 : 0.0;
 				// discard_nz r0.x
 				if (any(r0.x)) discard;
 				// mul r0.x, cb0[6].z, cb1[0].y
@@ -45791,7 +46309,7 @@ Shader "ShaderRipperTest/VariantMonster"
 				// mul r2.w, r2.z, r2.y
 				r2.w = r2.z * r2.y;
 				// lt r3.x, |r1.w|, |r1.z|
-				r3.x = (abs(r1.w) < abs(r1.z)) ? 1.0 : 0.0;
+				r3.x = (abs(r1.w) < abs(r1.z)) ? -1.0 : 0.0;
 				// mad r2.w, r2.w, l(-2.000000), l(1.570796)
 				r2.w = mad(r2.w, -2.0, 1.570796);
 				// and r2.w, r3.x, r2.w
@@ -45799,7 +46317,7 @@ Shader "ShaderRipperTest/VariantMonster"
 				// mad r2.y, r2.y, r2.z, r2.w
 				r2.y = mad(r2.y, r2.z, r2.w);
 				// lt r2.z, r1.w, -r1.w
-				r2.z = (r1.w < -(r1.w)) ? 1.0 : 0.0;
+				r2.z = (r1.w < -(r1.w)) ? -1.0 : 0.0;
 				// and r2.z, r2.z, l(0xc0490fdb)
 				r2.z = ((float)((int)(r2.z) & (int)(-3.141593)));
 				// add r2.y, r2.z, r2.y
@@ -45809,9 +46327,9 @@ Shader "ShaderRipperTest/VariantMonster"
 				// max r1.z, r1.w, r1.z
 				r1.z = max(r1.w, r1.z);
 				// lt r1.w, r2.z, -r2.z
-				r1.w = (r2.z < -(r2.z)) ? 1.0 : 0.0;
+				r1.w = (r2.z < -(r2.z)) ? -1.0 : 0.0;
 				// ge r1.z, r1.z, -r1.z
-				r1.z = (r1.z >= -(r1.z)) ? 1.0 : 0.0;
+				r1.z = (r1.z >= -(r1.z)) ? -1.0 : 0.0;
 				// and r1.z, r1.z, r1.w
 				r1.z = ((((r1.z) != 0.0) && ((r1.w) != 0.0)) ? 1.0 : 0.0);
 				// movc r1.z, r1.z, -r2.y, r2.y
@@ -45902,7 +46420,7 @@ Shader "ShaderRipperTest/VariantMonster"
 					// loop
 				for (;;) {
 					// ige r3.w, r3.z, r2.x
-					r3.w = (((int)(r3.z) >= (int)(r2.x)) ? 1 : 0);
+					r3.w = (((int)(r3.z) >= (int)(r2.x)) ? -1 : 0);
 					// breakc_nz r3.w
 					if (any(r3.w)) break;
 					// itof r3.w, r3.z
@@ -46316,7 +46834,7 @@ Shader "ShaderRipperTest/VariantMonster"
 						// loop
 					for (;;) {
 						// ige r5.z, r5.y, r2.y
-						r5.z = (((int)(r5.y) >= (int)(r2.y)) ? 1 : 0);
+						r5.z = (((int)(r5.y) >= (int)(r2.y)) ? -1 : 0);
 						// breakc_nz r5.z
 						if (any(r5.z)) break;
 						// itof r5.z, r5.y
@@ -46409,7 +46927,7 @@ Shader "ShaderRipperTest/VariantMonster"
 						// mad r6.x, |r6.x|, l(2.000000), r5.x
 						r6.x = mad(abs(r6.x), 2.0, r5.x);
 						// lt r6.y, l(2.200000), r6.x
-						r6.y = (2.2 < r6.x) ? 1.0 : 0.0;
+						r6.y = (2.2 < r6.x) ? -1.0 : 0.0;
 							// if_nz r6.y
 						if (any(r6.y)) {
 							// iadd r6.y, r5.y, l(1)
@@ -46443,7 +46961,7 @@ Shader "ShaderRipperTest/VariantMonster"
 					// mul r4.xy, r4.zwzz, l(1.040000, 1.040000, 0.000000, 0.000000)
 					r4.xy = float2(r4.z * 1.04, r4.w * 1.04);
 					// lt r5.yz, r5.xxxx, l(0.000000, 0.600000, 1.400000, 0.000000)
-					r5.yz = float2((r5.x < 0.6) ? 1.0 : 0.0, (r5.x < 1.4) ? 1.0 : 0.0);
+					r5.yz = float2((r5.x < 0.6) ? -1.0 : 0.0, (r5.x < 1.4) ? -1.0 : 0.0);
 					// add r6.xy, r4.zwzz, l(0.020000, 0.010000, 0.000000, 0.000000)
 					r6.xy = float2(r4.z + 0.02, r4.w + 0.01);
 					// mov_sat r4.zw, r4.zzzw
@@ -46455,7 +46973,7 @@ Shader "ShaderRipperTest/VariantMonster"
 					// movc r4.xy, r5.yyyy, r4.xyxx, r5.zwzz
 					r4.xy = float2(r5.y != 0.0 ? r4.x : r5.z, r5.y != 0.0 ? r4.y : r5.w);
 					// lt r3.w, l(1.500000), r4.x
-					r3.w = (1.5 < r4.x) ? 1.0 : 0.0;
+					r3.w = (1.5 < r4.x) ? -1.0 : 0.0;
 						// if_nz r3.w
 					if (any(r3.w)) {
 						// mov r3.x, r4.y
@@ -46471,7 +46989,7 @@ Shader "ShaderRipperTest/VariantMonster"
 				// endloop
 				}
 				// lt r2.x, l(0.500000), cb0[10].w
-				r2.x = (0.5 < cb0[10].w) ? 1.0 : 0.0;
+				r2.x = (0.5 < cb0[10].w) ? -1.0 : 0.0;
 					// if_nz r2.x
 				if (any(r2.x)) {
 					// mul r2.x, r0.x, l(0.250000)
@@ -46593,7 +47111,7 @@ Shader "ShaderRipperTest/VariantMonster"
 				// endif
 				}
 				// lt r2.w, l(0.500000), cb0[11].x
-				r2.w = (0.5 < cb0[11].x) ? 1.0 : 0.0;
+				r2.w = (0.5 < cb0[11].x) ? -1.0 : 0.0;
 					// if_nz r2.w
 				if (any(r2.w)) {
 					// mul r4.xyzw, cb0[8].wwww, l(0.300000, 0.520000, 0.740000, 0.960000)
@@ -46604,6 +47122,8 @@ Shader "ShaderRipperTest/VariantMonster"
 					r2.w = sin(r2.w);
 					// mad r3.y, r1.w, r4.x, -r0.x
 					r3.y = mad(r1.w, r4.x, -(r0.x));
+					// sincos null, r3.y, r3.y
+					r3.y = cos(r3.y);
 					// add r3.z, r1.w, r1.z
 					r3.z = r1.w + r1.z;
 					// mul r5.xyzw, r4.xyzw, r3.zzzz
@@ -46622,22 +47142,26 @@ Shader "ShaderRipperTest/VariantMonster"
 					r2.w = r2.w + r4.x;
 					// mad r4.x, r1.w, r4.y, -r6.x
 					r4.x = mad(r1.w, r4.y, -(r6.x));
+					// sincos null, r4.x, r4.x
+					r4.x = cos(r4.x);
 					// add r3.y, r3.y, r4.x
 					r3.y = r3.y + r4.x;
 					// mad r5.xyz, r5.yzwy, l(0.600000, 0.600000, 0.600000, 0.000000), r6.xyzx
 					r5.xyz = float3(mad(r5.y, 0.6, r6.x), mad(r5.z, 0.6, r6.y), mad(r5.w, 0.6, r6.z));
 					// sincos r5.xyz, null, r5.xyzx
-					r5.xyz = sin(r5.xyzx);
+					r5.xyz = float3(sin(r5.x), sin(r5.y), sin(r5.z));
 					// add r3.w, r3.w, r5.x
 					r3.w = r3.w + r5.x;
 					// mad r4.xy, r1.zzzz, r4.zwzz, r6.yzyy
 					r4.xy = float2(mad(r1.z, r4.z, r6.y), mad(r1.z, r4.w, r6.z));
 					// sincos r4.xy, null, r4.xyxx
-					r4.xy = sin(r4.xyxx);
+					r4.xy = float2(sin(r4.x), sin(r4.y));
 					// add r2.w, r2.w, r4.x
 					r2.w = r2.w + r4.x;
 					// mad r4.xz, r1.wwww, r4.zzwz, -r6.yyzy
 					r4.xz = float2(mad(r1.w, r4.z, -(r6.y)), mad(r1.w, r4.w, -(r6.z)));
+					// sincos null, r4.xz, r4.xxzx
+					r4.xz = float2(cos(r4.x), cos(r4.z));
 					// add r3.y, r3.y, r4.x
 					r3.y = r3.y + r4.x;
 					// add r3.w, r5.y, r3.w
@@ -46658,6 +47182,8 @@ Shader "ShaderRipperTest/VariantMonster"
 					r2.w = r2.w + r4.z;
 					// mad r4.z, r1.w, r4.x, -r6.w
 					r4.z = mad(r1.w, r4.x, -(r6.w));
+					// sincos null, r4.z, r4.z
+					r4.z = cos(r4.z);
 					// add r3.y, r3.y, r4.z
 					r3.y = r3.y + r4.z;
 					// mul r4.xz, r3.zzzz, r4.xxyx
@@ -46678,6 +47204,8 @@ Shader "ShaderRipperTest/VariantMonster"
 					r5.x = r2.w + r4.x;
 					// mad r2.w, r1.w, r4.y, -r3.w
 					r2.w = mad(r1.w, r4.y, -(r3.w));
+					// sincos null, r2.w, r2.w
+					r2.w = cos(r2.w);
 					// add r5.y, r2.w, r3.y
 					r5.y = r2.w + r3.y;
 					// mad r2.w, r4.z, l(0.600000), r3.w
@@ -46705,7 +47233,7 @@ Shader "ShaderRipperTest/VariantMonster"
 				// mul r0.y, r0.y, r1.y
 				r0.y = r0.y * r1.y;
 				// lt r1.y, r0.y, cb0[9].w
-				r1.y = (r0.y < cb0[9].w) ? 1.0 : 0.0;
+				r1.y = (r0.y < cb0[9].w) ? -1.0 : 0.0;
 				// discard_nz r1.y
 				if (any(r1.y)) discard;
 				// mul r4.xy, r0.xxxx, l(0.210000, 0.150000, 0.000000, 0.000000)
@@ -47166,7 +47694,7 @@ Shader "ShaderRipperTest/VariantMonster"
 				// mad r3.yzw, -r6.xxyz, r3.yyzw, l(0.000000, 1.000000, 1.000000, 1.000000)
 				r3.yzw = float3(mad(-(r6.x), r3.y, 1.0), mad(-(r6.y), r3.z, 1.0), mad(-(r6.z), r3.w, 1.0));
 				// ge r0.xzw, r0.xxzw, l(0.500000, 0.000000, 0.500000, 0.500000)
-				r0.xzw = float3((r0.x >= 0.5) ? 1.0 : 0.0, (r0.z >= 0.5) ? 1.0 : 0.0, (r0.w >= 0.5) ? 1.0 : 0.0);
+				r0.xzw = float3((r0.x >= 0.5) ? -1.0 : 0.0, (r0.z >= 0.5) ? -1.0 : 0.0, (r0.w >= 0.5) ? -1.0 : 0.0);
 				// and r0.xzw, r0.xxzw, l(0x3f800000, 0, 0x3f800000, 0x3f800000)
 				r0.xzw = float3((((r0.x) != 0.0) ? 1.0 : 0.0), (((r0.z) != 0.0) ? 1.0 : 0.0), (((r0.w) != 0.0) ? 1.0 : 0.0));
 				// mad r3.yzw, -r4.xxyz, l(0.000000, 2.000000, 2.000000, 2.000000), r3.yyzw
@@ -47208,7 +47736,7 @@ Shader "ShaderRipperTest/VariantMonster"
 				// mul r1.y, cb0[8].z, l(0.500000)
 				r1.y = cb0[8].z * 0.5;
 				// lt r1.y, r1.x, r1.y
-				r1.y = (r1.x < r1.y) ? 1.0 : 0.0;
+				r1.y = (r1.x < r1.y) ? -1.0 : 0.0;
 				// mad r1.z, -r1.x, l(3.000000), l(1.000000)
 				r1.z = mad(-(r1.x), 3.0, 1.0);
 				// max r1.z, r1.z, l(0.000000)
@@ -47220,7 +47748,7 @@ Shader "ShaderRipperTest/VariantMonster"
 				// mad r2.xyz, r2.xyzx, cb0[8].zzzz, r0.xzwx
 				r2.xyz = float3(mad(r2.x, cb0[8].z, r0.x), mad(r2.y, cb0[8].z, r0.z), mad(r2.z, cb0[8].z, r0.w));
 				// lt r1.x, r1.x, l(0.400000)
-				r1.x = (r1.x < 0.4) ? 1.0 : 0.0;
+				r1.x = (r1.x < 0.4) ? -1.0 : 0.0;
 				// mul r3.xyz, r0.xzwx, l(0.920000, 0.920000, 0.920000, 0.000000)
 				r3.xyz = float3(r0.x * 0.92, r0.z * 0.92, r0.w * 0.92);
 				// movc r0.xzw, r1.xxxx, r3.xxyz, r0.xxzw
@@ -47242,7 +47770,7 @@ Shader "ShaderRipperTest/VariantMonster"
 				// mul r0.xzw, r0.xxzw, cb0[10].yyyy
 				r0.xzw = float3(r0.x * cb0[10].y, r0.z * cb0[10].y, r0.w * cb0[10].y);
 				// lt r1.x, l(0.500000), cb0[11].y
-				r1.x = (0.5 < cb0[11].y) ? 1.0 : 0.0;
+				r1.x = (0.5 < cb0[11].y) ? -1.0 : 0.0;
 				// mul r1.yz, v1.xxyx, cb1[6].xxyx
 				r1.yz = float2(v1.x * _ScreenParams.x, v1.y * _ScreenParams.y);
 				// mul r1.yz, r1.yyzy, l(0.000000, 127.099998, 311.700012, 0.000000)
@@ -47306,6 +47834,28 @@ Shader "ShaderRipperTest/VariantMonster"
 			//   unnamed single lanes are shared by the Float/Range prop(s): _Iterations, _Steps, _WarpDepth, _Threshold, _Contrast, _Emission, _Saturation, _ToggleDetail, _ToggleBands, _ToggleDither
 			// cb1 = UnityPerDraw  (declared by UnityCG.cginc)
 			// cb2 = UnityPerFrame  (declared by UnityCG.cginc)
+			float4 _MainTex_TexelSize;
+			float4 _NoiseTex_ST;
+			float4 _NoiseTex_TexelSize;
+			float4 _DetailTex_ST;
+			float4 _DetailTex_TexelSize;
+			float4 _MaskTex_ST;
+			float4 _MaskTex_TexelSize;
+			float4 _Color;
+			float4 _ColorC;
+			float4 _Params;
+			float4 _Params2;
+			float4 _Params3;
+			float _Iterations;
+			float _Steps;
+			float _WarpDepth;
+			float _Threshold;
+			float _Contrast;
+			float _Emission;
+			float _Saturation;
+			float _ToggleDetail;
+			float _ToggleBands;
+			float _ToggleDither;
 			// cbuffer order confirmed by the asset's own register index
 			// $Globals cb0: 1 slot(s) named from the compiled constant-buffer member table
 
@@ -47343,7 +47893,7 @@ Shader "ShaderRipperTest/VariantMonster"
 				// sample r0.xyzw, v1.xyxx, t0.xyzw, s3
 				r0.xyzw = tex2D(_MaskTex, float2(v1.x, v1.y));
 				// lt r0.x, r0.w, cb0[9].w
-				r0.x = (r0.w < cb0[9].w) ? 1.0 : 0.0;
+				r0.x = (r0.w < cb0[9].w) ? -1.0 : 0.0;
 				// discard_nz r0.x
 				if (any(r0.x)) discard;
 				// mul r0.x, cb0[6].z, cb1[0].y
@@ -47791,7 +48341,7 @@ Shader "ShaderRipperTest/VariantMonster"
 				// mul r2.z, r2.y, r2.x
 				r2.z = r2.y * r2.x;
 				// lt r2.w, |r1.z|, |r1.y|
-				r2.w = (abs(r1.z) < abs(r1.y)) ? 1.0 : 0.0;
+				r2.w = (abs(r1.z) < abs(r1.y)) ? -1.0 : 0.0;
 				// mad r2.z, r2.z, l(-2.000000), l(1.570796)
 				r2.z = mad(r2.z, -2.0, 1.570796);
 				// and r2.z, r2.w, r2.z
@@ -47799,7 +48349,7 @@ Shader "ShaderRipperTest/VariantMonster"
 				// mad r2.x, r2.x, r2.y, r2.z
 				r2.x = mad(r2.x, r2.y, r2.z);
 				// lt r2.y, r1.z, -r1.z
-				r2.y = (r1.z < -(r1.z)) ? 1.0 : 0.0;
+				r2.y = (r1.z < -(r1.z)) ? -1.0 : 0.0;
 				// and r2.y, r2.y, l(0xc0490fdb)
 				r2.y = ((float)((int)(r2.y) & (int)(-3.141593)));
 				// add r2.x, r2.y, r2.x
@@ -47809,9 +48359,9 @@ Shader "ShaderRipperTest/VariantMonster"
 				// max r1.y, r1.z, r1.y
 				r1.y = max(r1.z, r1.y);
 				// lt r1.z, r2.y, -r2.y
-				r1.z = (r2.y < -(r2.y)) ? 1.0 : 0.0;
+				r1.z = (r2.y < -(r2.y)) ? -1.0 : 0.0;
 				// ge r1.y, r1.y, -r1.y
-				r1.y = (r1.y >= -(r1.y)) ? 1.0 : 0.0;
+				r1.y = (r1.y >= -(r1.y)) ? -1.0 : 0.0;
 				// and r1.y, r1.y, r1.z
 				r1.y = ((((r1.y) != 0.0) && ((r1.z) != 0.0)) ? 1.0 : 0.0);
 				// movc r1.y, r1.y, -r2.x, r2.x
@@ -47872,7 +48422,7 @@ Shader "ShaderRipperTest/VariantMonster"
 					// loop
 				for (;;) {
 					// ige r3.w, r3.z, r2.x
-					r3.w = (((int)(r3.z) >= (int)(r2.x)) ? 1 : 0);
+					r3.w = (((int)(r3.z) >= (int)(r2.x)) ? -1 : 0);
 					// breakc_nz r3.w
 					if (any(r3.w)) break;
 					// itof r3.w, r3.z
@@ -48286,7 +48836,7 @@ Shader "ShaderRipperTest/VariantMonster"
 						// loop
 					for (;;) {
 						// ige r5.z, r5.y, r2.y
-						r5.z = (((int)(r5.y) >= (int)(r2.y)) ? 1 : 0);
+						r5.z = (((int)(r5.y) >= (int)(r2.y)) ? -1 : 0);
 						// breakc_nz r5.z
 						if (any(r5.z)) break;
 						// itof r5.z, r5.y
@@ -48379,7 +48929,7 @@ Shader "ShaderRipperTest/VariantMonster"
 						// mad r6.x, |r6.x|, l(2.000000), r5.x
 						r6.x = mad(abs(r6.x), 2.0, r5.x);
 						// lt r6.y, l(2.200000), r6.x
-						r6.y = (2.2 < r6.x) ? 1.0 : 0.0;
+						r6.y = (2.2 < r6.x) ? -1.0 : 0.0;
 							// if_nz r6.y
 						if (any(r6.y)) {
 							// iadd r6.y, r5.y, l(1)
@@ -48413,7 +48963,7 @@ Shader "ShaderRipperTest/VariantMonster"
 					// mul r4.xy, r4.zwzz, l(1.040000, 1.040000, 0.000000, 0.000000)
 					r4.xy = float2(r4.z * 1.04, r4.w * 1.04);
 					// lt r5.yz, r5.xxxx, l(0.000000, 0.600000, 1.400000, 0.000000)
-					r5.yz = float2((r5.x < 0.6) ? 1.0 : 0.0, (r5.x < 1.4) ? 1.0 : 0.0);
+					r5.yz = float2((r5.x < 0.6) ? -1.0 : 0.0, (r5.x < 1.4) ? -1.0 : 0.0);
 					// add r6.xy, r4.zwzz, l(0.020000, 0.010000, 0.000000, 0.000000)
 					r6.xy = float2(r4.z + 0.02, r4.w + 0.01);
 					// mov_sat r4.zw, r4.zzzw
@@ -48425,7 +48975,7 @@ Shader "ShaderRipperTest/VariantMonster"
 					// movc r4.xy, r5.yyyy, r4.xyxx, r5.zwzz
 					r4.xy = float2(r5.y != 0.0 ? r4.x : r5.z, r5.y != 0.0 ? r4.y : r5.w);
 					// lt r3.w, l(1.500000), r4.x
-					r3.w = (1.5 < r4.x) ? 1.0 : 0.0;
+					r3.w = (1.5 < r4.x) ? -1.0 : 0.0;
 						// if_nz r3.w
 					if (any(r3.w)) {
 						// mov r3.x, r4.y
@@ -48441,7 +48991,7 @@ Shader "ShaderRipperTest/VariantMonster"
 				// endloop
 				}
 				// lt r2.x, l(0.500000), cb0[10].w
-				r2.x = (0.5 < cb0[10].w) ? 1.0 : 0.0;
+				r2.x = (0.5 < cb0[10].w) ? -1.0 : 0.0;
 					// if_nz r2.x
 				if (any(r2.x)) {
 					// mul r2.x, r0.x, l(0.250000)
@@ -48563,7 +49113,7 @@ Shader "ShaderRipperTest/VariantMonster"
 				// endif
 				}
 				// lt r2.w, l(0.500000), cb0[11].x
-				r2.w = (0.5 < cb0[11].x) ? 1.0 : 0.0;
+				r2.w = (0.5 < cb0[11].x) ? -1.0 : 0.0;
 					// if_nz r2.w
 				if (any(r2.w)) {
 					// mul r4.xyzw, cb0[8].wwww, l(0.300000, 0.520000, 0.740000, 0.960000)
@@ -48574,6 +49124,8 @@ Shader "ShaderRipperTest/VariantMonster"
 					r2.w = sin(r2.w);
 					// mad r3.y, r1.z, r4.x, -r0.x
 					r3.y = mad(r1.z, r4.x, -(r0.x));
+					// sincos null, r3.y, r3.y
+					r3.y = cos(r3.y);
 					// add r3.z, r1.z, r1.y
 					r3.z = r1.z + r1.y;
 					// mul r5.xyzw, r4.xyzw, r3.zzzz
@@ -48592,22 +49144,26 @@ Shader "ShaderRipperTest/VariantMonster"
 					r2.w = r2.w + r4.x;
 					// mad r4.x, r1.z, r4.y, -r6.x
 					r4.x = mad(r1.z, r4.y, -(r6.x));
+					// sincos null, r4.x, r4.x
+					r4.x = cos(r4.x);
 					// add r3.y, r3.y, r4.x
 					r3.y = r3.y + r4.x;
 					// mad r5.xyz, r5.yzwy, l(0.600000, 0.600000, 0.600000, 0.000000), r6.xyzx
 					r5.xyz = float3(mad(r5.y, 0.6, r6.x), mad(r5.z, 0.6, r6.y), mad(r5.w, 0.6, r6.z));
 					// sincos r5.xyz, null, r5.xyzx
-					r5.xyz = sin(r5.xyzx);
+					r5.xyz = float3(sin(r5.x), sin(r5.y), sin(r5.z));
 					// add r3.w, r3.w, r5.x
 					r3.w = r3.w + r5.x;
 					// mad r4.xy, r1.yyyy, r4.zwzz, r6.yzyy
 					r4.xy = float2(mad(r1.y, r4.z, r6.y), mad(r1.y, r4.w, r6.z));
 					// sincos r4.xy, null, r4.xyxx
-					r4.xy = sin(r4.xyxx);
+					r4.xy = float2(sin(r4.x), sin(r4.y));
 					// add r2.w, r2.w, r4.x
 					r2.w = r2.w + r4.x;
 					// mad r4.xz, r1.zzzz, r4.zzwz, -r6.yyzy
 					r4.xz = float2(mad(r1.z, r4.z, -(r6.y)), mad(r1.z, r4.w, -(r6.z)));
+					// sincos null, r4.xz, r4.xxzx
+					r4.xz = float2(cos(r4.x), cos(r4.z));
 					// add r3.y, r3.y, r4.x
 					r3.y = r3.y + r4.x;
 					// add r3.w, r5.y, r3.w
@@ -48628,6 +49184,8 @@ Shader "ShaderRipperTest/VariantMonster"
 					r2.w = r2.w + r4.z;
 					// mad r4.z, r1.z, r4.x, -r6.w
 					r4.z = mad(r1.z, r4.x, -(r6.w));
+					// sincos null, r4.z, r4.z
+					r4.z = cos(r4.z);
 					// add r3.y, r3.y, r4.z
 					r3.y = r3.y + r4.z;
 					// mul r4.xz, r3.zzzz, r4.xxyx
@@ -48648,6 +49206,8 @@ Shader "ShaderRipperTest/VariantMonster"
 					r5.x = r2.w + r4.x;
 					// mad r2.w, r1.z, r4.y, -r3.w
 					r2.w = mad(r1.z, r4.y, -(r3.w));
+					// sincos null, r2.w, r2.w
+					r2.w = cos(r2.w);
 					// add r5.y, r2.w, r3.y
 					r5.y = r2.w + r3.y;
 					// mad r2.w, r4.z, l(0.600000), r3.w
@@ -48675,7 +49235,7 @@ Shader "ShaderRipperTest/VariantMonster"
 				// mul r0.y, r0.y, r1.w
 				r0.y = r0.y * r1.w;
 				// lt r1.w, r0.y, cb0[9].w
-				r1.w = (r0.y < cb0[9].w) ? 1.0 : 0.0;
+				r1.w = (r0.y < cb0[9].w) ? -1.0 : 0.0;
 				// discard_nz r1.w
 				if (any(r1.w)) discard;
 				// mul r4.xy, r0.xxxx, l(0.210000, 0.150000, 0.000000, 0.000000)
@@ -49164,7 +49724,7 @@ Shader "ShaderRipperTest/VariantMonster"
 				// mul r1.y, cb0[8].z, l(0.500000)
 				r1.y = cb0[8].z * 0.5;
 				// lt r1.y, r1.x, r1.y
-				r1.y = (r1.x < r1.y) ? 1.0 : 0.0;
+				r1.y = (r1.x < r1.y) ? -1.0 : 0.0;
 				// mad r1.z, -r1.x, l(3.000000), l(1.000000)
 				r1.z = mad(-(r1.x), 3.0, 1.0);
 				// max r1.z, r1.z, l(0.000000)
@@ -49176,7 +49736,7 @@ Shader "ShaderRipperTest/VariantMonster"
 				// mad r2.xyz, r2.xyzx, cb0[8].zzzz, r0.xzwx
 				r2.xyz = float3(mad(r2.x, cb0[8].z, r0.x), mad(r2.y, cb0[8].z, r0.z), mad(r2.z, cb0[8].z, r0.w));
 				// lt r1.x, r1.x, l(0.400000)
-				r1.x = (r1.x < 0.4) ? 1.0 : 0.0;
+				r1.x = (r1.x < 0.4) ? -1.0 : 0.0;
 				// mul r3.xyz, r0.xzwx, l(0.920000, 0.920000, 0.920000, 0.000000)
 				r3.xyz = float3(r0.x * 0.92, r0.z * 0.92, r0.w * 0.92);
 				// movc r0.xzw, r1.xxxx, r3.xxyz, r0.xxzw
@@ -49198,7 +49758,7 @@ Shader "ShaderRipperTest/VariantMonster"
 				// mul r0.xzw, r0.xxzw, cb0[10].yyyy
 				r0.xzw = float3(r0.x * cb0[10].y, r0.z * cb0[10].y, r0.w * cb0[10].y);
 				// lt r1.x, l(0.500000), cb0[11].y
-				r1.x = (0.5 < cb0[11].y) ? 1.0 : 0.0;
+				r1.x = (0.5 < cb0[11].y) ? -1.0 : 0.0;
 				// mul r1.yz, v1.xxyx, cb1[6].xxyx
 				r1.yz = float2(v1.x * _ScreenParams.x, v1.y * _ScreenParams.y);
 				// mul r1.yz, r1.yyzy, l(0.000000, 127.099998, 311.700012, 0.000000)
@@ -49263,6 +49823,27 @@ Shader "ShaderRipperTest/VariantMonster"
 			//   unnamed single lanes are shared by the Float/Range prop(s): _Iterations, _Steps, _WarpDepth, _Threshold, _Contrast, _Emission, _Saturation, _ToggleDetail, _ToggleBands, _ToggleDither
 			// cb1 = UnityPerDraw  (declared by UnityCG.cginc)
 			// cb2 = UnityPerFrame  (declared by UnityCG.cginc)
+			float4 _MainTex_TexelSize;
+			float4 _NoiseTex_ST;
+			float4 _NoiseTex_TexelSize;
+			float4 _DetailTex_ST;
+			float4 _DetailTex_TexelSize;
+			float4 _MaskTex_ST;
+			float4 _MaskTex_TexelSize;
+			float4 _Color;
+			float4 _ColorC;
+			float4 _Params;
+			float4 _Params3;
+			float _Iterations;
+			float _Steps;
+			float _WarpDepth;
+			float _Threshold;
+			float _Contrast;
+			float _Emission;
+			float _Saturation;
+			float _ToggleDetail;
+			float _ToggleBands;
+			float _ToggleDither;
 			// cbuffer order confirmed by the asset's own register index
 			// $Globals cb0: 1 slot(s) named from the compiled constant-buffer member table
 			// $Globals cb0: 2 slot(s) named from the compiled constant-buffer member table
@@ -49301,7 +49882,7 @@ Shader "ShaderRipperTest/VariantMonster"
 				// sample r0.xyzw, v1.xyxx, t0.xyzw, s3
 				r0.xyzw = tex2D(_MaskTex, float2(v1.x, v1.y));
 				// lt r0.x, r0.w, cb0[9].w
-				r0.x = (r0.w < cb0[9].w) ? 1.0 : 0.0;
+				r0.x = (r0.w < cb0[9].w) ? -1.0 : 0.0;
 				// discard_nz r0.x
 				if (any(r0.x)) discard;
 				// mul r0.x, cb0[6].z, cb1[0].y
@@ -49743,7 +50324,7 @@ Shader "ShaderRipperTest/VariantMonster"
 				// mul r2.w, r2.z, r2.y
 				r2.w = r2.z * r2.y;
 				// lt r3.x, |r1.w|, |r1.z|
-				r3.x = (abs(r1.w) < abs(r1.z)) ? 1.0 : 0.0;
+				r3.x = (abs(r1.w) < abs(r1.z)) ? -1.0 : 0.0;
 				// mad r2.w, r2.w, l(-2.000000), l(1.570796)
 				r2.w = mad(r2.w, -2.0, 1.570796);
 				// and r2.w, r3.x, r2.w
@@ -49751,7 +50332,7 @@ Shader "ShaderRipperTest/VariantMonster"
 				// mad r2.y, r2.y, r2.z, r2.w
 				r2.y = mad(r2.y, r2.z, r2.w);
 				// lt r2.z, r1.w, -r1.w
-				r2.z = (r1.w < -(r1.w)) ? 1.0 : 0.0;
+				r2.z = (r1.w < -(r1.w)) ? -1.0 : 0.0;
 				// and r2.z, r2.z, l(0xc0490fdb)
 				r2.z = ((float)((int)(r2.z) & (int)(-3.141593)));
 				// add r2.y, r2.z, r2.y
@@ -49761,9 +50342,9 @@ Shader "ShaderRipperTest/VariantMonster"
 				// max r1.z, r1.w, r1.z
 				r1.z = max(r1.w, r1.z);
 				// lt r1.w, r2.z, -r2.z
-				r1.w = (r2.z < -(r2.z)) ? 1.0 : 0.0;
+				r1.w = (r2.z < -(r2.z)) ? -1.0 : 0.0;
 				// ge r1.z, r1.z, -r1.z
-				r1.z = (r1.z >= -(r1.z)) ? 1.0 : 0.0;
+				r1.z = (r1.z >= -(r1.z)) ? -1.0 : 0.0;
 				// and r1.z, r1.z, r1.w
 				r1.z = ((((r1.z) != 0.0) && ((r1.w) != 0.0)) ? 1.0 : 0.0);
 				// movc r1.z, r1.z, -r2.y, r2.y
@@ -49854,7 +50435,7 @@ Shader "ShaderRipperTest/VariantMonster"
 					// loop
 				for (;;) {
 					// ige r3.w, r3.z, r2.x
-					r3.w = (((int)(r3.z) >= (int)(r2.x)) ? 1 : 0);
+					r3.w = (((int)(r3.z) >= (int)(r2.x)) ? -1 : 0);
 					// breakc_nz r3.w
 					if (any(r3.w)) break;
 					// itof r3.w, r3.z
@@ -50268,7 +50849,7 @@ Shader "ShaderRipperTest/VariantMonster"
 						// loop
 					for (;;) {
 						// ige r5.z, r5.y, r2.y
-						r5.z = (((int)(r5.y) >= (int)(r2.y)) ? 1 : 0);
+						r5.z = (((int)(r5.y) >= (int)(r2.y)) ? -1 : 0);
 						// breakc_nz r5.z
 						if (any(r5.z)) break;
 						// itof r5.z, r5.y
@@ -50361,7 +50942,7 @@ Shader "ShaderRipperTest/VariantMonster"
 						// mad r6.x, |r6.x|, l(2.000000), r5.x
 						r6.x = mad(abs(r6.x), 2.0, r5.x);
 						// lt r6.y, l(2.200000), r6.x
-						r6.y = (2.2 < r6.x) ? 1.0 : 0.0;
+						r6.y = (2.2 < r6.x) ? -1.0 : 0.0;
 							// if_nz r6.y
 						if (any(r6.y)) {
 							// iadd r6.y, r5.y, l(1)
@@ -50395,7 +50976,7 @@ Shader "ShaderRipperTest/VariantMonster"
 					// mul r4.xy, r4.zwzz, l(1.040000, 1.040000, 0.000000, 0.000000)
 					r4.xy = float2(r4.z * 1.04, r4.w * 1.04);
 					// lt r5.yz, r5.xxxx, l(0.000000, 0.600000, 1.400000, 0.000000)
-					r5.yz = float2((r5.x < 0.6) ? 1.0 : 0.0, (r5.x < 1.4) ? 1.0 : 0.0);
+					r5.yz = float2((r5.x < 0.6) ? -1.0 : 0.0, (r5.x < 1.4) ? -1.0 : 0.0);
 					// add r6.xy, r4.zwzz, l(0.020000, 0.010000, 0.000000, 0.000000)
 					r6.xy = float2(r4.z + 0.02, r4.w + 0.01);
 					// mov_sat r4.zw, r4.zzzw
@@ -50407,7 +50988,7 @@ Shader "ShaderRipperTest/VariantMonster"
 					// movc r4.xy, r5.yyyy, r4.xyxx, r5.zwzz
 					r4.xy = float2(r5.y != 0.0 ? r4.x : r5.z, r5.y != 0.0 ? r4.y : r5.w);
 					// lt r3.w, l(1.500000), r4.x
-					r3.w = (1.5 < r4.x) ? 1.0 : 0.0;
+					r3.w = (1.5 < r4.x) ? -1.0 : 0.0;
 						// if_nz r3.w
 					if (any(r3.w)) {
 						// mov r3.x, r4.y
@@ -50423,7 +51004,7 @@ Shader "ShaderRipperTest/VariantMonster"
 				// endloop
 				}
 				// lt r2.x, l(0.500000), cb0[10].w
-				r2.x = (0.5 < cb0[10].w) ? 1.0 : 0.0;
+				r2.x = (0.5 < cb0[10].w) ? -1.0 : 0.0;
 					// if_nz r2.x
 				if (any(r2.x)) {
 					// mul r2.x, r0.x, l(0.250000)
@@ -50545,7 +51126,7 @@ Shader "ShaderRipperTest/VariantMonster"
 				// endif
 				}
 				// lt r2.w, l(0.500000), cb0[11].x
-				r2.w = (0.5 < cb0[11].x) ? 1.0 : 0.0;
+				r2.w = (0.5 < cb0[11].x) ? -1.0 : 0.0;
 					// if_nz r2.w
 				if (any(r2.w)) {
 					// mul r4.xyzw, cb0[8].wwww, l(0.300000, 0.520000, 0.740000, 0.960000)
@@ -50556,6 +51137,8 @@ Shader "ShaderRipperTest/VariantMonster"
 					r2.w = sin(r2.w);
 					// mad r3.y, r1.w, r4.x, -r0.x
 					r3.y = mad(r1.w, r4.x, -(r0.x));
+					// sincos null, r3.y, r3.y
+					r3.y = cos(r3.y);
 					// add r3.z, r1.w, r1.z
 					r3.z = r1.w + r1.z;
 					// mul r5.xyzw, r4.xyzw, r3.zzzz
@@ -50574,22 +51157,26 @@ Shader "ShaderRipperTest/VariantMonster"
 					r2.w = r2.w + r4.x;
 					// mad r4.x, r1.w, r4.y, -r6.x
 					r4.x = mad(r1.w, r4.y, -(r6.x));
+					// sincos null, r4.x, r4.x
+					r4.x = cos(r4.x);
 					// add r3.y, r3.y, r4.x
 					r3.y = r3.y + r4.x;
 					// mad r5.xyz, r5.yzwy, l(0.600000, 0.600000, 0.600000, 0.000000), r6.xyzx
 					r5.xyz = float3(mad(r5.y, 0.6, r6.x), mad(r5.z, 0.6, r6.y), mad(r5.w, 0.6, r6.z));
 					// sincos r5.xyz, null, r5.xyzx
-					r5.xyz = sin(r5.xyzx);
+					r5.xyz = float3(sin(r5.x), sin(r5.y), sin(r5.z));
 					// add r3.w, r3.w, r5.x
 					r3.w = r3.w + r5.x;
 					// mad r4.xy, r1.zzzz, r4.zwzz, r6.yzyy
 					r4.xy = float2(mad(r1.z, r4.z, r6.y), mad(r1.z, r4.w, r6.z));
 					// sincos r4.xy, null, r4.xyxx
-					r4.xy = sin(r4.xyxx);
+					r4.xy = float2(sin(r4.x), sin(r4.y));
 					// add r2.w, r2.w, r4.x
 					r2.w = r2.w + r4.x;
 					// mad r4.xz, r1.wwww, r4.zzwz, -r6.yyzy
 					r4.xz = float2(mad(r1.w, r4.z, -(r6.y)), mad(r1.w, r4.w, -(r6.z)));
+					// sincos null, r4.xz, r4.xxzx
+					r4.xz = float2(cos(r4.x), cos(r4.z));
 					// add r3.y, r3.y, r4.x
 					r3.y = r3.y + r4.x;
 					// add r3.w, r5.y, r3.w
@@ -50610,6 +51197,8 @@ Shader "ShaderRipperTest/VariantMonster"
 					r2.w = r2.w + r4.z;
 					// mad r4.z, r1.w, r4.x, -r6.w
 					r4.z = mad(r1.w, r4.x, -(r6.w));
+					// sincos null, r4.z, r4.z
+					r4.z = cos(r4.z);
 					// add r3.y, r3.y, r4.z
 					r3.y = r3.y + r4.z;
 					// mul r4.xz, r3.zzzz, r4.xxyx
@@ -50630,6 +51219,8 @@ Shader "ShaderRipperTest/VariantMonster"
 					r5.x = r2.w + r4.x;
 					// mad r2.w, r1.w, r4.y, -r3.w
 					r2.w = mad(r1.w, r4.y, -(r3.w));
+					// sincos null, r2.w, r2.w
+					r2.w = cos(r2.w);
 					// add r5.y, r2.w, r3.y
 					r5.y = r2.w + r3.y;
 					// mad r2.w, r4.z, l(0.600000), r3.w
@@ -50657,7 +51248,7 @@ Shader "ShaderRipperTest/VariantMonster"
 				// mul r0.y, r0.y, r1.y
 				r0.y = r0.y * r1.y;
 				// lt r1.y, r0.y, cb0[9].w
-				r1.y = (r0.y < cb0[9].w) ? 1.0 : 0.0;
+				r1.y = (r0.y < cb0[9].w) ? -1.0 : 0.0;
 				// discard_nz r1.y
 				if (any(r1.y)) discard;
 				// mul r4.xy, r0.xxxx, l(0.210000, 0.150000, 0.000000, 0.000000)
@@ -51146,7 +51737,7 @@ Shader "ShaderRipperTest/VariantMonster"
 				// mul r1.y, cb0[8].z, l(0.500000)
 				r1.y = cb0[8].z * 0.5;
 				// lt r1.y, r1.x, r1.y
-				r1.y = (r1.x < r1.y) ? 1.0 : 0.0;
+				r1.y = (r1.x < r1.y) ? -1.0 : 0.0;
 				// mad r1.z, -r1.x, l(3.000000), l(1.000000)
 				r1.z = mad(-(r1.x), 3.0, 1.0);
 				// max r1.z, r1.z, l(0.000000)
@@ -51158,7 +51749,7 @@ Shader "ShaderRipperTest/VariantMonster"
 				// mad r2.xyz, r2.xyzx, cb0[8].zzzz, r0.xzwx
 				r2.xyz = float3(mad(r2.x, cb0[8].z, r0.x), mad(r2.y, cb0[8].z, r0.z), mad(r2.z, cb0[8].z, r0.w));
 				// lt r1.x, r1.x, l(0.400000)
-				r1.x = (r1.x < 0.4) ? 1.0 : 0.0;
+				r1.x = (r1.x < 0.4) ? -1.0 : 0.0;
 				// mul r3.xyz, r0.xzwx, l(0.920000, 0.920000, 0.920000, 0.000000)
 				r3.xyz = float3(r0.x * 0.92, r0.z * 0.92, r0.w * 0.92);
 				// movc r0.xzw, r1.xxxx, r3.xxyz, r0.xxzw
@@ -51180,7 +51771,7 @@ Shader "ShaderRipperTest/VariantMonster"
 				// mul r0.xzw, r0.xxzw, cb0[10].yyyy
 				r0.xzw = float3(r0.x * cb0[10].y, r0.z * cb0[10].y, r0.w * cb0[10].y);
 				// lt r1.x, l(0.500000), cb0[11].y
-				r1.x = (0.5 < cb0[11].y) ? 1.0 : 0.0;
+				r1.x = (0.5 < cb0[11].y) ? -1.0 : 0.0;
 				// mul r1.yz, v1.xxyx, cb1[6].xxyx
 				r1.yz = float2(v1.x * _ScreenParams.x, v1.y * _ScreenParams.y);
 				// mul r1.yz, r1.yyzy, l(0.000000, 127.099998, 311.700012, 0.000000)
@@ -51244,6 +51835,28 @@ Shader "ShaderRipperTest/VariantMonster"
 			//   unnamed single lanes are shared by the Float/Range prop(s): _Iterations, _Steps, _WarpDepth, _Threshold, _Contrast, _Emission, _Saturation, _ToggleDetail, _ToggleBands, _ToggleDither
 			// cb1 = UnityPerDraw  (declared by UnityCG.cginc)
 			// cb2 = UnityPerFrame  (declared by UnityCG.cginc)
+			float4 _MainTex_TexelSize;
+			float4 _NoiseTex_ST;
+			float4 _NoiseTex_TexelSize;
+			float4 _DetailTex_ST;
+			float4 _DetailTex_TexelSize;
+			float4 _MaskTex_ST;
+			float4 _MaskTex_TexelSize;
+			float4 _Color;
+			float4 _ColorB;
+			float4 _ColorC;
+			float4 _Params;
+			float4 _Params3;
+			float _Iterations;
+			float _Steps;
+			float _WarpDepth;
+			float _Threshold;
+			float _Contrast;
+			float _Emission;
+			float _Saturation;
+			float _ToggleDetail;
+			float _ToggleBands;
+			float _ToggleDither;
 			// cbuffer order confirmed by the asset's own register index
 			// $Globals cb0: 1 slot(s) named from the compiled constant-buffer member table
 
@@ -51281,7 +51894,7 @@ Shader "ShaderRipperTest/VariantMonster"
 				// sample r0.xyzw, v1.xyxx, t0.xyzw, s3
 				r0.xyzw = tex2D(_MaskTex, float2(v1.x, v1.y));
 				// lt r0.x, r0.w, cb0[9].w
-				r0.x = (r0.w < cb0[9].w) ? 1.0 : 0.0;
+				r0.x = (r0.w < cb0[9].w) ? -1.0 : 0.0;
 				// discard_nz r0.x
 				if (any(r0.x)) discard;
 				// mul r0.x, cb0[6].z, cb1[0].y
@@ -51723,7 +52336,7 @@ Shader "ShaderRipperTest/VariantMonster"
 				// mul r2.y, r1.w, r2.x
 				r2.y = r1.w * r2.x;
 				// lt r2.z, |r0.w|, |r0.z|
-				r2.z = (abs(r0.w) < abs(r0.z)) ? 1.0 : 0.0;
+				r2.z = (abs(r0.w) < abs(r0.z)) ? -1.0 : 0.0;
 				// mad r2.y, r2.y, l(-2.000000), l(1.570796)
 				r2.y = mad(r2.y, -2.0, 1.570796);
 				// and r2.y, r2.z, r2.y
@@ -51731,7 +52344,7 @@ Shader "ShaderRipperTest/VariantMonster"
 				// mad r1.w, r1.w, r2.x, r2.y
 				r1.w = mad(r1.w, r2.x, r2.y);
 				// lt r2.x, r0.w, -r0.w
-				r2.x = (r0.w < -(r0.w)) ? 1.0 : 0.0;
+				r2.x = (r0.w < -(r0.w)) ? -1.0 : 0.0;
 				// and r2.x, r2.x, l(0xc0490fdb)
 				r2.x = ((float)((int)(r2.x) & (int)(-3.141593)));
 				// add r1.w, r1.w, r2.x
@@ -51741,9 +52354,9 @@ Shader "ShaderRipperTest/VariantMonster"
 				// max r0.z, r0.w, r0.z
 				r0.z = max(r0.w, r0.z);
 				// lt r0.w, r2.x, -r2.x
-				r0.w = (r2.x < -(r2.x)) ? 1.0 : 0.0;
+				r0.w = (r2.x < -(r2.x)) ? -1.0 : 0.0;
 				// ge r0.z, r0.z, -r0.z
-				r0.z = (r0.z >= -(r0.z)) ? 1.0 : 0.0;
+				r0.z = (r0.z >= -(r0.z)) ? -1.0 : 0.0;
 				// and r0.z, r0.z, r0.w
 				r0.z = ((((r0.z) != 0.0) && ((r0.w) != 0.0)) ? 1.0 : 0.0);
 				// movc r0.z, r0.z, -r1.w, r1.w
@@ -51836,7 +52449,7 @@ Shader "ShaderRipperTest/VariantMonster"
 					// loop
 				for (;;) {
 					// ige r3.y, r3.x, r1.z
-					r3.y = (((int)(r3.x) >= (int)(r1.z)) ? 1 : 0);
+					r3.y = (((int)(r3.x) >= (int)(r1.z)) ? -1 : 0);
 					// breakc_nz r3.y
 					if (any(r3.y)) break;
 					// itof r3.y, r3.x
@@ -52258,7 +52871,7 @@ Shader "ShaderRipperTest/VariantMonster"
 						// loop
 					for (;;) {
 						// ige r5.x, r4.w, r1.w
-						r5.x = (((int)(r4.w) >= (int)(r1.w)) ? 1 : 0);
+						r5.x = (((int)(r4.w) >= (int)(r1.w)) ? -1 : 0);
 						// breakc_nz r5.x
 						if (any(r5.x)) break;
 						// itof r5.x, r4.w
@@ -52349,7 +52962,7 @@ Shader "ShaderRipperTest/VariantMonster"
 						// mad r5.z, |r5.z|, l(2.000000), r4.z
 						r5.z = mad(abs(r5.z), 2.0, r4.z);
 						// lt r5.w, l(2.200000), r5.z
-						r5.w = (2.2 < r5.z) ? 1.0 : 0.0;
+						r5.w = (2.2 < r5.z) ? -1.0 : 0.0;
 							// if_nz r5.w
 						if (any(r5.w)) {
 							// iadd r5.w, r4.w, l(1)
@@ -52383,7 +52996,7 @@ Shader "ShaderRipperTest/VariantMonster"
 					// mul r3.yz, r4.xxyx, l(0.000000, 1.040000, 1.040000, 0.000000)
 					r3.yz = float2(r4.x * 1.04, r4.y * 1.04);
 					// lt r5.xy, r4.zzzz, l(0.600000, 1.400000, 0.000000, 0.000000)
-					r5.xy = float2((r4.z < 0.6) ? 1.0 : 0.0, (r4.z < 1.4) ? 1.0 : 0.0);
+					r5.xy = float2((r4.z < 0.6) ? -1.0 : 0.0, (r4.z < 1.4) ? -1.0 : 0.0);
 					// add r5.zw, r4.xxxy, l(0.000000, 0.000000, 0.020000, 0.010000)
 					r5.zw = float2(r4.x + 0.02, r4.y + 0.01);
 					// mov_sat r4.xy, r4.xyxx
@@ -52395,7 +53008,7 @@ Shader "ShaderRipperTest/VariantMonster"
 					// movc r3.yz, r5.xxxx, r3.yyzy, r5.yyzy
 					r3.yz = float2(r5.x != 0.0 ? r3.y : r5.y, r5.x != 0.0 ? r3.z : r5.z);
 					// lt r3.w, l(1.500000), r3.y
-					r3.w = (1.5 < r3.y) ? 1.0 : 0.0;
+					r3.w = (1.5 < r3.y) ? -1.0 : 0.0;
 						// if_nz r3.w
 					if (any(r3.w)) {
 						// mov r2.z, r3.z
@@ -52411,7 +53024,7 @@ Shader "ShaderRipperTest/VariantMonster"
 				// endloop
 				}
 				// lt r1.z, l(0.500000), cb0[10].w
-				r1.z = (0.5 < cb0[10].w) ? 1.0 : 0.0;
+				r1.z = (0.5 < cb0[10].w) ? -1.0 : 0.0;
 					// if_nz r1.z
 				if (any(r1.z)) {
 					// mul r1.z, r0.x, l(0.250000)
@@ -52533,7 +53146,7 @@ Shader "ShaderRipperTest/VariantMonster"
 				// endif
 				}
 				// lt r1.z, l(0.500000), cb0[11].x
-				r1.z = (0.5 < cb0[11].x) ? 1.0 : 0.0;
+				r1.z = (0.5 < cb0[11].x) ? -1.0 : 0.0;
 					// if_nz r1.z
 				if (any(r1.z)) {
 					// mul r4.xyzw, cb0[8].wwww, l(0.300000, 0.520000, 0.740000, 0.960000)
@@ -52544,6 +53157,8 @@ Shader "ShaderRipperTest/VariantMonster"
 					r1.z = sin(r1.z);
 					// mad r1.w, r0.w, r4.x, -r0.x
 					r1.w = mad(r0.w, r4.x, -(r0.x));
+					// sincos null, r1.w, r1.w
+					r1.w = cos(r1.w);
 					// add r2.x, r0.w, r0.z
 					r2.x = r0.w + r0.z;
 					// mul r5.xyzw, r4.xyzw, r2.xxxx
@@ -52562,22 +53177,26 @@ Shader "ShaderRipperTest/VariantMonster"
 					r1.z = r1.z + r2.y;
 					// mad r2.y, r0.w, r4.y, -r6.x
 					r2.y = mad(r0.w, r4.y, -(r6.x));
+					// sincos null, r2.y, r2.y
+					r2.y = cos(r2.y);
 					// add r1.w, r1.w, r2.y
 					r1.w = r1.w + r2.y;
 					// mad r5.xyz, r5.yzwy, l(0.600000, 0.600000, 0.600000, 0.000000), r6.xyzx
 					r5.xyz = float3(mad(r5.y, 0.6, r6.x), mad(r5.z, 0.6, r6.y), mad(r5.w, 0.6, r6.z));
 					// sincos r5.xyz, null, r5.xyzx
-					r5.xyz = sin(r5.xyzx);
+					r5.xyz = float3(sin(r5.x), sin(r5.y), sin(r5.z));
 					// add r0.x, r0.x, r5.x
 					r0.x = r0.x + r5.x;
 					// mad r2.yw, r0.zzzz, r4.zzzw, r6.yyyz
 					r2.yw = float2(mad(r0.z, r4.z, r6.y), mad(r0.z, r4.w, r6.z));
 					// sincos r2.yw, null, r2.yyyw
-					r2.yw = sin(r2.yyyw);
+					r2.yw = float2(sin(r2.y), sin(r2.w));
 					// add r1.z, r1.z, r2.y
 					r1.z = r1.z + r2.y;
 					// mad r4.xy, r0.wwww, r4.zwzz, -r6.yzyy
 					r4.xy = float2(mad(r0.w, r4.z, -(r6.y)), mad(r0.w, r4.w, -(r6.z)));
+					// sincos null, r4.xy, r4.xyxx
+					r4.xy = float2(cos(r4.x), cos(r4.y));
 					// add r1.w, r1.w, r4.x
 					r1.w = r1.w + r4.x;
 					// add r0.x, r5.y, r0.x
@@ -52598,6 +53217,8 @@ Shader "ShaderRipperTest/VariantMonster"
 					r1.z = r1.z + r3.w;
 					// mad r3.w, r0.w, r2.y, -r6.w
 					r3.w = mad(r0.w, r2.y, -(r6.w));
+					// sincos null, r3.w, r3.w
+					r3.w = cos(r3.w);
 					// add r1.w, r1.w, r3.w
 					r1.w = r1.w + r3.w;
 					// mul r2.xy, r2.ywyy, r2.xxxx
@@ -52618,6 +53239,8 @@ Shader "ShaderRipperTest/VariantMonster"
 					r4.x = r1.z + r3.w;
 					// mad r1.z, r0.w, r2.w, -r2.x
 					r1.z = mad(r0.w, r2.w, -(r2.x));
+					// sincos null, r1.z, r1.z
+					r1.z = cos(r1.z);
 					// add r4.y, r1.z, r1.w
 					r4.y = r1.z + r1.w;
 					// mad r1.z, r2.y, l(0.600000), r2.x
@@ -52645,7 +53268,7 @@ Shader "ShaderRipperTest/VariantMonster"
 				// mul r0.x, r0.y, r0.x
 				r0.x = r0.y * r0.x;
 				// lt r0.y, r0.x, cb0[9].w
-				r0.y = (r0.x < cb0[9].w) ? 1.0 : 0.0;
+				r0.y = (r0.x < cb0[9].w) ? -1.0 : 0.0;
 				// discard_nz r0.y
 				if (any(r0.y)) discard;
 				// mad r1.xyz, r3.xyzx, l(0.900000, 0.900000, 0.900000, 0.000000), l(0.600000, 0.600000, 0.600000, 0.000000)
@@ -52683,7 +53306,7 @@ Shader "ShaderRipperTest/VariantMonster"
 				// mul r0.z, cb0[8].z, l(0.500000)
 				r0.z = cb0[8].z * 0.5;
 				// lt r0.z, r0.y, r0.z
-				r0.z = (r0.y < r0.z) ? 1.0 : 0.0;
+				r0.z = (r0.y < r0.z) ? -1.0 : 0.0;
 				// mad r0.w, -r0.y, l(3.000000), l(1.000000)
 				r0.w = mad(-(r0.y), 3.0, 1.0);
 				// max r0.w, r0.w, l(0.000000)
@@ -52695,7 +53318,7 @@ Shader "ShaderRipperTest/VariantMonster"
 				// mad r2.xyz, r2.xyzx, cb0[8].zzzz, r1.xyzx
 				r2.xyz = float3(mad(r2.x, cb0[8].z, r1.x), mad(r2.y, cb0[8].z, r1.y), mad(r2.z, cb0[8].z, r1.z));
 				// lt r0.y, r0.y, l(0.400000)
-				r0.y = (r0.y < 0.4) ? 1.0 : 0.0;
+				r0.y = (r0.y < 0.4) ? -1.0 : 0.0;
 				// mul r3.xyz, r1.xyzx, l(0.920000, 0.920000, 0.920000, 0.000000)
 				r3.xyz = float3(r1.x * 0.92, r1.y * 0.92, r1.z * 0.92);
 				// movc r1.xyz, r0.yyyy, r3.xyzx, r1.xyzx
@@ -52717,7 +53340,7 @@ Shader "ShaderRipperTest/VariantMonster"
 				// mul r0.yzw, r0.yyzw, cb0[10].yyyy
 				r0.yzw = float3(r0.y * cb0[10].y, r0.z * cb0[10].y, r0.w * cb0[10].y);
 				// lt r1.x, l(0.500000), cb0[11].y
-				r1.x = (0.5 < cb0[11].y) ? 1.0 : 0.0;
+				r1.x = (0.5 < cb0[11].y) ? -1.0 : 0.0;
 				// mul r1.yz, v1.xxyx, cb1[6].xxyx
 				r1.yz = float2(v1.x * _ScreenParams.x, v1.y * _ScreenParams.y);
 				// mul r1.yz, r1.yyzy, l(0.000000, 127.099998, 311.700012, 0.000000)
@@ -52789,6 +53412,15 @@ Shader "ShaderRipperTest/VariantMonster"
 			// touches; they stay undeclared because nothing can pin them.
 			// cb1 = UnityPerDraw  (declared by UnityCG.cginc)
 			// cb2 = UnityPerFrame  (declared by UnityCG.cginc)
+			float4 _MainTex_TexelSize;
+			float4 _NoiseTex_ST;
+			float4 _NoiseTex_TexelSize;
+			float4 _DetailTex_ST;
+			float4 _DetailTex_TexelSize;
+			float4 _MaskTex_ST;
+			float4 _MaskTex_TexelSize;
+			float4 _ColorB;
+			float4 _Params2;
 			// cbuffer order confirmed by the asset's own register index
 			// $Globals cb0: 1 slot(s) named from the compiled constant-buffer member table
 			// $Globals cb0: 14 member(s) named from the asset's own constant-buffer reflection (192 bytes)
@@ -52827,7 +53459,7 @@ Shader "ShaderRipperTest/VariantMonster"
 				// sample r0.xyzw, v1.xyxx, t0.xyzw, s3
 				r0.xyzw = tex2D(_MaskTex, float2(v1.x, v1.y));
 				// lt r0.x, r0.w, cb0[9].w
-				r0.x = (r0.w < _Threshold) ? 1.0 : 0.0;
+				r0.x = (r0.w < _Threshold) ? -1.0 : 0.0;
 				// discard_nz r0.x
 				if (any(r0.x)) discard;
 				// mul r0.x, cb0[6].z, cb1[0].y
@@ -53250,6 +53882,8 @@ Shader "ShaderRipperTest/VariantMonster"
 				r2.x = sin(r1.z);
 				// mad r1.y, r0.z, l(5.000000), -r1.y
 				r1.y = mad(r0.z, 5.0, -(r1.y));
+				// sincos null, r2.y, r1.y
+				r2.y = cos(r1.y);
 				// mul r1.yz, r2.xxyx, cb0[6].yyyy
 				r1.yz = float2(r2.x * _Params.y, r2.y * _Params.y);
 				// mad r0.zw, r1.yyyz, l(0.000000, 0.000000, 0.250000, 0.250000), r0.zzzw
@@ -53301,7 +53935,7 @@ Shader "ShaderRipperTest/VariantMonster"
 					// loop
 				for (;;) {
 					// ige r3.y, r3.x, r1.z
-					r3.y = (((int)(r3.x) >= (int)(r1.z)) ? 1 : 0);
+					r3.y = (((int)(r3.x) >= (int)(r1.z)) ? -1 : 0);
 					// breakc_nz r3.y
 					if (any(r3.y)) break;
 					// itof r3.y, r3.x
@@ -53723,7 +54357,7 @@ Shader "ShaderRipperTest/VariantMonster"
 						// loop
 					for (;;) {
 						// ige r5.x, r4.w, r1.w
-						r5.x = (((int)(r4.w) >= (int)(r1.w)) ? 1 : 0);
+						r5.x = (((int)(r4.w) >= (int)(r1.w)) ? -1 : 0);
 						// breakc_nz r5.x
 						if (any(r5.x)) break;
 						// itof r5.x, r4.w
@@ -53814,7 +54448,7 @@ Shader "ShaderRipperTest/VariantMonster"
 						// mad r5.z, |r5.z|, l(2.000000), r4.z
 						r5.z = mad(abs(r5.z), 2.0, r4.z);
 						// lt r5.w, l(2.200000), r5.z
-						r5.w = (2.2 < r5.z) ? 1.0 : 0.0;
+						r5.w = (2.2 < r5.z) ? -1.0 : 0.0;
 							// if_nz r5.w
 						if (any(r5.w)) {
 							// iadd r5.w, r4.w, l(1)
@@ -53848,7 +54482,7 @@ Shader "ShaderRipperTest/VariantMonster"
 					// mul r3.yz, r4.xxyx, l(0.000000, 1.040000, 1.040000, 0.000000)
 					r3.yz = float2(r4.x * 1.04, r4.y * 1.04);
 					// lt r5.xy, r4.zzzz, l(0.600000, 1.400000, 0.000000, 0.000000)
-					r5.xy = float2((r4.z < 0.6) ? 1.0 : 0.0, (r4.z < 1.4) ? 1.0 : 0.0);
+					r5.xy = float2((r4.z < 0.6) ? -1.0 : 0.0, (r4.z < 1.4) ? -1.0 : 0.0);
 					// add r5.zw, r4.xxxy, l(0.000000, 0.000000, 0.020000, 0.010000)
 					r5.zw = float2(r4.x + 0.02, r4.y + 0.01);
 					// mov_sat r4.xy, r4.xyxx
@@ -53860,7 +54494,7 @@ Shader "ShaderRipperTest/VariantMonster"
 					// movc r3.yz, r5.xxxx, r3.yyzy, r5.yyzy
 					r3.yz = float2(r5.x != 0.0 ? r3.y : r5.y, r5.x != 0.0 ? r3.z : r5.z);
 					// lt r3.w, l(1.500000), r3.y
-					r3.w = (1.5 < r3.y) ? 1.0 : 0.0;
+					r3.w = (1.5 < r3.y) ? -1.0 : 0.0;
 						// if_nz r3.w
 					if (any(r3.w)) {
 						// mov r2.z, r3.z
@@ -53876,7 +54510,7 @@ Shader "ShaderRipperTest/VariantMonster"
 				// endloop
 				}
 				// lt r1.z, l(0.500000), cb0[10].w
-				r1.z = (0.5 < _ToggleDetail) ? 1.0 : 0.0;
+				r1.z = (0.5 < _ToggleDetail) ? -1.0 : 0.0;
 					// if_nz r1.z
 				if (any(r1.z)) {
 					// mul r1.z, r0.x, l(0.250000)
@@ -53998,7 +54632,7 @@ Shader "ShaderRipperTest/VariantMonster"
 				// endif
 				}
 				// lt r1.z, l(0.500000), cb0[11].x
-				r1.z = (0.5 < _ToggleBands) ? 1.0 : 0.0;
+				r1.z = (0.5 < _ToggleBands) ? -1.0 : 0.0;
 					// if_nz r1.z
 				if (any(r1.z)) {
 					// mul r4.xyzw, cb0[8].wwww, l(0.300000, 0.520000, 0.740000, 0.960000)
@@ -54009,6 +54643,8 @@ Shader "ShaderRipperTest/VariantMonster"
 					r1.z = sin(r1.z);
 					// mad r1.w, r0.w, r4.x, -r0.x
 					r1.w = mad(r0.w, r4.x, -(r0.x));
+					// sincos null, r1.w, r1.w
+					r1.w = cos(r1.w);
 					// add r2.x, r0.w, r0.z
 					r2.x = r0.w + r0.z;
 					// mul r5.xyzw, r4.xyzw, r2.xxxx
@@ -54027,22 +54663,26 @@ Shader "ShaderRipperTest/VariantMonster"
 					r1.z = r1.z + r2.y;
 					// mad r2.y, r0.w, r4.y, -r6.x
 					r2.y = mad(r0.w, r4.y, -(r6.x));
+					// sincos null, r2.y, r2.y
+					r2.y = cos(r2.y);
 					// add r1.w, r1.w, r2.y
 					r1.w = r1.w + r2.y;
 					// mad r5.xyz, r5.yzwy, l(0.600000, 0.600000, 0.600000, 0.000000), r6.xyzx
 					r5.xyz = float3(mad(r5.y, 0.6, r6.x), mad(r5.z, 0.6, r6.y), mad(r5.w, 0.6, r6.z));
 					// sincos r5.xyz, null, r5.xyzx
-					r5.xyz = sin(r5.xyzx);
+					r5.xyz = float3(sin(r5.x), sin(r5.y), sin(r5.z));
 					// add r0.x, r0.x, r5.x
 					r0.x = r0.x + r5.x;
 					// mad r2.yw, r0.zzzz, r4.zzzw, r6.yyyz
 					r2.yw = float2(mad(r0.z, r4.z, r6.y), mad(r0.z, r4.w, r6.z));
 					// sincos r2.yw, null, r2.yyyw
-					r2.yw = sin(r2.yyyw);
+					r2.yw = float2(sin(r2.y), sin(r2.w));
 					// add r1.z, r1.z, r2.y
 					r1.z = r1.z + r2.y;
 					// mad r4.xy, r0.wwww, r4.zwzz, -r6.yzyy
 					r4.xy = float2(mad(r0.w, r4.z, -(r6.y)), mad(r0.w, r4.w, -(r6.z)));
+					// sincos null, r4.xy, r4.xyxx
+					r4.xy = float2(cos(r4.x), cos(r4.y));
 					// add r1.w, r1.w, r4.x
 					r1.w = r1.w + r4.x;
 					// add r0.x, r5.y, r0.x
@@ -54063,6 +54703,8 @@ Shader "ShaderRipperTest/VariantMonster"
 					r1.z = r1.z + r3.w;
 					// mad r3.w, r0.w, r2.y, -r6.w
 					r3.w = mad(r0.w, r2.y, -(r6.w));
+					// sincos null, r3.w, r3.w
+					r3.w = cos(r3.w);
 					// add r1.w, r1.w, r3.w
 					r1.w = r1.w + r3.w;
 					// mul r2.xy, r2.ywyy, r2.xxxx
@@ -54083,6 +54725,8 @@ Shader "ShaderRipperTest/VariantMonster"
 					r4.x = r1.z + r3.w;
 					// mad r1.z, r0.w, r2.w, -r2.x
 					r1.z = mad(r0.w, r2.w, -(r2.x));
+					// sincos null, r1.z, r1.z
+					r1.z = cos(r1.z);
 					// add r4.y, r1.z, r1.w
 					r4.y = r1.z + r1.w;
 					// mad r1.z, r2.y, l(0.600000), r2.x
@@ -54110,7 +54754,7 @@ Shader "ShaderRipperTest/VariantMonster"
 				// mul r0.x, r0.y, r0.x
 				r0.x = r0.y * r0.x;
 				// lt r0.y, r0.x, cb0[9].w
-				r0.y = (r0.x < _Threshold) ? 1.0 : 0.0;
+				r0.y = (r0.x < _Threshold) ? -1.0 : 0.0;
 				// discard_nz r0.y
 				if (any(r0.y)) discard;
 				// mad r1.xyz, r3.xyzx, l(0.900000, 0.900000, 0.900000, 0.000000), l(0.600000, 0.600000, 0.600000, 0.000000)
@@ -54148,7 +54792,7 @@ Shader "ShaderRipperTest/VariantMonster"
 				// mul r0.z, cb0[8].z, l(0.500000)
 				r0.z = _Params3.z * 0.5;
 				// lt r0.z, r0.y, r0.z
-				r0.z = (r0.y < r0.z) ? 1.0 : 0.0;
+				r0.z = (r0.y < r0.z) ? -1.0 : 0.0;
 				// mad r0.w, -r0.y, l(3.000000), l(1.000000)
 				r0.w = mad(-(r0.y), 3.0, 1.0);
 				// max r0.w, r0.w, l(0.000000)
@@ -54160,7 +54804,7 @@ Shader "ShaderRipperTest/VariantMonster"
 				// mad r2.xyz, r2.xyzx, cb0[8].zzzz, r1.xyzx
 				r2.xyz = float3(mad(r2.x, _Params3.z, r1.x), mad(r2.y, _Params3.z, r1.y), mad(r2.z, _Params3.z, r1.z));
 				// lt r0.y, r0.y, l(0.400000)
-				r0.y = (r0.y < 0.4) ? 1.0 : 0.0;
+				r0.y = (r0.y < 0.4) ? -1.0 : 0.0;
 				// mul r3.xyz, r1.xyzx, l(0.920000, 0.920000, 0.920000, 0.000000)
 				r3.xyz = float3(r1.x * 0.92, r1.y * 0.92, r1.z * 0.92);
 				// movc r1.xyz, r0.yyyy, r3.xyzx, r1.xyzx
@@ -54182,7 +54826,7 @@ Shader "ShaderRipperTest/VariantMonster"
 				// mul r0.yzw, r0.yyzw, cb0[10].yyyy
 				r0.yzw = float3(r0.y * _Emission, r0.z * _Emission, r0.w * _Emission);
 				// lt r1.x, l(0.500000), cb0[11].y
-				r1.x = (0.5 < _ToggleDither) ? 1.0 : 0.0;
+				r1.x = (0.5 < _ToggleDither) ? -1.0 : 0.0;
 				// mul r1.yz, v1.xxyx, cb1[6].xxyx
 				r1.yz = float2(v1.x * _ScreenParams.x, v1.y * _ScreenParams.y);
 				// mul r1.yz, r1.yyzy, l(0.000000, 127.099998, 311.700012, 0.000000)
@@ -54247,6 +54891,27 @@ Shader "ShaderRipperTest/VariantMonster"
 			//   unnamed single lanes are shared by the Float/Range prop(s): _Iterations, _Steps, _WarpDepth, _Threshold, _Contrast, _Emission, _Saturation, _ToggleDetail, _ToggleBands, _ToggleDither
 			// cb1 = UnityPerDraw  (declared by UnityCG.cginc)
 			// cb2 = UnityPerFrame  (declared by UnityCG.cginc)
+			float4 _MainTex_TexelSize;
+			float4 _NoiseTex_ST;
+			float4 _NoiseTex_TexelSize;
+			float4 _DetailTex_ST;
+			float4 _DetailTex_TexelSize;
+			float4 _MaskTex_ST;
+			float4 _MaskTex_TexelSize;
+			float4 _Color;
+			float4 _ColorC;
+			float4 _Params;
+			float4 _Params3;
+			float _Iterations;
+			float _Steps;
+			float _WarpDepth;
+			float _Threshold;
+			float _Contrast;
+			float _Emission;
+			float _Saturation;
+			float _ToggleDetail;
+			float _ToggleBands;
+			float _ToggleDither;
 			// cbuffer order confirmed by the asset's own register index
 			// $Globals cb0: 1 slot(s) named from the compiled constant-buffer member table
 			// $Globals cb0: 2 slot(s) named from the compiled constant-buffer member table
@@ -54285,7 +54950,7 @@ Shader "ShaderRipperTest/VariantMonster"
 				// sample r0.xyzw, v1.xyxx, t0.xyzw, s3
 				r0.xyzw = tex2D(_MaskTex, float2(v1.x, v1.y));
 				// lt r0.x, r0.w, cb0[9].w
-				r0.x = (r0.w < cb0[9].w) ? 1.0 : 0.0;
+				r0.x = (r0.w < cb0[9].w) ? -1.0 : 0.0;
 				// discard_nz r0.x
 				if (any(r0.x)) discard;
 				// mul r0.x, cb0[6].z, cb1[0].y
@@ -54708,6 +55373,8 @@ Shader "ShaderRipperTest/VariantMonster"
 				r2.x = sin(r1.z);
 				// mad r1.y, r0.z, l(5.000000), -r1.y
 				r1.y = mad(r0.z, 5.0, -(r1.y));
+				// sincos null, r2.y, r1.y
+				r2.y = cos(r1.y);
 				// mul r1.yz, r2.xxyx, cb0[6].yyyy
 				r1.yz = float2(r2.x * cb0[6].y, r2.y * cb0[6].y);
 				// mad r0.zw, r1.yyyz, l(0.000000, 0.000000, 0.250000, 0.250000), r0.zzzw
@@ -54755,7 +55422,7 @@ Shader "ShaderRipperTest/VariantMonster"
 					// loop
 				for (;;) {
 					// ige r3.w, r3.z, r2.x
-					r3.w = (((int)(r3.z) >= (int)(r2.x)) ? 1 : 0);
+					r3.w = (((int)(r3.z) >= (int)(r2.x)) ? -1 : 0);
 					// breakc_nz r3.w
 					if (any(r3.w)) break;
 					// itof r3.w, r3.z
@@ -55169,7 +55836,7 @@ Shader "ShaderRipperTest/VariantMonster"
 						// loop
 					for (;;) {
 						// ige r5.z, r5.y, r2.y
-						r5.z = (((int)(r5.y) >= (int)(r2.y)) ? 1 : 0);
+						r5.z = (((int)(r5.y) >= (int)(r2.y)) ? -1 : 0);
 						// breakc_nz r5.z
 						if (any(r5.z)) break;
 						// itof r5.z, r5.y
@@ -55262,7 +55929,7 @@ Shader "ShaderRipperTest/VariantMonster"
 						// mad r6.x, |r6.x|, l(2.000000), r5.x
 						r6.x = mad(abs(r6.x), 2.0, r5.x);
 						// lt r6.y, l(2.200000), r6.x
-						r6.y = (2.2 < r6.x) ? 1.0 : 0.0;
+						r6.y = (2.2 < r6.x) ? -1.0 : 0.0;
 							// if_nz r6.y
 						if (any(r6.y)) {
 							// iadd r6.y, r5.y, l(1)
@@ -55296,7 +55963,7 @@ Shader "ShaderRipperTest/VariantMonster"
 					// mul r4.xy, r4.zwzz, l(1.040000, 1.040000, 0.000000, 0.000000)
 					r4.xy = float2(r4.z * 1.04, r4.w * 1.04);
 					// lt r5.yz, r5.xxxx, l(0.000000, 0.600000, 1.400000, 0.000000)
-					r5.yz = float2((r5.x < 0.6) ? 1.0 : 0.0, (r5.x < 1.4) ? 1.0 : 0.0);
+					r5.yz = float2((r5.x < 0.6) ? -1.0 : 0.0, (r5.x < 1.4) ? -1.0 : 0.0);
 					// add r6.xy, r4.zwzz, l(0.020000, 0.010000, 0.000000, 0.000000)
 					r6.xy = float2(r4.z + 0.02, r4.w + 0.01);
 					// mov_sat r4.zw, r4.zzzw
@@ -55308,7 +55975,7 @@ Shader "ShaderRipperTest/VariantMonster"
 					// movc r4.xy, r5.yyyy, r4.xyxx, r5.zwzz
 					r4.xy = float2(r5.y != 0.0 ? r4.x : r5.z, r5.y != 0.0 ? r4.y : r5.w);
 					// lt r3.w, l(1.500000), r4.x
-					r3.w = (1.5 < r4.x) ? 1.0 : 0.0;
+					r3.w = (1.5 < r4.x) ? -1.0 : 0.0;
 						// if_nz r3.w
 					if (any(r3.w)) {
 						// mov r3.x, r4.y
@@ -55324,7 +55991,7 @@ Shader "ShaderRipperTest/VariantMonster"
 				// endloop
 				}
 				// lt r2.x, l(0.500000), cb0[10].w
-				r2.x = (0.5 < cb0[10].w) ? 1.0 : 0.0;
+				r2.x = (0.5 < cb0[10].w) ? -1.0 : 0.0;
 					// if_nz r2.x
 				if (any(r2.x)) {
 					// mul r2.x, r0.x, l(0.250000)
@@ -55446,7 +56113,7 @@ Shader "ShaderRipperTest/VariantMonster"
 				// endif
 				}
 				// lt r2.w, l(0.500000), cb0[11].x
-				r2.w = (0.5 < cb0[11].x) ? 1.0 : 0.0;
+				r2.w = (0.5 < cb0[11].x) ? -1.0 : 0.0;
 					// if_nz r2.w
 				if (any(r2.w)) {
 					// mul r4.xyzw, cb0[8].wwww, l(0.300000, 0.520000, 0.740000, 0.960000)
@@ -55457,6 +56124,8 @@ Shader "ShaderRipperTest/VariantMonster"
 					r2.w = sin(r2.w);
 					// mad r3.y, r0.w, r4.x, -r0.x
 					r3.y = mad(r0.w, r4.x, -(r0.x));
+					// sincos null, r3.y, r3.y
+					r3.y = cos(r3.y);
 					// add r3.z, r0.w, r0.z
 					r3.z = r0.w + r0.z;
 					// mul r5.xyzw, r4.xyzw, r3.zzzz
@@ -55475,22 +56144,26 @@ Shader "ShaderRipperTest/VariantMonster"
 					r2.w = r2.w + r4.x;
 					// mad r4.x, r0.w, r4.y, -r6.x
 					r4.x = mad(r0.w, r4.y, -(r6.x));
+					// sincos null, r4.x, r4.x
+					r4.x = cos(r4.x);
 					// add r3.y, r3.y, r4.x
 					r3.y = r3.y + r4.x;
 					// mad r5.xyz, r5.yzwy, l(0.600000, 0.600000, 0.600000, 0.000000), r6.xyzx
 					r5.xyz = float3(mad(r5.y, 0.6, r6.x), mad(r5.z, 0.6, r6.y), mad(r5.w, 0.6, r6.z));
 					// sincos r5.xyz, null, r5.xyzx
-					r5.xyz = sin(r5.xyzx);
+					r5.xyz = float3(sin(r5.x), sin(r5.y), sin(r5.z));
 					// add r3.w, r3.w, r5.x
 					r3.w = r3.w + r5.x;
 					// mad r4.xy, r0.zzzz, r4.zwzz, r6.yzyy
 					r4.xy = float2(mad(r0.z, r4.z, r6.y), mad(r0.z, r4.w, r6.z));
 					// sincos r4.xy, null, r4.xyxx
-					r4.xy = sin(r4.xyxx);
+					r4.xy = float2(sin(r4.x), sin(r4.y));
 					// add r2.w, r2.w, r4.x
 					r2.w = r2.w + r4.x;
 					// mad r4.xz, r0.wwww, r4.zzwz, -r6.yyzy
 					r4.xz = float2(mad(r0.w, r4.z, -(r6.y)), mad(r0.w, r4.w, -(r6.z)));
+					// sincos null, r4.xz, r4.xxzx
+					r4.xz = float2(cos(r4.x), cos(r4.z));
 					// add r3.y, r3.y, r4.x
 					r3.y = r3.y + r4.x;
 					// add r3.w, r5.y, r3.w
@@ -55511,6 +56184,8 @@ Shader "ShaderRipperTest/VariantMonster"
 					r2.w = r2.w + r4.z;
 					// mad r4.z, r0.w, r4.x, -r6.w
 					r4.z = mad(r0.w, r4.x, -(r6.w));
+					// sincos null, r4.z, r4.z
+					r4.z = cos(r4.z);
 					// add r3.y, r3.y, r4.z
 					r3.y = r3.y + r4.z;
 					// mul r4.xz, r3.zzzz, r4.xxyx
@@ -55531,6 +56206,8 @@ Shader "ShaderRipperTest/VariantMonster"
 					r5.x = r2.w + r4.x;
 					// mad r2.w, r0.w, r4.y, -r3.w
 					r2.w = mad(r0.w, r4.y, -(r3.w));
+					// sincos null, r2.w, r2.w
+					r2.w = cos(r2.w);
 					// add r5.y, r2.w, r3.y
 					r5.y = r2.w + r3.y;
 					// mad r2.w, r4.z, l(0.600000), r3.w
@@ -55574,7 +56251,7 @@ Shader "ShaderRipperTest/VariantMonster"
 					// loop
 				for (;;) {
 					// ige r4.y, r4.x, r1.w
-					r4.y = (((int)(r4.x) >= (int)(r1.w)) ? 1 : 0);
+					r4.y = (((int)(r4.x) >= (int)(r1.w)) ? -1 : 0);
 					// breakc_nz r4.y
 					if (any(r4.y)) break;
 					// itof r4.y, r4.x
@@ -56001,7 +56678,7 @@ Shader "ShaderRipperTest/VariantMonster"
 					// mad r4.y, r4.y, r4.z, r2.w
 					r4.y = mad(r4.y, r4.z, r2.w);
 					// lt r4.z, l(1.100000), r4.y
-					r4.z = (1.1 < r4.y) ? 1.0 : 0.0;
+					r4.z = (1.1 < r4.y) ? -1.0 : 0.0;
 						// if_nz r4.z
 					if (any(r4.z)) {
 						// mov r2.w, r4.y
@@ -56025,7 +56702,7 @@ Shader "ShaderRipperTest/VariantMonster"
 				// mul r0.y, r0.y, r1.x
 				r0.y = r0.y * r1.x;
 				// lt r1.x, r0.y, cb0[9].w
-				r1.x = (r0.y < cb0[9].w) ? 1.0 : 0.0;
+				r1.x = (r0.y < cb0[9].w) ? -1.0 : 0.0;
 				// discard_nz r1.x
 				if (any(r1.x)) discard;
 				// mad r1.xzw, r2.xxyz, l(0.900000, 0.000000, 0.900000, 0.900000), l(0.600000, 0.000000, 0.600000, 0.600000)
@@ -56063,7 +56740,7 @@ Shader "ShaderRipperTest/VariantMonster"
 				// mul r2.y, cb0[8].z, l(0.500000)
 				r2.y = cb0[8].z * 0.5;
 				// lt r2.y, r2.x, r2.y
-				r2.y = (r2.x < r2.y) ? 1.0 : 0.0;
+				r2.y = (r2.x < r2.y) ? -1.0 : 0.0;
 				// mad r2.z, -r2.x, l(3.000000), l(1.000000)
 				r2.z = mad(-(r2.x), 3.0, 1.0);
 				// max r2.z, r2.z, l(0.000000)
@@ -56075,7 +56752,7 @@ Shader "ShaderRipperTest/VariantMonster"
 				// mad r3.xyz, r3.xyzx, cb0[8].zzzz, r1.xzwx
 				r3.xyz = float3(mad(r3.x, cb0[8].z, r1.x), mad(r3.y, cb0[8].z, r1.z), mad(r3.z, cb0[8].z, r1.w));
 				// lt r2.x, r2.x, l(0.400000)
-				r2.x = (r2.x < 0.4) ? 1.0 : 0.0;
+				r2.x = (r2.x < 0.4) ? -1.0 : 0.0;
 				// mul r4.xyz, r1.xzwx, l(0.920000, 0.920000, 0.920000, 0.000000)
 				r4.xyz = float3(r1.x * 0.92, r1.z * 0.92, r1.w * 0.92);
 				// movc r1.xzw, r2.xxxx, r4.xxyz, r1.xxzw
@@ -56933,7 +57610,7 @@ Shader "ShaderRipperTest/VariantMonster"
 				// mul r0.xzw, r0.xxzw, cb0[10].yyyy
 				r0.xzw = float3(r0.x * cb0[10].y, r0.z * cb0[10].y, r0.w * cb0[10].y);
 				// lt r1.x, l(0.500000), cb0[11].y
-				r1.x = (0.5 < cb0[11].y) ? 1.0 : 0.0;
+				r1.x = (0.5 < cb0[11].y) ? -1.0 : 0.0;
 				// mul r1.yz, v1.xxyx, cb1[6].xxyx
 				r1.yz = float2(v1.x * _ScreenParams.x, v1.y * _ScreenParams.y);
 				// mul r1.yz, r1.yyzy, l(0.000000, 127.099998, 311.700012, 0.000000)
@@ -56998,6 +57675,27 @@ Shader "ShaderRipperTest/VariantMonster"
 			//   unnamed single lanes are shared by the Float/Range prop(s): _Iterations, _Steps, _WarpDepth, _Threshold, _Contrast, _Emission, _Saturation, _ToggleDetail, _ToggleBands, _ToggleDither
 			// cb1 = UnityPerDraw  (declared by UnityCG.cginc)
 			// cb2 = UnityPerFrame  (declared by UnityCG.cginc)
+			float4 _MainTex_TexelSize;
+			float4 _NoiseTex_ST;
+			float4 _NoiseTex_TexelSize;
+			float4 _DetailTex_ST;
+			float4 _DetailTex_TexelSize;
+			float4 _MaskTex_ST;
+			float4 _MaskTex_TexelSize;
+			float4 _Color;
+			float4 _ColorC;
+			float4 _Params;
+			float4 _Params3;
+			float _Iterations;
+			float _Steps;
+			float _WarpDepth;
+			float _Threshold;
+			float _Contrast;
+			float _Emission;
+			float _Saturation;
+			float _ToggleDetail;
+			float _ToggleBands;
+			float _ToggleDither;
 			// cbuffer order confirmed by the asset's own register index
 			// $Globals cb0: 1 slot(s) named from the compiled constant-buffer member table
 			// $Globals cb0: 2 slot(s) named from the compiled constant-buffer member table
@@ -57036,7 +57734,7 @@ Shader "ShaderRipperTest/VariantMonster"
 				// sample r0.xyzw, v1.xyxx, t0.xyzw, s3
 				r0.xyzw = tex2D(_MaskTex, float2(v1.x, v1.y));
 				// lt r0.x, r0.w, cb0[9].w
-				r0.x = (r0.w < cb0[9].w) ? 1.0 : 0.0;
+				r0.x = (r0.w < cb0[9].w) ? -1.0 : 0.0;
 				// discard_nz r0.x
 				if (any(r0.x)) discard;
 				// mul r0.x, cb0[6].z, cb1[0].y
@@ -57459,6 +58157,8 @@ Shader "ShaderRipperTest/VariantMonster"
 				r2.x = sin(r1.z);
 				// mad r1.y, r0.z, l(5.000000), -r1.y
 				r1.y = mad(r0.z, 5.0, -(r1.y));
+				// sincos null, r2.y, r1.y
+				r2.y = cos(r1.y);
 				// mul r1.yz, r2.xxyx, cb0[6].yyyy
 				r1.yz = float2(r2.x * cb0[6].y, r2.y * cb0[6].y);
 				// mad r1.yz, r1.yyzy, l(0.000000, 0.250000, 0.250000, 0.000000), r0.zzwz
@@ -57508,7 +58208,7 @@ Shader "ShaderRipperTest/VariantMonster"
 					// loop
 				for (;;) {
 					// ige r4.y, r4.x, r2.z
-					r4.y = (((int)(r4.x) >= (int)(r2.z)) ? 1 : 0);
+					r4.y = (((int)(r4.x) >= (int)(r2.z)) ? -1 : 0);
 					// breakc_nz r4.y
 					if (any(r4.y)) break;
 					// itof r4.y, r4.x
@@ -57930,7 +58630,7 @@ Shader "ShaderRipperTest/VariantMonster"
 						// loop
 					for (;;) {
 						// ige r6.x, r5.w, r2.w
-						r6.x = (((int)(r5.w) >= (int)(r2.w)) ? 1 : 0);
+						r6.x = (((int)(r5.w) >= (int)(r2.w)) ? -1 : 0);
 						// breakc_nz r6.x
 						if (any(r6.x)) break;
 						// itof r6.x, r5.w
@@ -58021,7 +58721,7 @@ Shader "ShaderRipperTest/VariantMonster"
 						// mad r6.z, |r6.z|, l(2.000000), r5.z
 						r6.z = mad(abs(r6.z), 2.0, r5.z);
 						// lt r6.w, l(2.200000), r6.z
-						r6.w = (2.2 < r6.z) ? 1.0 : 0.0;
+						r6.w = (2.2 < r6.z) ? -1.0 : 0.0;
 							// if_nz r6.w
 						if (any(r6.w)) {
 							// iadd r6.w, r5.w, l(1)
@@ -58055,7 +58755,7 @@ Shader "ShaderRipperTest/VariantMonster"
 					// mul r4.yz, r5.xxyx, l(0.000000, 1.040000, 1.040000, 0.000000)
 					r4.yz = float2(r5.x * 1.04, r5.y * 1.04);
 					// lt r6.xy, r5.zzzz, l(0.600000, 1.400000, 0.000000, 0.000000)
-					r6.xy = float2((r5.z < 0.6) ? 1.0 : 0.0, (r5.z < 1.4) ? 1.0 : 0.0);
+					r6.xy = float2((r5.z < 0.6) ? -1.0 : 0.0, (r5.z < 1.4) ? -1.0 : 0.0);
 					// add r6.zw, r5.xxxy, l(0.000000, 0.000000, 0.020000, 0.010000)
 					r6.zw = float2(r5.x + 0.02, r5.y + 0.01);
 					// mov_sat r5.xy, r5.xyxx
@@ -58067,7 +58767,7 @@ Shader "ShaderRipperTest/VariantMonster"
 					// movc r4.yz, r6.xxxx, r4.yyzy, r6.yyzy
 					r4.yz = float2(r6.x != 0.0 ? r4.y : r6.y, r6.x != 0.0 ? r4.z : r6.z);
 					// lt r4.w, l(1.500000), r4.y
-					r4.w = (1.5 < r4.y) ? 1.0 : 0.0;
+					r4.w = (1.5 < r4.y) ? -1.0 : 0.0;
 						// if_nz r4.w
 					if (any(r4.w)) {
 						// mov r3.z, r4.z
@@ -58083,7 +58783,7 @@ Shader "ShaderRipperTest/VariantMonster"
 				// endloop
 				}
 				// lt r2.z, l(0.500000), cb0[10].w
-				r2.z = (0.5 < cb0[10].w) ? 1.0 : 0.0;
+				r2.z = (0.5 < cb0[10].w) ? -1.0 : 0.0;
 					// if_nz r2.z
 				if (any(r2.z)) {
 					// mul r2.z, r0.x, l(0.250000)
@@ -58205,7 +58905,7 @@ Shader "ShaderRipperTest/VariantMonster"
 				// endif
 				}
 				// lt r2.z, l(0.500000), cb0[11].x
-				r2.z = (0.5 < cb0[11].x) ? 1.0 : 0.0;
+				r2.z = (0.5 < cb0[11].x) ? -1.0 : 0.0;
 					// if_nz r2.z
 				if (any(r2.z)) {
 					// mul r5.xyzw, cb0[8].wwww, l(0.300000, 0.520000, 0.740000, 0.960000)
@@ -58216,6 +58916,8 @@ Shader "ShaderRipperTest/VariantMonster"
 					r2.z = sin(r2.z);
 					// mad r2.w, r1.z, r5.x, -r0.x
 					r2.w = mad(r1.z, r5.x, -(r0.x));
+					// sincos null, r2.w, r2.w
+					r2.w = cos(r2.w);
 					// add r3.x, r1.z, r1.y
 					r3.x = r1.z + r1.y;
 					// mul r6.xyzw, r5.xyzw, r3.xxxx
@@ -58227,27 +58929,31 @@ Shader "ShaderRipperTest/VariantMonster"
 					// mad r3.w, r1.y, r5.y, r7.x
 					r3.w = mad(r1.y, r5.y, r7.x);
 					// sincos r3.yw, null, r3.yyyw
-					r3.yw = sin(r3.yyyw);
+					r3.yw = float2(sin(r3.y), sin(r3.w));
 					// add r2.z, r2.z, r3.w
 					r2.z = r2.z + r3.w;
 					// mad r3.w, r1.z, r5.y, -r7.x
 					r3.w = mad(r1.z, r5.y, -(r7.x));
+					// sincos null, r3.w, r3.w
+					r3.w = cos(r3.w);
 					// add r2.w, r2.w, r3.w
 					r2.w = r2.w + r3.w;
 					// mad r6.xyz, r6.yzwy, l(0.600000, 0.600000, 0.600000, 0.000000), r7.xyzx
 					r6.xyz = float3(mad(r6.y, 0.6, r7.x), mad(r6.z, 0.6, r7.y), mad(r6.w, 0.6, r7.z));
 					// sincos r6.xyz, null, r6.xyzx
-					r6.xyz = sin(r6.xyzx);
+					r6.xyz = float3(sin(r6.x), sin(r6.y), sin(r6.z));
 					// add r3.y, r3.y, r6.x
 					r3.y = r3.y + r6.x;
 					// mad r5.xy, r1.yyyy, r5.zwzz, r7.yzyy
 					r5.xy = float2(mad(r1.y, r5.z, r7.y), mad(r1.y, r5.w, r7.z));
 					// sincos r5.xy, null, r5.xyxx
-					r5.xy = sin(r5.xyxx);
+					r5.xy = float2(sin(r5.x), sin(r5.y));
 					// add r2.z, r2.z, r5.x
 					r2.z = r2.z + r5.x;
 					// mad r5.xz, r1.zzzz, r5.zzwz, -r7.yyzy
 					r5.xz = float2(mad(r1.z, r5.z, -(r7.y)), mad(r1.z, r5.w, -(r7.z)));
+					// sincos null, r5.xz, r5.xxzx
+					r5.xz = float2(cos(r5.x), cos(r5.z));
 					// add r3.y, r6.y, r3.y
 					r3.y = r6.y + r3.y;
 					// add r2.zw, r2.zzzw, r5.yyyx
@@ -58266,6 +58972,8 @@ Shader "ShaderRipperTest/VariantMonster"
 					r2.z = r2.z + r3.w;
 					// mad r3.w, r1.z, r5.x, -r7.w
 					r3.w = mad(r1.z, r5.x, -(r7.w));
+					// sincos null, r3.w, r3.w
+					r3.w = cos(r3.w);
 					// add r2.w, r2.w, r3.w
 					r2.w = r2.w + r3.w;
 					// mul r3.xw, r3.xxxx, r5.xxxy
@@ -58286,6 +58994,8 @@ Shader "ShaderRipperTest/VariantMonster"
 					r6.x = r2.z + r4.w;
 					// mad r2.z, r1.z, r5.y, -r3.y
 					r2.z = mad(r1.z, r5.y, -(r3.y));
+					// sincos null, r2.z, r2.z
+					r2.z = cos(r2.z);
 					// add r6.y, r2.z, r2.w
 					r6.y = r2.z + r2.w;
 					// mad r2.z, r3.w, l(0.600000), r3.y
@@ -58327,7 +59037,7 @@ Shader "ShaderRipperTest/VariantMonster"
 					// loop
 				for (;;) {
 					// ige r4.w, r2.w, r2.y
-					r4.w = (((int)(r2.w) >= (int)(r2.y)) ? 1 : 0);
+					r4.w = (((int)(r2.w) >= (int)(r2.y)) ? -1 : 0);
 					// breakc_nz r4.w
 					if (any(r4.w)) break;
 					// itof r4.w, r2.w
@@ -58764,7 +59474,7 @@ Shader "ShaderRipperTest/VariantMonster"
 					// mad r4.w, r4.w, r5.x, r2.z
 					r4.w = mad(r4.w, r5.x, r2.z);
 					// lt r5.x, l(1.100000), r4.w
-					r5.x = (1.1 < r4.w) ? 1.0 : 0.0;
+					r5.x = (1.1 < r4.w) ? -1.0 : 0.0;
 						// if_nz r5.x
 					if (any(r5.x)) {
 						// mov r2.z, r4.w
@@ -58788,7 +59498,7 @@ Shader "ShaderRipperTest/VariantMonster"
 				// mul r0.y, r0.y, r2.x
 				r0.y = r0.y * r2.x;
 				// lt r2.x, r0.y, cb0[9].w
-				r2.x = (r0.y < cb0[9].w) ? 1.0 : 0.0;
+				r2.x = (r0.y < cb0[9].w) ? -1.0 : 0.0;
 				// discard_nz r2.x
 				if (any(r2.x)) discard;
 				// mul r5.xyzw, r0.xxxx, l(0.210000, 0.150000, 0.500000, 0.370000)
@@ -59271,7 +59981,7 @@ Shader "ShaderRipperTest/VariantMonster"
 				// mul r2.x, cb0[8].z, l(0.500000)
 				r2.x = cb0[8].z * 0.5;
 				// lt r2.x, r1.x, r2.x
-				r2.x = (r1.x < r2.x) ? 1.0 : 0.0;
+				r2.x = (r1.x < r2.x) ? -1.0 : 0.0;
 				// mad r2.y, -r1.x, l(3.000000), l(1.000000)
 				r2.y = mad(-(r1.x), 3.0, 1.0);
 				// max r2.y, r2.y, l(0.000000)
@@ -59283,7 +59993,7 @@ Shader "ShaderRipperTest/VariantMonster"
 				// mad r3.xyz, r3.xyzx, cb0[8].zzzz, r0.xzwx
 				r3.xyz = float3(mad(r3.x, cb0[8].z, r0.x), mad(r3.y, cb0[8].z, r0.z), mad(r3.z, cb0[8].z, r0.w));
 				// lt r1.x, r1.x, l(0.400000)
-				r1.x = (r1.x < 0.4) ? 1.0 : 0.0;
+				r1.x = (r1.x < 0.4) ? -1.0 : 0.0;
 				// mul r4.xyz, r0.xzwx, l(0.920000, 0.920000, 0.920000, 0.000000)
 				r4.xyz = float3(r0.x * 0.92, r0.z * 0.92, r0.w * 0.92);
 				// movc r0.xzw, r1.xxxx, r4.xxyz, r0.xxzw
@@ -60147,7 +60857,7 @@ Shader "ShaderRipperTest/VariantMonster"
 				// mul r0.xzw, r0.xxzw, cb0[10].yyyy
 				r0.xzw = float3(r0.x * cb0[10].y, r0.z * cb0[10].y, r0.w * cb0[10].y);
 				// lt r1.x, l(0.500000), cb0[11].y
-				r1.x = (0.5 < cb0[11].y) ? 1.0 : 0.0;
+				r1.x = (0.5 < cb0[11].y) ? -1.0 : 0.0;
 				// mul r1.yz, v1.xxyx, cb1[6].xxyx
 				r1.yz = float2(v1.x * _ScreenParams.x, v1.y * _ScreenParams.y);
 				// mul r1.yz, r1.yyzy, l(0.000000, 127.099998, 311.700012, 0.000000)
@@ -60212,6 +60922,27 @@ Shader "ShaderRipperTest/VariantMonster"
 			//   unnamed single lanes are shared by the Float/Range prop(s): _Iterations, _Steps, _WarpDepth, _Threshold, _Contrast, _Emission, _Saturation, _ToggleDetail, _ToggleBands, _ToggleDither
 			// cb1 = UnityPerDraw  (declared by UnityCG.cginc)
 			// cb2 = UnityPerFrame  (declared by UnityCG.cginc)
+			float4 _MainTex_TexelSize;
+			float4 _NoiseTex_ST;
+			float4 _NoiseTex_TexelSize;
+			float4 _DetailTex_ST;
+			float4 _DetailTex_TexelSize;
+			float4 _MaskTex_ST;
+			float4 _MaskTex_TexelSize;
+			float4 _Color;
+			float4 _ColorC;
+			float4 _Params;
+			float4 _Params3;
+			float _Iterations;
+			float _Steps;
+			float _WarpDepth;
+			float _Threshold;
+			float _Contrast;
+			float _Emission;
+			float _Saturation;
+			float _ToggleDetail;
+			float _ToggleBands;
+			float _ToggleDither;
 			// cbuffer order confirmed by the asset's own register index
 			// $Globals cb0: 1 slot(s) named from the compiled constant-buffer member table
 			// $Globals cb0: 2 slot(s) named from the compiled constant-buffer member table
@@ -60250,7 +60981,7 @@ Shader "ShaderRipperTest/VariantMonster"
 				// sample r0.xyzw, v1.xyxx, t0.xyzw, s3
 				r0.xyzw = tex2D(_MaskTex, float2(v1.x, v1.y));
 				// lt r0.x, r0.w, cb0[9].w
-				r0.x = (r0.w < cb0[9].w) ? 1.0 : 0.0;
+				r0.x = (r0.w < cb0[9].w) ? -1.0 : 0.0;
 				// discard_nz r0.x
 				if (any(r0.x)) discard;
 				// mul r0.x, cb0[6].z, cb1[0].y
@@ -60671,6 +61402,8 @@ Shader "ShaderRipperTest/VariantMonster"
 				r2.x = sin(r1.w);
 				// mad r1.y, r0.z, l(5.000000), -r1.y
 				r1.y = mad(r0.z, 5.0, -(r1.y));
+				// sincos null, r2.y, r1.y
+				r2.y = cos(r1.y);
 				// mul r1.yw, r2.xxxy, cb0[6].yyyy
 				r1.yw = float2(r2.x * cb0[6].y, r2.y * cb0[6].y);
 				// mad r1.yw, r1.yyyw, l(0.000000, 0.250000, 0.000000, 0.250000), r0.zzzw
@@ -60750,7 +61483,7 @@ Shader "ShaderRipperTest/VariantMonster"
 					// loop
 				for (;;) {
 					// ige r4.y, r4.x, r2.z
-					r4.y = (((int)(r4.x) >= (int)(r2.z)) ? 1 : 0);
+					r4.y = (((int)(r4.x) >= (int)(r2.z)) ? -1 : 0);
 					// breakc_nz r4.y
 					if (any(r4.y)) break;
 					// itof r4.y, r4.x
@@ -61172,7 +61905,7 @@ Shader "ShaderRipperTest/VariantMonster"
 						// loop
 					for (;;) {
 						// ige r6.x, r5.w, r2.w
-						r6.x = (((int)(r5.w) >= (int)(r2.w)) ? 1 : 0);
+						r6.x = (((int)(r5.w) >= (int)(r2.w)) ? -1 : 0);
 						// breakc_nz r6.x
 						if (any(r6.x)) break;
 						// itof r6.x, r5.w
@@ -61263,7 +61996,7 @@ Shader "ShaderRipperTest/VariantMonster"
 						// mad r6.z, |r6.z|, l(2.000000), r5.z
 						r6.z = mad(abs(r6.z), 2.0, r5.z);
 						// lt r6.w, l(2.200000), r6.z
-						r6.w = (2.2 < r6.z) ? 1.0 : 0.0;
+						r6.w = (2.2 < r6.z) ? -1.0 : 0.0;
 							// if_nz r6.w
 						if (any(r6.w)) {
 							// iadd r6.w, r5.w, l(1)
@@ -61297,7 +62030,7 @@ Shader "ShaderRipperTest/VariantMonster"
 					// mul r4.yz, r5.xxyx, l(0.000000, 1.040000, 1.040000, 0.000000)
 					r4.yz = float2(r5.x * 1.04, r5.y * 1.04);
 					// lt r6.xy, r5.zzzz, l(0.600000, 1.400000, 0.000000, 0.000000)
-					r6.xy = float2((r5.z < 0.6) ? 1.0 : 0.0, (r5.z < 1.4) ? 1.0 : 0.0);
+					r6.xy = float2((r5.z < 0.6) ? -1.0 : 0.0, (r5.z < 1.4) ? -1.0 : 0.0);
 					// add r6.zw, r5.xxxy, l(0.000000, 0.000000, 0.020000, 0.010000)
 					r6.zw = float2(r5.x + 0.02, r5.y + 0.01);
 					// mov_sat r5.xy, r5.xyxx
@@ -61309,7 +62042,7 @@ Shader "ShaderRipperTest/VariantMonster"
 					// movc r4.yz, r6.xxxx, r4.yyzy, r6.yyzy
 					r4.yz = float2(r6.x != 0.0 ? r4.y : r6.y, r6.x != 0.0 ? r4.z : r6.z);
 					// lt r4.w, l(1.500000), r4.y
-					r4.w = (1.5 < r4.y) ? 1.0 : 0.0;
+					r4.w = (1.5 < r4.y) ? -1.0 : 0.0;
 						// if_nz r4.w
 					if (any(r4.w)) {
 						// mov r3.z, r4.z
@@ -61325,7 +62058,7 @@ Shader "ShaderRipperTest/VariantMonster"
 				// endloop
 				}
 				// lt r2.z, l(0.500000), cb0[10].w
-				r2.z = (0.5 < cb0[10].w) ? 1.0 : 0.0;
+				r2.z = (0.5 < cb0[10].w) ? -1.0 : 0.0;
 					// if_nz r2.z
 				if (any(r2.z)) {
 					// mul r2.z, r0.x, l(0.250000)
@@ -61447,7 +62180,7 @@ Shader "ShaderRipperTest/VariantMonster"
 				// endif
 				}
 				// lt r2.z, l(0.500000), cb0[11].x
-				r2.z = (0.5 < cb0[11].x) ? 1.0 : 0.0;
+				r2.z = (0.5 < cb0[11].x) ? -1.0 : 0.0;
 					// if_nz r2.z
 				if (any(r2.z)) {
 					// mul r5.xyzw, cb0[8].wwww, l(0.300000, 0.520000, 0.740000, 0.960000)
@@ -61458,6 +62191,8 @@ Shader "ShaderRipperTest/VariantMonster"
 					r2.z = sin(r2.z);
 					// mad r2.w, r1.w, r5.x, -r0.x
 					r2.w = mad(r1.w, r5.x, -(r0.x));
+					// sincos null, r2.w, r2.w
+					r2.w = cos(r2.w);
 					// add r3.x, r1.w, r1.y
 					r3.x = r1.w + r1.y;
 					// mul r6.xyzw, r5.xyzw, r3.xxxx
@@ -61469,27 +62204,31 @@ Shader "ShaderRipperTest/VariantMonster"
 					// mad r3.w, r1.y, r5.y, r7.x
 					r3.w = mad(r1.y, r5.y, r7.x);
 					// sincos r3.yw, null, r3.yyyw
-					r3.yw = sin(r3.yyyw);
+					r3.yw = float2(sin(r3.y), sin(r3.w));
 					// add r2.z, r2.z, r3.w
 					r2.z = r2.z + r3.w;
 					// mad r3.w, r1.w, r5.y, -r7.x
 					r3.w = mad(r1.w, r5.y, -(r7.x));
+					// sincos null, r3.w, r3.w
+					r3.w = cos(r3.w);
 					// add r2.w, r2.w, r3.w
 					r2.w = r2.w + r3.w;
 					// mad r6.xyz, r6.yzwy, l(0.600000, 0.600000, 0.600000, 0.000000), r7.xyzx
 					r6.xyz = float3(mad(r6.y, 0.6, r7.x), mad(r6.z, 0.6, r7.y), mad(r6.w, 0.6, r7.z));
 					// sincos r6.xyz, null, r6.xyzx
-					r6.xyz = sin(r6.xyzx);
+					r6.xyz = float3(sin(r6.x), sin(r6.y), sin(r6.z));
 					// add r3.y, r3.y, r6.x
 					r3.y = r3.y + r6.x;
 					// mad r5.xy, r1.yyyy, r5.zwzz, r7.yzyy
 					r5.xy = float2(mad(r1.y, r5.z, r7.y), mad(r1.y, r5.w, r7.z));
 					// sincos r5.xy, null, r5.xyxx
-					r5.xy = sin(r5.xyxx);
+					r5.xy = float2(sin(r5.x), sin(r5.y));
 					// add r2.z, r2.z, r5.x
 					r2.z = r2.z + r5.x;
 					// mad r5.xz, r1.wwww, r5.zzwz, -r7.yyzy
 					r5.xz = float2(mad(r1.w, r5.z, -(r7.y)), mad(r1.w, r5.w, -(r7.z)));
+					// sincos null, r5.xz, r5.xxzx
+					r5.xz = float2(cos(r5.x), cos(r5.z));
 					// add r3.y, r6.y, r3.y
 					r3.y = r6.y + r3.y;
 					// add r2.zw, r2.zzzw, r5.yyyx
@@ -61508,6 +62247,8 @@ Shader "ShaderRipperTest/VariantMonster"
 					r2.z = r2.z + r3.w;
 					// mad r3.w, r1.w, r5.x, -r7.w
 					r3.w = mad(r1.w, r5.x, -(r7.w));
+					// sincos null, r3.w, r3.w
+					r3.w = cos(r3.w);
 					// add r2.w, r2.w, r3.w
 					r2.w = r2.w + r3.w;
 					// mul r3.xw, r3.xxxx, r5.xxxy
@@ -61528,6 +62269,8 @@ Shader "ShaderRipperTest/VariantMonster"
 					r6.x = r2.z + r4.w;
 					// mad r2.z, r1.w, r5.y, -r3.y
 					r2.z = mad(r1.w, r5.y, -(r3.y));
+					// sincos null, r2.z, r2.z
+					r2.z = cos(r2.z);
 					// add r6.y, r2.z, r2.w
 					r6.y = r2.z + r2.w;
 					// mad r2.z, r3.w, l(0.600000), r3.y
@@ -61571,7 +62314,7 @@ Shader "ShaderRipperTest/VariantMonster"
 					// loop
 				for (;;) {
 					// ige r4.w, r2.w, r2.y
-					r4.w = (((int)(r2.w) >= (int)(r2.y)) ? 1 : 0);
+					r4.w = (((int)(r2.w) >= (int)(r2.y)) ? -1 : 0);
 					// breakc_nz r4.w
 					if (any(r4.w)) break;
 					// itof r4.w, r2.w
@@ -62008,7 +62751,7 @@ Shader "ShaderRipperTest/VariantMonster"
 					// mad r4.w, r4.w, r5.x, r2.z
 					r4.w = mad(r4.w, r5.x, r2.z);
 					// lt r5.x, l(1.100000), r4.w
-					r5.x = (1.1 < r4.w) ? 1.0 : 0.0;
+					r5.x = (1.1 < r4.w) ? -1.0 : 0.0;
 						// if_nz r5.x
 					if (any(r5.x)) {
 						// mov r2.z, r4.w
@@ -62032,7 +62775,7 @@ Shader "ShaderRipperTest/VariantMonster"
 				// mul r0.y, r0.y, r1.z
 				r0.y = r0.y * r1.z;
 				// lt r1.z, r0.y, cb0[9].w
-				r1.z = (r0.y < cb0[9].w) ? 1.0 : 0.0;
+				r1.z = (r0.y < cb0[9].w) ? -1.0 : 0.0;
 				// discard_nz r1.z
 				if (any(r1.z)) discard;
 				// mul r5.xyzw, r0.xxxx, l(0.210000, 0.150000, 0.500000, 0.370000)
@@ -62525,7 +63268,7 @@ Shader "ShaderRipperTest/VariantMonster"
 				// mul r1.z, cb0[8].z, l(0.500000)
 				r1.z = cb0[8].z * 0.5;
 				// lt r1.z, r1.x, r1.z
-				r1.z = (r1.x < r1.z) ? 1.0 : 0.0;
+				r1.z = (r1.x < r1.z) ? -1.0 : 0.0;
 				// mad r2.y, -r1.x, l(3.000000), l(1.000000)
 				r2.y = mad(-(r1.x), 3.0, 1.0);
 				// max r2.y, r2.y, l(0.000000)
@@ -62537,7 +63280,7 @@ Shader "ShaderRipperTest/VariantMonster"
 				// mad r3.xyz, r3.xyzx, cb0[8].zzzz, r0.xzwx
 				r3.xyz = float3(mad(r3.x, cb0[8].z, r0.x), mad(r3.y, cb0[8].z, r0.z), mad(r3.z, cb0[8].z, r0.w));
 				// lt r1.x, r1.x, l(0.400000)
-				r1.x = (r1.x < 0.4) ? 1.0 : 0.0;
+				r1.x = (r1.x < 0.4) ? -1.0 : 0.0;
 				// mul r4.xyz, r0.xzwx, l(0.920000, 0.920000, 0.920000, 0.000000)
 				r4.xyz = float3(r0.x * 0.92, r0.z * 0.92, r0.w * 0.92);
 				// movc r0.xzw, r1.xxxx, r4.xxyz, r0.xxzw
@@ -63401,7 +64144,7 @@ Shader "ShaderRipperTest/VariantMonster"
 				// mul r0.xzw, r0.xxzw, cb0[10].yyyy
 				r0.xzw = float3(r0.x * cb0[10].y, r0.z * cb0[10].y, r0.w * cb0[10].y);
 				// lt r1.x, l(0.500000), cb0[11].y
-				r1.x = (0.5 < cb0[11].y) ? 1.0 : 0.0;
+				r1.x = (0.5 < cb0[11].y) ? -1.0 : 0.0;
 				// mul r1.yz, v1.xxyx, cb1[6].xxyx
 				r1.yz = float2(v1.x * _ScreenParams.x, v1.y * _ScreenParams.y);
 				// mul r1.yz, r1.yyzy, l(0.000000, 127.099998, 311.700012, 0.000000)
@@ -63466,6 +64209,27 @@ Shader "ShaderRipperTest/VariantMonster"
 			//   unnamed single lanes are shared by the Float/Range prop(s): _Iterations, _Steps, _WarpDepth, _Threshold, _Contrast, _Emission, _Saturation, _ToggleDetail, _ToggleBands, _ToggleDither
 			// cb1 = UnityPerDraw  (declared by UnityCG.cginc)
 			// cb2 = UnityPerFrame  (declared by UnityCG.cginc)
+			float4 _MainTex_TexelSize;
+			float4 _NoiseTex_ST;
+			float4 _NoiseTex_TexelSize;
+			float4 _DetailTex_ST;
+			float4 _DetailTex_TexelSize;
+			float4 _MaskTex_ST;
+			float4 _MaskTex_TexelSize;
+			float4 _Color;
+			float4 _ColorC;
+			float4 _Params;
+			float4 _Params3;
+			float _Iterations;
+			float _Steps;
+			float _WarpDepth;
+			float _Threshold;
+			float _Contrast;
+			float _Emission;
+			float _Saturation;
+			float _ToggleDetail;
+			float _ToggleBands;
+			float _ToggleDither;
 			// cbuffer order confirmed by the asset's own register index
 			// $Globals cb0: 1 slot(s) named from the compiled constant-buffer member table
 			// $Globals cb0: 2 slot(s) named from the compiled constant-buffer member table
@@ -63504,7 +64268,7 @@ Shader "ShaderRipperTest/VariantMonster"
 				// sample r0.xyzw, v1.xyxx, t0.xyzw, s3
 				r0.xyzw = tex2D(_MaskTex, float2(v1.x, v1.y));
 				// lt r0.x, r0.w, cb0[9].w
-				r0.x = (r0.w < cb0[9].w) ? 1.0 : 0.0;
+				r0.x = (r0.w < cb0[9].w) ? -1.0 : 0.0;
 				// discard_nz r0.x
 				if (any(r0.x)) discard;
 				// mul r0.x, cb0[6].z, cb1[0].y
@@ -63927,6 +64691,8 @@ Shader "ShaderRipperTest/VariantMonster"
 				r2.x = sin(r1.z);
 				// mad r1.y, r0.z, l(5.000000), -r1.y
 				r1.y = mad(r0.z, 5.0, -(r1.y));
+				// sincos null, r2.y, r1.y
+				r2.y = cos(r1.y);
 				// mul r1.yz, r2.xxyx, cb0[6].yyyy
 				r1.yz = float2(r2.x * cb0[6].y, r2.y * cb0[6].y);
 				// mad r1.yz, r1.yyzy, l(0.000000, 0.250000, 0.250000, 0.000000), r0.zzwz
@@ -63976,7 +64742,7 @@ Shader "ShaderRipperTest/VariantMonster"
 					// loop
 				for (;;) {
 					// ige r4.y, r4.x, r2.z
-					r4.y = (((int)(r4.x) >= (int)(r2.z)) ? 1 : 0);
+					r4.y = (((int)(r4.x) >= (int)(r2.z)) ? -1 : 0);
 					// breakc_nz r4.y
 					if (any(r4.y)) break;
 					// itof r4.y, r4.x
@@ -64398,7 +65164,7 @@ Shader "ShaderRipperTest/VariantMonster"
 						// loop
 					for (;;) {
 						// ige r6.x, r5.w, r2.w
-						r6.x = (((int)(r5.w) >= (int)(r2.w)) ? 1 : 0);
+						r6.x = (((int)(r5.w) >= (int)(r2.w)) ? -1 : 0);
 						// breakc_nz r6.x
 						if (any(r6.x)) break;
 						// itof r6.x, r5.w
@@ -64489,7 +65255,7 @@ Shader "ShaderRipperTest/VariantMonster"
 						// mad r6.z, |r6.z|, l(2.000000), r5.z
 						r6.z = mad(abs(r6.z), 2.0, r5.z);
 						// lt r6.w, l(2.200000), r6.z
-						r6.w = (2.2 < r6.z) ? 1.0 : 0.0;
+						r6.w = (2.2 < r6.z) ? -1.0 : 0.0;
 							// if_nz r6.w
 						if (any(r6.w)) {
 							// iadd r6.w, r5.w, l(1)
@@ -64523,7 +65289,7 @@ Shader "ShaderRipperTest/VariantMonster"
 					// mul r4.yz, r5.xxyx, l(0.000000, 1.040000, 1.040000, 0.000000)
 					r4.yz = float2(r5.x * 1.04, r5.y * 1.04);
 					// lt r6.xy, r5.zzzz, l(0.600000, 1.400000, 0.000000, 0.000000)
-					r6.xy = float2((r5.z < 0.6) ? 1.0 : 0.0, (r5.z < 1.4) ? 1.0 : 0.0);
+					r6.xy = float2((r5.z < 0.6) ? -1.0 : 0.0, (r5.z < 1.4) ? -1.0 : 0.0);
 					// add r6.zw, r5.xxxy, l(0.000000, 0.000000, 0.020000, 0.010000)
 					r6.zw = float2(r5.x + 0.02, r5.y + 0.01);
 					// mov_sat r5.xy, r5.xyxx
@@ -64535,7 +65301,7 @@ Shader "ShaderRipperTest/VariantMonster"
 					// movc r4.yz, r6.xxxx, r4.yyzy, r6.yyzy
 					r4.yz = float2(r6.x != 0.0 ? r4.y : r6.y, r6.x != 0.0 ? r4.z : r6.z);
 					// lt r4.w, l(1.500000), r4.y
-					r4.w = (1.5 < r4.y) ? 1.0 : 0.0;
+					r4.w = (1.5 < r4.y) ? -1.0 : 0.0;
 						// if_nz r4.w
 					if (any(r4.w)) {
 						// mov r3.z, r4.z
@@ -64551,7 +65317,7 @@ Shader "ShaderRipperTest/VariantMonster"
 				// endloop
 				}
 				// lt r2.z, l(0.500000), cb0[10].w
-				r2.z = (0.5 < cb0[10].w) ? 1.0 : 0.0;
+				r2.z = (0.5 < cb0[10].w) ? -1.0 : 0.0;
 					// if_nz r2.z
 				if (any(r2.z)) {
 					// mul r2.z, r0.x, l(0.250000)
@@ -64673,7 +65439,7 @@ Shader "ShaderRipperTest/VariantMonster"
 				// endif
 				}
 				// lt r2.z, l(0.500000), cb0[11].x
-				r2.z = (0.5 < cb0[11].x) ? 1.0 : 0.0;
+				r2.z = (0.5 < cb0[11].x) ? -1.0 : 0.0;
 					// if_nz r2.z
 				if (any(r2.z)) {
 					// mul r5.xyzw, cb0[8].wwww, l(0.300000, 0.520000, 0.740000, 0.960000)
@@ -64684,6 +65450,8 @@ Shader "ShaderRipperTest/VariantMonster"
 					r2.z = sin(r2.z);
 					// mad r2.w, r1.z, r5.x, -r0.x
 					r2.w = mad(r1.z, r5.x, -(r0.x));
+					// sincos null, r2.w, r2.w
+					r2.w = cos(r2.w);
 					// add r3.x, r1.z, r1.y
 					r3.x = r1.z + r1.y;
 					// mul r6.xyzw, r5.xyzw, r3.xxxx
@@ -64695,27 +65463,31 @@ Shader "ShaderRipperTest/VariantMonster"
 					// mad r3.w, r1.y, r5.y, r7.x
 					r3.w = mad(r1.y, r5.y, r7.x);
 					// sincos r3.yw, null, r3.yyyw
-					r3.yw = sin(r3.yyyw);
+					r3.yw = float2(sin(r3.y), sin(r3.w));
 					// add r2.z, r2.z, r3.w
 					r2.z = r2.z + r3.w;
 					// mad r3.w, r1.z, r5.y, -r7.x
 					r3.w = mad(r1.z, r5.y, -(r7.x));
+					// sincos null, r3.w, r3.w
+					r3.w = cos(r3.w);
 					// add r2.w, r2.w, r3.w
 					r2.w = r2.w + r3.w;
 					// mad r6.xyz, r6.yzwy, l(0.600000, 0.600000, 0.600000, 0.000000), r7.xyzx
 					r6.xyz = float3(mad(r6.y, 0.6, r7.x), mad(r6.z, 0.6, r7.y), mad(r6.w, 0.6, r7.z));
 					// sincos r6.xyz, null, r6.xyzx
-					r6.xyz = sin(r6.xyzx);
+					r6.xyz = float3(sin(r6.x), sin(r6.y), sin(r6.z));
 					// add r3.y, r3.y, r6.x
 					r3.y = r3.y + r6.x;
 					// mad r5.xy, r1.yyyy, r5.zwzz, r7.yzyy
 					r5.xy = float2(mad(r1.y, r5.z, r7.y), mad(r1.y, r5.w, r7.z));
 					// sincos r5.xy, null, r5.xyxx
-					r5.xy = sin(r5.xyxx);
+					r5.xy = float2(sin(r5.x), sin(r5.y));
 					// add r2.z, r2.z, r5.x
 					r2.z = r2.z + r5.x;
 					// mad r5.xz, r1.zzzz, r5.zzwz, -r7.yyzy
 					r5.xz = float2(mad(r1.z, r5.z, -(r7.y)), mad(r1.z, r5.w, -(r7.z)));
+					// sincos null, r5.xz, r5.xxzx
+					r5.xz = float2(cos(r5.x), cos(r5.z));
 					// add r3.y, r6.y, r3.y
 					r3.y = r6.y + r3.y;
 					// add r2.zw, r2.zzzw, r5.yyyx
@@ -64734,6 +65506,8 @@ Shader "ShaderRipperTest/VariantMonster"
 					r2.z = r2.z + r3.w;
 					// mad r3.w, r1.z, r5.x, -r7.w
 					r3.w = mad(r1.z, r5.x, -(r7.w));
+					// sincos null, r3.w, r3.w
+					r3.w = cos(r3.w);
 					// add r2.w, r2.w, r3.w
 					r2.w = r2.w + r3.w;
 					// mul r3.xw, r3.xxxx, r5.xxxy
@@ -64754,6 +65528,8 @@ Shader "ShaderRipperTest/VariantMonster"
 					r6.x = r2.z + r4.w;
 					// mad r2.z, r1.z, r5.y, -r3.y
 					r2.z = mad(r1.z, r5.y, -(r3.y));
+					// sincos null, r2.z, r2.z
+					r2.z = cos(r2.z);
 					// add r6.y, r2.z, r2.w
 					r6.y = r2.z + r2.w;
 					// mad r2.z, r3.w, l(0.600000), r3.y
@@ -64795,7 +65571,7 @@ Shader "ShaderRipperTest/VariantMonster"
 					// loop
 				for (;;) {
 					// ige r4.w, r2.w, r2.y
-					r4.w = (((int)(r2.w) >= (int)(r2.y)) ? 1 : 0);
+					r4.w = (((int)(r2.w) >= (int)(r2.y)) ? -1 : 0);
 					// breakc_nz r4.w
 					if (any(r4.w)) break;
 					// itof r4.w, r2.w
@@ -65232,7 +66008,7 @@ Shader "ShaderRipperTest/VariantMonster"
 					// mad r4.w, r4.w, r5.x, r2.z
 					r4.w = mad(r4.w, r5.x, r2.z);
 					// lt r5.x, l(1.100000), r4.w
-					r5.x = (1.1 < r4.w) ? 1.0 : 0.0;
+					r5.x = (1.1 < r4.w) ? -1.0 : 0.0;
 						// if_nz r5.x
 					if (any(r5.x)) {
 						// mov r2.z, r4.w
@@ -65256,7 +66032,7 @@ Shader "ShaderRipperTest/VariantMonster"
 				// mul r0.y, r0.y, r2.x
 				r0.y = r0.y * r2.x;
 				// lt r2.x, r0.y, cb0[9].w
-				r2.x = (r0.y < cb0[9].w) ? 1.0 : 0.0;
+				r2.x = (r0.y < cb0[9].w) ? -1.0 : 0.0;
 				// discard_nz r2.x
 				if (any(r2.x)) discard;
 				// mul r5.xyzw, r0.xxxx, l(0.210000, 0.150000, 0.500000, 0.370000)
@@ -65739,7 +66515,7 @@ Shader "ShaderRipperTest/VariantMonster"
 				// mul r2.x, cb0[8].z, l(0.500000)
 				r2.x = cb0[8].z * 0.5;
 				// lt r2.x, r1.x, r2.x
-				r2.x = (r1.x < r2.x) ? 1.0 : 0.0;
+				r2.x = (r1.x < r2.x) ? -1.0 : 0.0;
 				// mad r2.y, -r1.x, l(3.000000), l(1.000000)
 				r2.y = mad(-(r1.x), 3.0, 1.0);
 				// max r2.y, r2.y, l(0.000000)
@@ -65751,7 +66527,7 @@ Shader "ShaderRipperTest/VariantMonster"
 				// mad r3.xyz, r3.xyzx, cb0[8].zzzz, r0.xzwx
 				r3.xyz = float3(mad(r3.x, cb0[8].z, r0.x), mad(r3.y, cb0[8].z, r0.z), mad(r3.z, cb0[8].z, r0.w));
 				// lt r1.x, r1.x, l(0.400000)
-				r1.x = (r1.x < 0.4) ? 1.0 : 0.0;
+				r1.x = (r1.x < 0.4) ? -1.0 : 0.0;
 				// mul r4.xyz, r0.xzwx, l(0.920000, 0.920000, 0.920000, 0.000000)
 				r4.xyz = float3(r0.x * 0.92, r0.z * 0.92, r0.w * 0.92);
 				// movc r0.xzw, r1.xxxx, r4.xxyz, r0.xxzw
@@ -66615,7 +67391,7 @@ Shader "ShaderRipperTest/VariantMonster"
 				// mul r0.xzw, r0.xxzw, cb0[10].yyyy
 				r0.xzw = float3(r0.x * cb0[10].y, r0.z * cb0[10].y, r0.w * cb0[10].y);
 				// lt r1.x, l(0.500000), cb0[11].y
-				r1.x = (0.5 < cb0[11].y) ? 1.0 : 0.0;
+				r1.x = (0.5 < cb0[11].y) ? -1.0 : 0.0;
 				// mul r1.yz, v1.xxyx, cb1[6].xxyx
 				r1.yz = float2(v1.x * _ScreenParams.x, v1.y * _ScreenParams.y);
 				// mul r1.yz, r1.yyzy, l(0.000000, 127.099998, 311.700012, 0.000000)
@@ -66680,6 +67456,27 @@ Shader "ShaderRipperTest/VariantMonster"
 			//   unnamed single lanes are shared by the Float/Range prop(s): _Iterations, _Steps, _WarpDepth, _Threshold, _Contrast, _Emission, _Saturation, _ToggleDetail, _ToggleBands, _ToggleDither
 			// cb1 = UnityPerDraw  (declared by UnityCG.cginc)
 			// cb2 = UnityPerFrame  (declared by UnityCG.cginc)
+			float4 _MainTex_TexelSize;
+			float4 _NoiseTex_ST;
+			float4 _NoiseTex_TexelSize;
+			float4 _DetailTex_ST;
+			float4 _DetailTex_TexelSize;
+			float4 _MaskTex_ST;
+			float4 _MaskTex_TexelSize;
+			float4 _Color;
+			float4 _ColorC;
+			float4 _Params;
+			float4 _Params3;
+			float _Iterations;
+			float _Steps;
+			float _WarpDepth;
+			float _Threshold;
+			float _Contrast;
+			float _Emission;
+			float _Saturation;
+			float _ToggleDetail;
+			float _ToggleBands;
+			float _ToggleDither;
 			// cbuffer order confirmed by the asset's own register index
 			// $Globals cb0: 1 slot(s) named from the compiled constant-buffer member table
 			// $Globals cb0: 2 slot(s) named from the compiled constant-buffer member table
@@ -66718,7 +67515,7 @@ Shader "ShaderRipperTest/VariantMonster"
 				// sample r0.xyzw, v1.xyxx, t0.xyzw, s3
 				r0.xyzw = tex2D(_MaskTex, float2(v1.x, v1.y));
 				// lt r0.x, r0.w, cb0[9].w
-				r0.x = (r0.w < cb0[9].w) ? 1.0 : 0.0;
+				r0.x = (r0.w < cb0[9].w) ? -1.0 : 0.0;
 				// discard_nz r0.x
 				if (any(r0.x)) discard;
 				// mul r0.x, cb0[6].z, cb1[0].y
@@ -67139,6 +67936,8 @@ Shader "ShaderRipperTest/VariantMonster"
 				r2.x = sin(r1.w);
 				// mad r1.y, r0.z, l(5.000000), -r1.y
 				r1.y = mad(r0.z, 5.0, -(r1.y));
+				// sincos null, r2.y, r1.y
+				r2.y = cos(r1.y);
 				// mul r1.yw, r2.xxxy, cb0[6].yyyy
 				r1.yw = float2(r2.x * cb0[6].y, r2.y * cb0[6].y);
 				// mad r1.yw, r1.yyyw, l(0.000000, 0.250000, 0.000000, 0.250000), r0.zzzw
@@ -67218,7 +68017,7 @@ Shader "ShaderRipperTest/VariantMonster"
 					// loop
 				for (;;) {
 					// ige r4.y, r4.x, r2.z
-					r4.y = (((int)(r4.x) >= (int)(r2.z)) ? 1 : 0);
+					r4.y = (((int)(r4.x) >= (int)(r2.z)) ? -1 : 0);
 					// breakc_nz r4.y
 					if (any(r4.y)) break;
 					// itof r4.y, r4.x
@@ -67640,7 +68439,7 @@ Shader "ShaderRipperTest/VariantMonster"
 						// loop
 					for (;;) {
 						// ige r6.x, r5.w, r2.w
-						r6.x = (((int)(r5.w) >= (int)(r2.w)) ? 1 : 0);
+						r6.x = (((int)(r5.w) >= (int)(r2.w)) ? -1 : 0);
 						// breakc_nz r6.x
 						if (any(r6.x)) break;
 						// itof r6.x, r5.w
@@ -67731,7 +68530,7 @@ Shader "ShaderRipperTest/VariantMonster"
 						// mad r6.z, |r6.z|, l(2.000000), r5.z
 						r6.z = mad(abs(r6.z), 2.0, r5.z);
 						// lt r6.w, l(2.200000), r6.z
-						r6.w = (2.2 < r6.z) ? 1.0 : 0.0;
+						r6.w = (2.2 < r6.z) ? -1.0 : 0.0;
 							// if_nz r6.w
 						if (any(r6.w)) {
 							// iadd r6.w, r5.w, l(1)
@@ -67765,7 +68564,7 @@ Shader "ShaderRipperTest/VariantMonster"
 					// mul r4.yz, r5.xxyx, l(0.000000, 1.040000, 1.040000, 0.000000)
 					r4.yz = float2(r5.x * 1.04, r5.y * 1.04);
 					// lt r6.xy, r5.zzzz, l(0.600000, 1.400000, 0.000000, 0.000000)
-					r6.xy = float2((r5.z < 0.6) ? 1.0 : 0.0, (r5.z < 1.4) ? 1.0 : 0.0);
+					r6.xy = float2((r5.z < 0.6) ? -1.0 : 0.0, (r5.z < 1.4) ? -1.0 : 0.0);
 					// add r6.zw, r5.xxxy, l(0.000000, 0.000000, 0.020000, 0.010000)
 					r6.zw = float2(r5.x + 0.02, r5.y + 0.01);
 					// mov_sat r5.xy, r5.xyxx
@@ -67777,7 +68576,7 @@ Shader "ShaderRipperTest/VariantMonster"
 					// movc r4.yz, r6.xxxx, r4.yyzy, r6.yyzy
 					r4.yz = float2(r6.x != 0.0 ? r4.y : r6.y, r6.x != 0.0 ? r4.z : r6.z);
 					// lt r4.w, l(1.500000), r4.y
-					r4.w = (1.5 < r4.y) ? 1.0 : 0.0;
+					r4.w = (1.5 < r4.y) ? -1.0 : 0.0;
 						// if_nz r4.w
 					if (any(r4.w)) {
 						// mov r3.z, r4.z
@@ -67793,7 +68592,7 @@ Shader "ShaderRipperTest/VariantMonster"
 				// endloop
 				}
 				// lt r2.z, l(0.500000), cb0[10].w
-				r2.z = (0.5 < cb0[10].w) ? 1.0 : 0.0;
+				r2.z = (0.5 < cb0[10].w) ? -1.0 : 0.0;
 					// if_nz r2.z
 				if (any(r2.z)) {
 					// mul r2.z, r0.x, l(0.250000)
@@ -67915,7 +68714,7 @@ Shader "ShaderRipperTest/VariantMonster"
 				// endif
 				}
 				// lt r2.z, l(0.500000), cb0[11].x
-				r2.z = (0.5 < cb0[11].x) ? 1.0 : 0.0;
+				r2.z = (0.5 < cb0[11].x) ? -1.0 : 0.0;
 					// if_nz r2.z
 				if (any(r2.z)) {
 					// mul r5.xyzw, cb0[8].wwww, l(0.300000, 0.520000, 0.740000, 0.960000)
@@ -67926,6 +68725,8 @@ Shader "ShaderRipperTest/VariantMonster"
 					r2.z = sin(r2.z);
 					// mad r2.w, r1.w, r5.x, -r0.x
 					r2.w = mad(r1.w, r5.x, -(r0.x));
+					// sincos null, r2.w, r2.w
+					r2.w = cos(r2.w);
 					// add r3.x, r1.w, r1.y
 					r3.x = r1.w + r1.y;
 					// mul r6.xyzw, r5.xyzw, r3.xxxx
@@ -67937,27 +68738,31 @@ Shader "ShaderRipperTest/VariantMonster"
 					// mad r3.w, r1.y, r5.y, r7.x
 					r3.w = mad(r1.y, r5.y, r7.x);
 					// sincos r3.yw, null, r3.yyyw
-					r3.yw = sin(r3.yyyw);
+					r3.yw = float2(sin(r3.y), sin(r3.w));
 					// add r2.z, r2.z, r3.w
 					r2.z = r2.z + r3.w;
 					// mad r3.w, r1.w, r5.y, -r7.x
 					r3.w = mad(r1.w, r5.y, -(r7.x));
+					// sincos null, r3.w, r3.w
+					r3.w = cos(r3.w);
 					// add r2.w, r2.w, r3.w
 					r2.w = r2.w + r3.w;
 					// mad r6.xyz, r6.yzwy, l(0.600000, 0.600000, 0.600000, 0.000000), r7.xyzx
 					r6.xyz = float3(mad(r6.y, 0.6, r7.x), mad(r6.z, 0.6, r7.y), mad(r6.w, 0.6, r7.z));
 					// sincos r6.xyz, null, r6.xyzx
-					r6.xyz = sin(r6.xyzx);
+					r6.xyz = float3(sin(r6.x), sin(r6.y), sin(r6.z));
 					// add r3.y, r3.y, r6.x
 					r3.y = r3.y + r6.x;
 					// mad r5.xy, r1.yyyy, r5.zwzz, r7.yzyy
 					r5.xy = float2(mad(r1.y, r5.z, r7.y), mad(r1.y, r5.w, r7.z));
 					// sincos r5.xy, null, r5.xyxx
-					r5.xy = sin(r5.xyxx);
+					r5.xy = float2(sin(r5.x), sin(r5.y));
 					// add r2.z, r2.z, r5.x
 					r2.z = r2.z + r5.x;
 					// mad r5.xz, r1.wwww, r5.zzwz, -r7.yyzy
 					r5.xz = float2(mad(r1.w, r5.z, -(r7.y)), mad(r1.w, r5.w, -(r7.z)));
+					// sincos null, r5.xz, r5.xxzx
+					r5.xz = float2(cos(r5.x), cos(r5.z));
 					// add r3.y, r6.y, r3.y
 					r3.y = r6.y + r3.y;
 					// add r2.zw, r2.zzzw, r5.yyyx
@@ -67976,6 +68781,8 @@ Shader "ShaderRipperTest/VariantMonster"
 					r2.z = r2.z + r3.w;
 					// mad r3.w, r1.w, r5.x, -r7.w
 					r3.w = mad(r1.w, r5.x, -(r7.w));
+					// sincos null, r3.w, r3.w
+					r3.w = cos(r3.w);
 					// add r2.w, r2.w, r3.w
 					r2.w = r2.w + r3.w;
 					// mul r3.xw, r3.xxxx, r5.xxxy
@@ -67996,6 +68803,8 @@ Shader "ShaderRipperTest/VariantMonster"
 					r6.x = r2.z + r4.w;
 					// mad r2.z, r1.w, r5.y, -r3.y
 					r2.z = mad(r1.w, r5.y, -(r3.y));
+					// sincos null, r2.z, r2.z
+					r2.z = cos(r2.z);
 					// add r6.y, r2.z, r2.w
 					r6.y = r2.z + r2.w;
 					// mad r2.z, r3.w, l(0.600000), r3.y
@@ -68039,7 +68848,7 @@ Shader "ShaderRipperTest/VariantMonster"
 					// loop
 				for (;;) {
 					// ige r4.w, r2.w, r2.y
-					r4.w = (((int)(r2.w) >= (int)(r2.y)) ? 1 : 0);
+					r4.w = (((int)(r2.w) >= (int)(r2.y)) ? -1 : 0);
 					// breakc_nz r4.w
 					if (any(r4.w)) break;
 					// itof r4.w, r2.w
@@ -68476,7 +69285,7 @@ Shader "ShaderRipperTest/VariantMonster"
 					// mad r4.w, r4.w, r5.x, r2.z
 					r4.w = mad(r4.w, r5.x, r2.z);
 					// lt r5.x, l(1.100000), r4.w
-					r5.x = (1.1 < r4.w) ? 1.0 : 0.0;
+					r5.x = (1.1 < r4.w) ? -1.0 : 0.0;
 						// if_nz r5.x
 					if (any(r5.x)) {
 						// mov r2.z, r4.w
@@ -68500,7 +69309,7 @@ Shader "ShaderRipperTest/VariantMonster"
 				// mul r0.y, r0.y, r1.z
 				r0.y = r0.y * r1.z;
 				// lt r1.z, r0.y, cb0[9].w
-				r1.z = (r0.y < cb0[9].w) ? 1.0 : 0.0;
+				r1.z = (r0.y < cb0[9].w) ? -1.0 : 0.0;
 				// discard_nz r1.z
 				if (any(r1.z)) discard;
 				// mul r5.xyzw, r0.xxxx, l(0.210000, 0.150000, 0.500000, 0.370000)
@@ -68993,7 +69802,7 @@ Shader "ShaderRipperTest/VariantMonster"
 				// mul r1.z, cb0[8].z, l(0.500000)
 				r1.z = cb0[8].z * 0.5;
 				// lt r1.z, r1.x, r1.z
-				r1.z = (r1.x < r1.z) ? 1.0 : 0.0;
+				r1.z = (r1.x < r1.z) ? -1.0 : 0.0;
 				// mad r2.y, -r1.x, l(3.000000), l(1.000000)
 				r2.y = mad(-(r1.x), 3.0, 1.0);
 				// max r2.y, r2.y, l(0.000000)
@@ -69005,7 +69814,7 @@ Shader "ShaderRipperTest/VariantMonster"
 				// mad r3.xyz, r3.xyzx, cb0[8].zzzz, r0.xzwx
 				r3.xyz = float3(mad(r3.x, cb0[8].z, r0.x), mad(r3.y, cb0[8].z, r0.z), mad(r3.z, cb0[8].z, r0.w));
 				// lt r1.x, r1.x, l(0.400000)
-				r1.x = (r1.x < 0.4) ? 1.0 : 0.0;
+				r1.x = (r1.x < 0.4) ? -1.0 : 0.0;
 				// mul r4.xyz, r0.xzwx, l(0.920000, 0.920000, 0.920000, 0.000000)
 				r4.xyz = float3(r0.x * 0.92, r0.z * 0.92, r0.w * 0.92);
 				// movc r0.xzw, r1.xxxx, r4.xxyz, r0.xxzw
@@ -69869,7 +70678,7 @@ Shader "ShaderRipperTest/VariantMonster"
 				// mul r0.xzw, r0.xxzw, cb0[10].yyyy
 				r0.xzw = float3(r0.x * cb0[10].y, r0.z * cb0[10].y, r0.w * cb0[10].y);
 				// lt r1.x, l(0.500000), cb0[11].y
-				r1.x = (0.5 < cb0[11].y) ? 1.0 : 0.0;
+				r1.x = (0.5 < cb0[11].y) ? -1.0 : 0.0;
 				// mul r1.yz, v1.xxyx, cb1[6].xxyx
 				r1.yz = float2(v1.x * _ScreenParams.x, v1.y * _ScreenParams.y);
 				// mul r1.yz, r1.yyzy, l(0.000000, 127.099998, 311.700012, 0.000000)
@@ -69934,6 +70743,27 @@ Shader "ShaderRipperTest/VariantMonster"
 			//   unnamed single lanes are shared by the Float/Range prop(s): _Iterations, _Steps, _WarpDepth, _Threshold, _Contrast, _Emission, _Saturation, _ToggleDetail, _ToggleBands, _ToggleDither
 			// cb1 = UnityPerDraw  (declared by UnityCG.cginc)
 			// cb2 = UnityPerFrame  (declared by UnityCG.cginc)
+			float4 _MainTex_TexelSize;
+			float4 _NoiseTex_ST;
+			float4 _NoiseTex_TexelSize;
+			float4 _DetailTex_ST;
+			float4 _DetailTex_TexelSize;
+			float4 _MaskTex_ST;
+			float4 _MaskTex_TexelSize;
+			float4 _Color;
+			float4 _ColorC;
+			float4 _Params;
+			float4 _Params3;
+			float _Iterations;
+			float _Steps;
+			float _WarpDepth;
+			float _Threshold;
+			float _Contrast;
+			float _Emission;
+			float _Saturation;
+			float _ToggleDetail;
+			float _ToggleBands;
+			float _ToggleDither;
 			// cbuffer order confirmed by the asset's own register index
 			// $Globals cb0: 1 slot(s) named from the compiled constant-buffer member table
 			// $Globals cb0: 2 slot(s) named from the compiled constant-buffer member table
@@ -69972,7 +70802,7 @@ Shader "ShaderRipperTest/VariantMonster"
 				// sample r0.xyzw, v1.xyxx, t0.xyzw, s3
 				r0.xyzw = tex2D(_MaskTex, float2(v1.x, v1.y));
 				// lt r0.x, r0.w, cb0[9].w
-				r0.x = (r0.w < cb0[9].w) ? 1.0 : 0.0;
+				r0.x = (r0.w < cb0[9].w) ? -1.0 : 0.0;
 				// discard_nz r0.x
 				if (any(r0.x)) discard;
 				// mul r0.x, cb0[6].z, cb1[0].y
@@ -70395,6 +71225,8 @@ Shader "ShaderRipperTest/VariantMonster"
 				r2.x = sin(r1.z);
 				// mad r1.y, r0.z, l(5.000000), -r1.y
 				r1.y = mad(r0.z, 5.0, -(r1.y));
+				// sincos null, r2.y, r1.y
+				r2.y = cos(r1.y);
 				// mul r1.yz, r2.xxyx, cb0[6].yyyy
 				r1.yz = float2(r2.x * cb0[6].y, r2.y * cb0[6].y);
 				// mad r1.yz, r1.yyzy, l(0.000000, 0.250000, 0.250000, 0.000000), r0.zzwz
@@ -70444,7 +71276,7 @@ Shader "ShaderRipperTest/VariantMonster"
 					// loop
 				for (;;) {
 					// ige r4.y, r4.x, r2.z
-					r4.y = (((int)(r4.x) >= (int)(r2.z)) ? 1 : 0);
+					r4.y = (((int)(r4.x) >= (int)(r2.z)) ? -1 : 0);
 					// breakc_nz r4.y
 					if (any(r4.y)) break;
 					// itof r4.y, r4.x
@@ -70866,7 +71698,7 @@ Shader "ShaderRipperTest/VariantMonster"
 						// loop
 					for (;;) {
 						// ige r6.x, r5.w, r2.w
-						r6.x = (((int)(r5.w) >= (int)(r2.w)) ? 1 : 0);
+						r6.x = (((int)(r5.w) >= (int)(r2.w)) ? -1 : 0);
 						// breakc_nz r6.x
 						if (any(r6.x)) break;
 						// itof r6.x, r5.w
@@ -70957,7 +71789,7 @@ Shader "ShaderRipperTest/VariantMonster"
 						// mad r6.z, |r6.z|, l(2.000000), r5.z
 						r6.z = mad(abs(r6.z), 2.0, r5.z);
 						// lt r6.w, l(2.200000), r6.z
-						r6.w = (2.2 < r6.z) ? 1.0 : 0.0;
+						r6.w = (2.2 < r6.z) ? -1.0 : 0.0;
 							// if_nz r6.w
 						if (any(r6.w)) {
 							// iadd r6.w, r5.w, l(1)
@@ -70991,7 +71823,7 @@ Shader "ShaderRipperTest/VariantMonster"
 					// mul r4.yz, r5.xxyx, l(0.000000, 1.040000, 1.040000, 0.000000)
 					r4.yz = float2(r5.x * 1.04, r5.y * 1.04);
 					// lt r6.xy, r5.zzzz, l(0.600000, 1.400000, 0.000000, 0.000000)
-					r6.xy = float2((r5.z < 0.6) ? 1.0 : 0.0, (r5.z < 1.4) ? 1.0 : 0.0);
+					r6.xy = float2((r5.z < 0.6) ? -1.0 : 0.0, (r5.z < 1.4) ? -1.0 : 0.0);
 					// add r6.zw, r5.xxxy, l(0.000000, 0.000000, 0.020000, 0.010000)
 					r6.zw = float2(r5.x + 0.02, r5.y + 0.01);
 					// mov_sat r5.xy, r5.xyxx
@@ -71003,7 +71835,7 @@ Shader "ShaderRipperTest/VariantMonster"
 					// movc r4.yz, r6.xxxx, r4.yyzy, r6.yyzy
 					r4.yz = float2(r6.x != 0.0 ? r4.y : r6.y, r6.x != 0.0 ? r4.z : r6.z);
 					// lt r4.w, l(1.500000), r4.y
-					r4.w = (1.5 < r4.y) ? 1.0 : 0.0;
+					r4.w = (1.5 < r4.y) ? -1.0 : 0.0;
 						// if_nz r4.w
 					if (any(r4.w)) {
 						// mov r3.z, r4.z
@@ -71019,7 +71851,7 @@ Shader "ShaderRipperTest/VariantMonster"
 				// endloop
 				}
 				// lt r2.z, l(0.500000), cb0[10].w
-				r2.z = (0.5 < cb0[10].w) ? 1.0 : 0.0;
+				r2.z = (0.5 < cb0[10].w) ? -1.0 : 0.0;
 					// if_nz r2.z
 				if (any(r2.z)) {
 					// mul r2.z, r0.x, l(0.250000)
@@ -71141,7 +71973,7 @@ Shader "ShaderRipperTest/VariantMonster"
 				// endif
 				}
 				// lt r2.z, l(0.500000), cb0[11].x
-				r2.z = (0.5 < cb0[11].x) ? 1.0 : 0.0;
+				r2.z = (0.5 < cb0[11].x) ? -1.0 : 0.0;
 					// if_nz r2.z
 				if (any(r2.z)) {
 					// mul r5.xyzw, cb0[8].wwww, l(0.300000, 0.520000, 0.740000, 0.960000)
@@ -71152,6 +71984,8 @@ Shader "ShaderRipperTest/VariantMonster"
 					r2.z = sin(r2.z);
 					// mad r2.w, r1.z, r5.x, -r0.x
 					r2.w = mad(r1.z, r5.x, -(r0.x));
+					// sincos null, r2.w, r2.w
+					r2.w = cos(r2.w);
 					// add r3.x, r1.z, r1.y
 					r3.x = r1.z + r1.y;
 					// mul r6.xyzw, r5.xyzw, r3.xxxx
@@ -71163,27 +71997,31 @@ Shader "ShaderRipperTest/VariantMonster"
 					// mad r3.w, r1.y, r5.y, r7.x
 					r3.w = mad(r1.y, r5.y, r7.x);
 					// sincos r3.yw, null, r3.yyyw
-					r3.yw = sin(r3.yyyw);
+					r3.yw = float2(sin(r3.y), sin(r3.w));
 					// add r2.z, r2.z, r3.w
 					r2.z = r2.z + r3.w;
 					// mad r3.w, r1.z, r5.y, -r7.x
 					r3.w = mad(r1.z, r5.y, -(r7.x));
+					// sincos null, r3.w, r3.w
+					r3.w = cos(r3.w);
 					// add r2.w, r2.w, r3.w
 					r2.w = r2.w + r3.w;
 					// mad r6.xyz, r6.yzwy, l(0.600000, 0.600000, 0.600000, 0.000000), r7.xyzx
 					r6.xyz = float3(mad(r6.y, 0.6, r7.x), mad(r6.z, 0.6, r7.y), mad(r6.w, 0.6, r7.z));
 					// sincos r6.xyz, null, r6.xyzx
-					r6.xyz = sin(r6.xyzx);
+					r6.xyz = float3(sin(r6.x), sin(r6.y), sin(r6.z));
 					// add r3.y, r3.y, r6.x
 					r3.y = r3.y + r6.x;
 					// mad r5.xy, r1.yyyy, r5.zwzz, r7.yzyy
 					r5.xy = float2(mad(r1.y, r5.z, r7.y), mad(r1.y, r5.w, r7.z));
 					// sincos r5.xy, null, r5.xyxx
-					r5.xy = sin(r5.xyxx);
+					r5.xy = float2(sin(r5.x), sin(r5.y));
 					// add r2.z, r2.z, r5.x
 					r2.z = r2.z + r5.x;
 					// mad r5.xz, r1.zzzz, r5.zzwz, -r7.yyzy
 					r5.xz = float2(mad(r1.z, r5.z, -(r7.y)), mad(r1.z, r5.w, -(r7.z)));
+					// sincos null, r5.xz, r5.xxzx
+					r5.xz = float2(cos(r5.x), cos(r5.z));
 					// add r3.y, r6.y, r3.y
 					r3.y = r6.y + r3.y;
 					// add r2.zw, r2.zzzw, r5.yyyx
@@ -71202,6 +72040,8 @@ Shader "ShaderRipperTest/VariantMonster"
 					r2.z = r2.z + r3.w;
 					// mad r3.w, r1.z, r5.x, -r7.w
 					r3.w = mad(r1.z, r5.x, -(r7.w));
+					// sincos null, r3.w, r3.w
+					r3.w = cos(r3.w);
 					// add r2.w, r2.w, r3.w
 					r2.w = r2.w + r3.w;
 					// mul r3.xw, r3.xxxx, r5.xxxy
@@ -71222,6 +72062,8 @@ Shader "ShaderRipperTest/VariantMonster"
 					r6.x = r2.z + r4.w;
 					// mad r2.z, r1.z, r5.y, -r3.y
 					r2.z = mad(r1.z, r5.y, -(r3.y));
+					// sincos null, r2.z, r2.z
+					r2.z = cos(r2.z);
 					// add r6.y, r2.z, r2.w
 					r6.y = r2.z + r2.w;
 					// mad r2.z, r3.w, l(0.600000), r3.y
@@ -71263,7 +72105,7 @@ Shader "ShaderRipperTest/VariantMonster"
 					// loop
 				for (;;) {
 					// ige r4.w, r2.w, r2.y
-					r4.w = (((int)(r2.w) >= (int)(r2.y)) ? 1 : 0);
+					r4.w = (((int)(r2.w) >= (int)(r2.y)) ? -1 : 0);
 					// breakc_nz r4.w
 					if (any(r4.w)) break;
 					// itof r4.w, r2.w
@@ -71700,7 +72542,7 @@ Shader "ShaderRipperTest/VariantMonster"
 					// mad r4.w, r4.w, r5.x, r2.z
 					r4.w = mad(r4.w, r5.x, r2.z);
 					// lt r5.x, l(1.100000), r4.w
-					r5.x = (1.1 < r4.w) ? 1.0 : 0.0;
+					r5.x = (1.1 < r4.w) ? -1.0 : 0.0;
 						// if_nz r5.x
 					if (any(r5.x)) {
 						// mov r2.z, r4.w
@@ -71724,7 +72566,7 @@ Shader "ShaderRipperTest/VariantMonster"
 				// mul r0.y, r0.y, r2.x
 				r0.y = r0.y * r2.x;
 				// lt r2.x, r0.y, cb0[9].w
-				r2.x = (r0.y < cb0[9].w) ? 1.0 : 0.0;
+				r2.x = (r0.y < cb0[9].w) ? -1.0 : 0.0;
 				// discard_nz r2.x
 				if (any(r2.x)) discard;
 				// mul r5.xyzw, r0.xxxx, l(0.210000, 0.150000, 0.500000, 0.370000)
@@ -72183,7 +73025,7 @@ Shader "ShaderRipperTest/VariantMonster"
 				// mad r3.xyw, -r7.xyxz, r3.xyxw, l(1.000000, 1.000000, 0.000000, 1.000000)
 				r3.xyw = float3(mad(-(r7.x), r3.x, 1.0), mad(-(r7.y), r3.y, 1.0), mad(-(r7.z), r3.w, 1.0));
 				// ge r0.xzw, r0.xxzw, l(0.500000, 0.000000, 0.500000, 0.500000)
-				r0.xzw = float3((r0.x >= 0.5) ? 1.0 : 0.0, (r0.z >= 0.5) ? 1.0 : 0.0, (r0.w >= 0.5) ? 1.0 : 0.0);
+				r0.xzw = float3((r0.x >= 0.5) ? -1.0 : 0.0, (r0.z >= 0.5) ? -1.0 : 0.0, (r0.w >= 0.5) ? -1.0 : 0.0);
 				// and r0.xzw, r0.xxzw, l(0x3f800000, 0, 0x3f800000, 0x3f800000)
 				r0.xzw = float3((((r0.x) != 0.0) ? 1.0 : 0.0), (((r0.z) != 0.0) ? 1.0 : 0.0), (((r0.w) != 0.0) ? 1.0 : 0.0));
 				// mad r2.xyw, -r2.xyxw, l(2.000000, 2.000000, 0.000000, 2.000000), r3.xyxw
@@ -72225,7 +73067,7 @@ Shader "ShaderRipperTest/VariantMonster"
 				// mul r2.x, cb0[8].z, l(0.500000)
 				r2.x = cb0[8].z * 0.5;
 				// lt r2.x, r1.x, r2.x
-				r2.x = (r1.x < r2.x) ? 1.0 : 0.0;
+				r2.x = (r1.x < r2.x) ? -1.0 : 0.0;
 				// mad r2.y, -r1.x, l(3.000000), l(1.000000)
 				r2.y = mad(-(r1.x), 3.0, 1.0);
 				// max r2.y, r2.y, l(0.000000)
@@ -72237,7 +73079,7 @@ Shader "ShaderRipperTest/VariantMonster"
 				// mad r3.xyz, r3.xyzx, cb0[8].zzzz, r0.xzwx
 				r3.xyz = float3(mad(r3.x, cb0[8].z, r0.x), mad(r3.y, cb0[8].z, r0.z), mad(r3.z, cb0[8].z, r0.w));
 				// lt r1.x, r1.x, l(0.400000)
-				r1.x = (r1.x < 0.4) ? 1.0 : 0.0;
+				r1.x = (r1.x < 0.4) ? -1.0 : 0.0;
 				// mul r4.xyz, r0.xzwx, l(0.920000, 0.920000, 0.920000, 0.000000)
 				r4.xyz = float3(r0.x * 0.92, r0.z * 0.92, r0.w * 0.92);
 				// movc r0.xzw, r1.xxxx, r4.xxyz, r0.xxzw
@@ -73101,7 +73943,7 @@ Shader "ShaderRipperTest/VariantMonster"
 				// mul r0.xzw, r0.xxzw, cb0[10].yyyy
 				r0.xzw = float3(r0.x * cb0[10].y, r0.z * cb0[10].y, r0.w * cb0[10].y);
 				// lt r1.x, l(0.500000), cb0[11].y
-				r1.x = (0.5 < cb0[11].y) ? 1.0 : 0.0;
+				r1.x = (0.5 < cb0[11].y) ? -1.0 : 0.0;
 				// mul r1.yz, v1.xxyx, cb1[6].xxyx
 				r1.yz = float2(v1.x * _ScreenParams.x, v1.y * _ScreenParams.y);
 				// mul r1.yz, r1.yyzy, l(0.000000, 127.099998, 311.700012, 0.000000)
@@ -73166,6 +74008,27 @@ Shader "ShaderRipperTest/VariantMonster"
 			//   unnamed single lanes are shared by the Float/Range prop(s): _Iterations, _Steps, _WarpDepth, _Threshold, _Contrast, _Emission, _Saturation, _ToggleDetail, _ToggleBands, _ToggleDither
 			// cb1 = UnityPerDraw  (declared by UnityCG.cginc)
 			// cb2 = UnityPerFrame  (declared by UnityCG.cginc)
+			float4 _MainTex_TexelSize;
+			float4 _NoiseTex_ST;
+			float4 _NoiseTex_TexelSize;
+			float4 _DetailTex_ST;
+			float4 _DetailTex_TexelSize;
+			float4 _MaskTex_ST;
+			float4 _MaskTex_TexelSize;
+			float4 _Color;
+			float4 _ColorC;
+			float4 _Params;
+			float4 _Params3;
+			float _Iterations;
+			float _Steps;
+			float _WarpDepth;
+			float _Threshold;
+			float _Contrast;
+			float _Emission;
+			float _Saturation;
+			float _ToggleDetail;
+			float _ToggleBands;
+			float _ToggleDither;
 			// cbuffer order confirmed by the asset's own register index
 			// $Globals cb0: 1 slot(s) named from the compiled constant-buffer member table
 			// $Globals cb0: 2 slot(s) named from the compiled constant-buffer member table
@@ -73204,7 +74067,7 @@ Shader "ShaderRipperTest/VariantMonster"
 				// sample r0.xyzw, v1.xyxx, t0.xyzw, s3
 				r0.xyzw = tex2D(_MaskTex, float2(v1.x, v1.y));
 				// lt r0.x, r0.w, cb0[9].w
-				r0.x = (r0.w < cb0[9].w) ? 1.0 : 0.0;
+				r0.x = (r0.w < cb0[9].w) ? -1.0 : 0.0;
 				// discard_nz r0.x
 				if (any(r0.x)) discard;
 				// mul r0.x, cb0[6].z, cb1[0].y
@@ -73625,6 +74488,8 @@ Shader "ShaderRipperTest/VariantMonster"
 				r2.x = sin(r1.w);
 				// mad r1.y, r0.z, l(5.000000), -r1.y
 				r1.y = mad(r0.z, 5.0, -(r1.y));
+				// sincos null, r2.y, r1.y
+				r2.y = cos(r1.y);
 				// mul r1.yw, r2.xxxy, cb0[6].yyyy
 				r1.yw = float2(r2.x * cb0[6].y, r2.y * cb0[6].y);
 				// mad r1.yw, r1.yyyw, l(0.000000, 0.250000, 0.000000, 0.250000), r0.zzzw
@@ -73704,7 +74569,7 @@ Shader "ShaderRipperTest/VariantMonster"
 					// loop
 				for (;;) {
 					// ige r4.y, r4.x, r2.z
-					r4.y = (((int)(r4.x) >= (int)(r2.z)) ? 1 : 0);
+					r4.y = (((int)(r4.x) >= (int)(r2.z)) ? -1 : 0);
 					// breakc_nz r4.y
 					if (any(r4.y)) break;
 					// itof r4.y, r4.x
@@ -74126,7 +74991,7 @@ Shader "ShaderRipperTest/VariantMonster"
 						// loop
 					for (;;) {
 						// ige r6.x, r5.w, r2.w
-						r6.x = (((int)(r5.w) >= (int)(r2.w)) ? 1 : 0);
+						r6.x = (((int)(r5.w) >= (int)(r2.w)) ? -1 : 0);
 						// breakc_nz r6.x
 						if (any(r6.x)) break;
 						// itof r6.x, r5.w
@@ -74217,7 +75082,7 @@ Shader "ShaderRipperTest/VariantMonster"
 						// mad r6.z, |r6.z|, l(2.000000), r5.z
 						r6.z = mad(abs(r6.z), 2.0, r5.z);
 						// lt r6.w, l(2.200000), r6.z
-						r6.w = (2.2 < r6.z) ? 1.0 : 0.0;
+						r6.w = (2.2 < r6.z) ? -1.0 : 0.0;
 							// if_nz r6.w
 						if (any(r6.w)) {
 							// iadd r6.w, r5.w, l(1)
@@ -74251,7 +75116,7 @@ Shader "ShaderRipperTest/VariantMonster"
 					// mul r4.yz, r5.xxyx, l(0.000000, 1.040000, 1.040000, 0.000000)
 					r4.yz = float2(r5.x * 1.04, r5.y * 1.04);
 					// lt r6.xy, r5.zzzz, l(0.600000, 1.400000, 0.000000, 0.000000)
-					r6.xy = float2((r5.z < 0.6) ? 1.0 : 0.0, (r5.z < 1.4) ? 1.0 : 0.0);
+					r6.xy = float2((r5.z < 0.6) ? -1.0 : 0.0, (r5.z < 1.4) ? -1.0 : 0.0);
 					// add r6.zw, r5.xxxy, l(0.000000, 0.000000, 0.020000, 0.010000)
 					r6.zw = float2(r5.x + 0.02, r5.y + 0.01);
 					// mov_sat r5.xy, r5.xyxx
@@ -74263,7 +75128,7 @@ Shader "ShaderRipperTest/VariantMonster"
 					// movc r4.yz, r6.xxxx, r4.yyzy, r6.yyzy
 					r4.yz = float2(r6.x != 0.0 ? r4.y : r6.y, r6.x != 0.0 ? r4.z : r6.z);
 					// lt r4.w, l(1.500000), r4.y
-					r4.w = (1.5 < r4.y) ? 1.0 : 0.0;
+					r4.w = (1.5 < r4.y) ? -1.0 : 0.0;
 						// if_nz r4.w
 					if (any(r4.w)) {
 						// mov r3.z, r4.z
@@ -74279,7 +75144,7 @@ Shader "ShaderRipperTest/VariantMonster"
 				// endloop
 				}
 				// lt r2.z, l(0.500000), cb0[10].w
-				r2.z = (0.5 < cb0[10].w) ? 1.0 : 0.0;
+				r2.z = (0.5 < cb0[10].w) ? -1.0 : 0.0;
 					// if_nz r2.z
 				if (any(r2.z)) {
 					// mul r2.z, r0.x, l(0.250000)
@@ -74401,7 +75266,7 @@ Shader "ShaderRipperTest/VariantMonster"
 				// endif
 				}
 				// lt r2.z, l(0.500000), cb0[11].x
-				r2.z = (0.5 < cb0[11].x) ? 1.0 : 0.0;
+				r2.z = (0.5 < cb0[11].x) ? -1.0 : 0.0;
 					// if_nz r2.z
 				if (any(r2.z)) {
 					// mul r5.xyzw, cb0[8].wwww, l(0.300000, 0.520000, 0.740000, 0.960000)
@@ -74412,6 +75277,8 @@ Shader "ShaderRipperTest/VariantMonster"
 					r2.z = sin(r2.z);
 					// mad r2.w, r1.w, r5.x, -r0.x
 					r2.w = mad(r1.w, r5.x, -(r0.x));
+					// sincos null, r2.w, r2.w
+					r2.w = cos(r2.w);
 					// add r3.x, r1.w, r1.y
 					r3.x = r1.w + r1.y;
 					// mul r6.xyzw, r5.xyzw, r3.xxxx
@@ -74423,27 +75290,31 @@ Shader "ShaderRipperTest/VariantMonster"
 					// mad r3.w, r1.y, r5.y, r7.x
 					r3.w = mad(r1.y, r5.y, r7.x);
 					// sincos r3.yw, null, r3.yyyw
-					r3.yw = sin(r3.yyyw);
+					r3.yw = float2(sin(r3.y), sin(r3.w));
 					// add r2.z, r2.z, r3.w
 					r2.z = r2.z + r3.w;
 					// mad r3.w, r1.w, r5.y, -r7.x
 					r3.w = mad(r1.w, r5.y, -(r7.x));
+					// sincos null, r3.w, r3.w
+					r3.w = cos(r3.w);
 					// add r2.w, r2.w, r3.w
 					r2.w = r2.w + r3.w;
 					// mad r6.xyz, r6.yzwy, l(0.600000, 0.600000, 0.600000, 0.000000), r7.xyzx
 					r6.xyz = float3(mad(r6.y, 0.6, r7.x), mad(r6.z, 0.6, r7.y), mad(r6.w, 0.6, r7.z));
 					// sincos r6.xyz, null, r6.xyzx
-					r6.xyz = sin(r6.xyzx);
+					r6.xyz = float3(sin(r6.x), sin(r6.y), sin(r6.z));
 					// add r3.y, r3.y, r6.x
 					r3.y = r3.y + r6.x;
 					// mad r5.xy, r1.yyyy, r5.zwzz, r7.yzyy
 					r5.xy = float2(mad(r1.y, r5.z, r7.y), mad(r1.y, r5.w, r7.z));
 					// sincos r5.xy, null, r5.xyxx
-					r5.xy = sin(r5.xyxx);
+					r5.xy = float2(sin(r5.x), sin(r5.y));
 					// add r2.z, r2.z, r5.x
 					r2.z = r2.z + r5.x;
 					// mad r5.xz, r1.wwww, r5.zzwz, -r7.yyzy
 					r5.xz = float2(mad(r1.w, r5.z, -(r7.y)), mad(r1.w, r5.w, -(r7.z)));
+					// sincos null, r5.xz, r5.xxzx
+					r5.xz = float2(cos(r5.x), cos(r5.z));
 					// add r3.y, r6.y, r3.y
 					r3.y = r6.y + r3.y;
 					// add r2.zw, r2.zzzw, r5.yyyx
@@ -74462,6 +75333,8 @@ Shader "ShaderRipperTest/VariantMonster"
 					r2.z = r2.z + r3.w;
 					// mad r3.w, r1.w, r5.x, -r7.w
 					r3.w = mad(r1.w, r5.x, -(r7.w));
+					// sincos null, r3.w, r3.w
+					r3.w = cos(r3.w);
 					// add r2.w, r2.w, r3.w
 					r2.w = r2.w + r3.w;
 					// mul r3.xw, r3.xxxx, r5.xxxy
@@ -74482,6 +75355,8 @@ Shader "ShaderRipperTest/VariantMonster"
 					r6.x = r2.z + r4.w;
 					// mad r2.z, r1.w, r5.y, -r3.y
 					r2.z = mad(r1.w, r5.y, -(r3.y));
+					// sincos null, r2.z, r2.z
+					r2.z = cos(r2.z);
 					// add r6.y, r2.z, r2.w
 					r6.y = r2.z + r2.w;
 					// mad r2.z, r3.w, l(0.600000), r3.y
@@ -74525,7 +75400,7 @@ Shader "ShaderRipperTest/VariantMonster"
 					// loop
 				for (;;) {
 					// ige r4.w, r2.w, r2.y
-					r4.w = (((int)(r2.w) >= (int)(r2.y)) ? 1 : 0);
+					r4.w = (((int)(r2.w) >= (int)(r2.y)) ? -1 : 0);
 					// breakc_nz r4.w
 					if (any(r4.w)) break;
 					// itof r4.w, r2.w
@@ -74962,7 +75837,7 @@ Shader "ShaderRipperTest/VariantMonster"
 					// mad r4.w, r4.w, r5.x, r2.z
 					r4.w = mad(r4.w, r5.x, r2.z);
 					// lt r5.x, l(1.100000), r4.w
-					r5.x = (1.1 < r4.w) ? 1.0 : 0.0;
+					r5.x = (1.1 < r4.w) ? -1.0 : 0.0;
 						// if_nz r5.x
 					if (any(r5.x)) {
 						// mov r2.z, r4.w
@@ -74986,7 +75861,7 @@ Shader "ShaderRipperTest/VariantMonster"
 				// mul r0.y, r0.y, r1.z
 				r0.y = r0.y * r1.z;
 				// lt r1.z, r0.y, cb0[9].w
-				r1.z = (r0.y < cb0[9].w) ? 1.0 : 0.0;
+				r1.z = (r0.y < cb0[9].w) ? -1.0 : 0.0;
 				// discard_nz r1.z
 				if (any(r1.z)) discard;
 				// mul r5.xyzw, r0.xxxx, l(0.210000, 0.150000, 0.500000, 0.370000)
@@ -75455,7 +76330,7 @@ Shader "ShaderRipperTest/VariantMonster"
 				// mad r3.xyw, -r8.xyxz, r3.xyxw, l(1.000000, 1.000000, 0.000000, 1.000000)
 				r3.xyw = float3(mad(-(r8.x), r3.x, 1.0), mad(-(r8.y), r3.y, 1.0), mad(-(r8.z), r3.w, 1.0));
 				// ge r0.xzw, r0.xxzw, l(0.500000, 0.000000, 0.500000, 0.500000)
-				r0.xzw = float3((r0.x >= 0.5) ? 1.0 : 0.0, (r0.z >= 0.5) ? 1.0 : 0.0, (r0.w >= 0.5) ? 1.0 : 0.0);
+				r0.xzw = float3((r0.x >= 0.5) ? -1.0 : 0.0, (r0.z >= 0.5) ? -1.0 : 0.0, (r0.w >= 0.5) ? -1.0 : 0.0);
 				// and r0.xzw, r0.xxzw, l(0x3f800000, 0, 0x3f800000, 0x3f800000)
 				r0.xzw = float3((((r0.x) != 0.0) ? 1.0 : 0.0), (((r0.z) != 0.0) ? 1.0 : 0.0), (((r0.w) != 0.0) ? 1.0 : 0.0));
 				// mad r3.xyw, -r6.xyxz, l(2.000000, 2.000000, 0.000000, 2.000000), r3.xyxw
@@ -75497,7 +76372,7 @@ Shader "ShaderRipperTest/VariantMonster"
 				// mul r1.z, cb0[8].z, l(0.500000)
 				r1.z = cb0[8].z * 0.5;
 				// lt r1.z, r1.x, r1.z
-				r1.z = (r1.x < r1.z) ? 1.0 : 0.0;
+				r1.z = (r1.x < r1.z) ? -1.0 : 0.0;
 				// mad r2.y, -r1.x, l(3.000000), l(1.000000)
 				r2.y = mad(-(r1.x), 3.0, 1.0);
 				// max r2.y, r2.y, l(0.000000)
@@ -75509,7 +76384,7 @@ Shader "ShaderRipperTest/VariantMonster"
 				// mad r3.xyz, r3.xyzx, cb0[8].zzzz, r0.xzwx
 				r3.xyz = float3(mad(r3.x, cb0[8].z, r0.x), mad(r3.y, cb0[8].z, r0.z), mad(r3.z, cb0[8].z, r0.w));
 				// lt r1.x, r1.x, l(0.400000)
-				r1.x = (r1.x < 0.4) ? 1.0 : 0.0;
+				r1.x = (r1.x < 0.4) ? -1.0 : 0.0;
 				// mul r4.xyz, r0.xzwx, l(0.920000, 0.920000, 0.920000, 0.000000)
 				r4.xyz = float3(r0.x * 0.92, r0.z * 0.92, r0.w * 0.92);
 				// movc r0.xzw, r1.xxxx, r4.xxyz, r0.xxzw
@@ -76373,7 +77248,7 @@ Shader "ShaderRipperTest/VariantMonster"
 				// mul r0.xzw, r0.xxzw, cb0[10].yyyy
 				r0.xzw = float3(r0.x * cb0[10].y, r0.z * cb0[10].y, r0.w * cb0[10].y);
 				// lt r1.x, l(0.500000), cb0[11].y
-				r1.x = (0.5 < cb0[11].y) ? 1.0 : 0.0;
+				r1.x = (0.5 < cb0[11].y) ? -1.0 : 0.0;
 				// mul r1.yz, v1.xxyx, cb1[6].xxyx
 				r1.yz = float2(v1.x * _ScreenParams.x, v1.y * _ScreenParams.y);
 				// mul r1.yz, r1.yyzy, l(0.000000, 127.099998, 311.700012, 0.000000)
@@ -76438,6 +77313,27 @@ Shader "ShaderRipperTest/VariantMonster"
 			//   unnamed single lanes are shared by the Float/Range prop(s): _Iterations, _Steps, _WarpDepth, _Threshold, _Contrast, _Emission, _Saturation, _ToggleDetail, _ToggleBands, _ToggleDither
 			// cb1 = UnityPerDraw  (declared by UnityCG.cginc)
 			// cb2 = UnityPerFrame  (declared by UnityCG.cginc)
+			float4 _MainTex_TexelSize;
+			float4 _NoiseTex_ST;
+			float4 _NoiseTex_TexelSize;
+			float4 _DetailTex_ST;
+			float4 _DetailTex_TexelSize;
+			float4 _MaskTex_ST;
+			float4 _MaskTex_TexelSize;
+			float4 _Color;
+			float4 _ColorC;
+			float4 _Params;
+			float4 _Params3;
+			float _Iterations;
+			float _Steps;
+			float _WarpDepth;
+			float _Threshold;
+			float _Contrast;
+			float _Emission;
+			float _Saturation;
+			float _ToggleDetail;
+			float _ToggleBands;
+			float _ToggleDither;
 			// cbuffer order confirmed by the asset's own register index
 			// $Globals cb0: 1 slot(s) named from the compiled constant-buffer member table
 			// $Globals cb0: 2 slot(s) named from the compiled constant-buffer member table
@@ -76476,7 +77372,7 @@ Shader "ShaderRipperTest/VariantMonster"
 				// sample r0.xyzw, v1.xyxx, t0.xyzw, s3
 				r0.xyzw = tex2D(_MaskTex, float2(v1.x, v1.y));
 				// lt r0.x, r0.w, cb0[9].w
-				r0.x = (r0.w < cb0[9].w) ? 1.0 : 0.0;
+				r0.x = (r0.w < cb0[9].w) ? -1.0 : 0.0;
 				// discard_nz r0.x
 				if (any(r0.x)) discard;
 				// mul r0.x, cb0[6].z, cb1[0].y
@@ -76899,6 +77795,8 @@ Shader "ShaderRipperTest/VariantMonster"
 				r2.x = sin(r1.z);
 				// mad r1.y, r0.z, l(5.000000), -r1.y
 				r1.y = mad(r0.z, 5.0, -(r1.y));
+				// sincos null, r2.y, r1.y
+				r2.y = cos(r1.y);
 				// mul r1.yz, r2.xxyx, cb0[6].yyyy
 				r1.yz = float2(r2.x * cb0[6].y, r2.y * cb0[6].y);
 				// mad r1.yz, r1.yyzy, l(0.000000, 0.250000, 0.250000, 0.000000), r0.zzwz
@@ -76948,7 +77846,7 @@ Shader "ShaderRipperTest/VariantMonster"
 					// loop
 				for (;;) {
 					// ige r4.y, r4.x, r2.z
-					r4.y = (((int)(r4.x) >= (int)(r2.z)) ? 1 : 0);
+					r4.y = (((int)(r4.x) >= (int)(r2.z)) ? -1 : 0);
 					// breakc_nz r4.y
 					if (any(r4.y)) break;
 					// itof r4.y, r4.x
@@ -77370,7 +78268,7 @@ Shader "ShaderRipperTest/VariantMonster"
 						// loop
 					for (;;) {
 						// ige r6.x, r5.w, r2.w
-						r6.x = (((int)(r5.w) >= (int)(r2.w)) ? 1 : 0);
+						r6.x = (((int)(r5.w) >= (int)(r2.w)) ? -1 : 0);
 						// breakc_nz r6.x
 						if (any(r6.x)) break;
 						// itof r6.x, r5.w
@@ -77461,7 +78359,7 @@ Shader "ShaderRipperTest/VariantMonster"
 						// mad r6.z, |r6.z|, l(2.000000), r5.z
 						r6.z = mad(abs(r6.z), 2.0, r5.z);
 						// lt r6.w, l(2.200000), r6.z
-						r6.w = (2.2 < r6.z) ? 1.0 : 0.0;
+						r6.w = (2.2 < r6.z) ? -1.0 : 0.0;
 							// if_nz r6.w
 						if (any(r6.w)) {
 							// iadd r6.w, r5.w, l(1)
@@ -77495,7 +78393,7 @@ Shader "ShaderRipperTest/VariantMonster"
 					// mul r4.yz, r5.xxyx, l(0.000000, 1.040000, 1.040000, 0.000000)
 					r4.yz = float2(r5.x * 1.04, r5.y * 1.04);
 					// lt r6.xy, r5.zzzz, l(0.600000, 1.400000, 0.000000, 0.000000)
-					r6.xy = float2((r5.z < 0.6) ? 1.0 : 0.0, (r5.z < 1.4) ? 1.0 : 0.0);
+					r6.xy = float2((r5.z < 0.6) ? -1.0 : 0.0, (r5.z < 1.4) ? -1.0 : 0.0);
 					// add r6.zw, r5.xxxy, l(0.000000, 0.000000, 0.020000, 0.010000)
 					r6.zw = float2(r5.x + 0.02, r5.y + 0.01);
 					// mov_sat r5.xy, r5.xyxx
@@ -77507,7 +78405,7 @@ Shader "ShaderRipperTest/VariantMonster"
 					// movc r4.yz, r6.xxxx, r4.yyzy, r6.yyzy
 					r4.yz = float2(r6.x != 0.0 ? r4.y : r6.y, r6.x != 0.0 ? r4.z : r6.z);
 					// lt r4.w, l(1.500000), r4.y
-					r4.w = (1.5 < r4.y) ? 1.0 : 0.0;
+					r4.w = (1.5 < r4.y) ? -1.0 : 0.0;
 						// if_nz r4.w
 					if (any(r4.w)) {
 						// mov r3.z, r4.z
@@ -77523,7 +78421,7 @@ Shader "ShaderRipperTest/VariantMonster"
 				// endloop
 				}
 				// lt r2.z, l(0.500000), cb0[10].w
-				r2.z = (0.5 < cb0[10].w) ? 1.0 : 0.0;
+				r2.z = (0.5 < cb0[10].w) ? -1.0 : 0.0;
 					// if_nz r2.z
 				if (any(r2.z)) {
 					// mul r2.z, r0.x, l(0.250000)
@@ -77645,7 +78543,7 @@ Shader "ShaderRipperTest/VariantMonster"
 				// endif
 				}
 				// lt r2.z, l(0.500000), cb0[11].x
-				r2.z = (0.5 < cb0[11].x) ? 1.0 : 0.0;
+				r2.z = (0.5 < cb0[11].x) ? -1.0 : 0.0;
 					// if_nz r2.z
 				if (any(r2.z)) {
 					// mul r5.xyzw, cb0[8].wwww, l(0.300000, 0.520000, 0.740000, 0.960000)
@@ -77656,6 +78554,8 @@ Shader "ShaderRipperTest/VariantMonster"
 					r2.z = sin(r2.z);
 					// mad r2.w, r1.z, r5.x, -r0.x
 					r2.w = mad(r1.z, r5.x, -(r0.x));
+					// sincos null, r2.w, r2.w
+					r2.w = cos(r2.w);
 					// add r3.x, r1.z, r1.y
 					r3.x = r1.z + r1.y;
 					// mul r6.xyzw, r5.xyzw, r3.xxxx
@@ -77667,27 +78567,31 @@ Shader "ShaderRipperTest/VariantMonster"
 					// mad r3.w, r1.y, r5.y, r7.x
 					r3.w = mad(r1.y, r5.y, r7.x);
 					// sincos r3.yw, null, r3.yyyw
-					r3.yw = sin(r3.yyyw);
+					r3.yw = float2(sin(r3.y), sin(r3.w));
 					// add r2.z, r2.z, r3.w
 					r2.z = r2.z + r3.w;
 					// mad r3.w, r1.z, r5.y, -r7.x
 					r3.w = mad(r1.z, r5.y, -(r7.x));
+					// sincos null, r3.w, r3.w
+					r3.w = cos(r3.w);
 					// add r2.w, r2.w, r3.w
 					r2.w = r2.w + r3.w;
 					// mad r6.xyz, r6.yzwy, l(0.600000, 0.600000, 0.600000, 0.000000), r7.xyzx
 					r6.xyz = float3(mad(r6.y, 0.6, r7.x), mad(r6.z, 0.6, r7.y), mad(r6.w, 0.6, r7.z));
 					// sincos r6.xyz, null, r6.xyzx
-					r6.xyz = sin(r6.xyzx);
+					r6.xyz = float3(sin(r6.x), sin(r6.y), sin(r6.z));
 					// add r3.y, r3.y, r6.x
 					r3.y = r3.y + r6.x;
 					// mad r5.xy, r1.yyyy, r5.zwzz, r7.yzyy
 					r5.xy = float2(mad(r1.y, r5.z, r7.y), mad(r1.y, r5.w, r7.z));
 					// sincos r5.xy, null, r5.xyxx
-					r5.xy = sin(r5.xyxx);
+					r5.xy = float2(sin(r5.x), sin(r5.y));
 					// add r2.z, r2.z, r5.x
 					r2.z = r2.z + r5.x;
 					// mad r5.xz, r1.zzzz, r5.zzwz, -r7.yyzy
 					r5.xz = float2(mad(r1.z, r5.z, -(r7.y)), mad(r1.z, r5.w, -(r7.z)));
+					// sincos null, r5.xz, r5.xxzx
+					r5.xz = float2(cos(r5.x), cos(r5.z));
 					// add r3.y, r6.y, r3.y
 					r3.y = r6.y + r3.y;
 					// add r2.zw, r2.zzzw, r5.yyyx
@@ -77706,6 +78610,8 @@ Shader "ShaderRipperTest/VariantMonster"
 					r2.z = r2.z + r3.w;
 					// mad r3.w, r1.z, r5.x, -r7.w
 					r3.w = mad(r1.z, r5.x, -(r7.w));
+					// sincos null, r3.w, r3.w
+					r3.w = cos(r3.w);
 					// add r2.w, r2.w, r3.w
 					r2.w = r2.w + r3.w;
 					// mul r3.xw, r3.xxxx, r5.xxxy
@@ -77726,6 +78632,8 @@ Shader "ShaderRipperTest/VariantMonster"
 					r6.x = r2.z + r4.w;
 					// mad r2.z, r1.z, r5.y, -r3.y
 					r2.z = mad(r1.z, r5.y, -(r3.y));
+					// sincos null, r2.z, r2.z
+					r2.z = cos(r2.z);
 					// add r6.y, r2.z, r2.w
 					r6.y = r2.z + r2.w;
 					// mad r2.z, r3.w, l(0.600000), r3.y
@@ -77767,7 +78675,7 @@ Shader "ShaderRipperTest/VariantMonster"
 					// loop
 				for (;;) {
 					// ige r4.w, r2.w, r2.y
-					r4.w = (((int)(r2.w) >= (int)(r2.y)) ? 1 : 0);
+					r4.w = (((int)(r2.w) >= (int)(r2.y)) ? -1 : 0);
 					// breakc_nz r4.w
 					if (any(r4.w)) break;
 					// itof r4.w, r2.w
@@ -78204,7 +79112,7 @@ Shader "ShaderRipperTest/VariantMonster"
 					// mad r4.w, r4.w, r5.x, r2.z
 					r4.w = mad(r4.w, r5.x, r2.z);
 					// lt r5.x, l(1.100000), r4.w
-					r5.x = (1.1 < r4.w) ? 1.0 : 0.0;
+					r5.x = (1.1 < r4.w) ? -1.0 : 0.0;
 						// if_nz r5.x
 					if (any(r5.x)) {
 						// mov r2.z, r4.w
@@ -78228,7 +79136,7 @@ Shader "ShaderRipperTest/VariantMonster"
 				// mul r0.y, r0.y, r2.x
 				r0.y = r0.y * r2.x;
 				// lt r2.x, r0.y, cb0[9].w
-				r2.x = (r0.y < cb0[9].w) ? 1.0 : 0.0;
+				r2.x = (r0.y < cb0[9].w) ? -1.0 : 0.0;
 				// discard_nz r2.x
 				if (any(r2.x)) discard;
 				// mul r5.xyzw, r0.xxxx, l(0.210000, 0.150000, 0.500000, 0.370000)
@@ -78715,7 +79623,7 @@ Shader "ShaderRipperTest/VariantMonster"
 				// mul r2.x, cb0[8].z, l(0.500000)
 				r2.x = cb0[8].z * 0.5;
 				// lt r2.x, r1.x, r2.x
-				r2.x = (r1.x < r2.x) ? 1.0 : 0.0;
+				r2.x = (r1.x < r2.x) ? -1.0 : 0.0;
 				// mad r2.y, -r1.x, l(3.000000), l(1.000000)
 				r2.y = mad(-(r1.x), 3.0, 1.0);
 				// max r2.y, r2.y, l(0.000000)
@@ -78727,7 +79635,7 @@ Shader "ShaderRipperTest/VariantMonster"
 				// mad r3.xyz, r3.xyzx, cb0[8].zzzz, r0.xzwx
 				r3.xyz = float3(mad(r3.x, cb0[8].z, r0.x), mad(r3.y, cb0[8].z, r0.z), mad(r3.z, cb0[8].z, r0.w));
 				// lt r1.x, r1.x, l(0.400000)
-				r1.x = (r1.x < 0.4) ? 1.0 : 0.0;
+				r1.x = (r1.x < 0.4) ? -1.0 : 0.0;
 				// mul r4.xyz, r0.xzwx, l(0.920000, 0.920000, 0.920000, 0.000000)
 				r4.xyz = float3(r0.x * 0.92, r0.z * 0.92, r0.w * 0.92);
 				// movc r0.xzw, r1.xxxx, r4.xxyz, r0.xxzw
@@ -79591,7 +80499,7 @@ Shader "ShaderRipperTest/VariantMonster"
 				// mul r0.xzw, r0.xxzw, cb0[10].yyyy
 				r0.xzw = float3(r0.x * cb0[10].y, r0.z * cb0[10].y, r0.w * cb0[10].y);
 				// lt r1.x, l(0.500000), cb0[11].y
-				r1.x = (0.5 < cb0[11].y) ? 1.0 : 0.0;
+				r1.x = (0.5 < cb0[11].y) ? -1.0 : 0.0;
 				// mul r1.yz, v1.xxyx, cb1[6].xxyx
 				r1.yz = float2(v1.x * _ScreenParams.x, v1.y * _ScreenParams.y);
 				// mul r1.yz, r1.yyzy, l(0.000000, 127.099998, 311.700012, 0.000000)
@@ -79656,6 +80564,27 @@ Shader "ShaderRipperTest/VariantMonster"
 			//   unnamed single lanes are shared by the Float/Range prop(s): _Iterations, _Steps, _WarpDepth, _Threshold, _Contrast, _Emission, _Saturation, _ToggleDetail, _ToggleBands, _ToggleDither
 			// cb1 = UnityPerDraw  (declared by UnityCG.cginc)
 			// cb2 = UnityPerFrame  (declared by UnityCG.cginc)
+			float4 _MainTex_TexelSize;
+			float4 _NoiseTex_ST;
+			float4 _NoiseTex_TexelSize;
+			float4 _DetailTex_ST;
+			float4 _DetailTex_TexelSize;
+			float4 _MaskTex_ST;
+			float4 _MaskTex_TexelSize;
+			float4 _Color;
+			float4 _ColorC;
+			float4 _Params;
+			float4 _Params3;
+			float _Iterations;
+			float _Steps;
+			float _WarpDepth;
+			float _Threshold;
+			float _Contrast;
+			float _Emission;
+			float _Saturation;
+			float _ToggleDetail;
+			float _ToggleBands;
+			float _ToggleDither;
 			// cbuffer order confirmed by the asset's own register index
 			// $Globals cb0: 1 slot(s) named from the compiled constant-buffer member table
 			// $Globals cb0: 2 slot(s) named from the compiled constant-buffer member table
@@ -79694,7 +80623,7 @@ Shader "ShaderRipperTest/VariantMonster"
 				// sample r0.xyzw, v1.xyxx, t0.xyzw, s3
 				r0.xyzw = tex2D(_MaskTex, float2(v1.x, v1.y));
 				// lt r0.x, r0.w, cb0[9].w
-				r0.x = (r0.w < cb0[9].w) ? 1.0 : 0.0;
+				r0.x = (r0.w < cb0[9].w) ? -1.0 : 0.0;
 				// discard_nz r0.x
 				if (any(r0.x)) discard;
 				// mul r0.x, cb0[6].z, cb1[0].y
@@ -80115,6 +81044,8 @@ Shader "ShaderRipperTest/VariantMonster"
 				r2.x = sin(r1.w);
 				// mad r1.y, r0.z, l(5.000000), -r1.y
 				r1.y = mad(r0.z, 5.0, -(r1.y));
+				// sincos null, r2.y, r1.y
+				r2.y = cos(r1.y);
 				// mul r1.yw, r2.xxxy, cb0[6].yyyy
 				r1.yw = float2(r2.x * cb0[6].y, r2.y * cb0[6].y);
 				// mad r1.yw, r1.yyyw, l(0.000000, 0.250000, 0.000000, 0.250000), r0.zzzw
@@ -80194,7 +81125,7 @@ Shader "ShaderRipperTest/VariantMonster"
 					// loop
 				for (;;) {
 					// ige r4.y, r4.x, r2.z
-					r4.y = (((int)(r4.x) >= (int)(r2.z)) ? 1 : 0);
+					r4.y = (((int)(r4.x) >= (int)(r2.z)) ? -1 : 0);
 					// breakc_nz r4.y
 					if (any(r4.y)) break;
 					// itof r4.y, r4.x
@@ -80616,7 +81547,7 @@ Shader "ShaderRipperTest/VariantMonster"
 						// loop
 					for (;;) {
 						// ige r6.x, r5.w, r2.w
-						r6.x = (((int)(r5.w) >= (int)(r2.w)) ? 1 : 0);
+						r6.x = (((int)(r5.w) >= (int)(r2.w)) ? -1 : 0);
 						// breakc_nz r6.x
 						if (any(r6.x)) break;
 						// itof r6.x, r5.w
@@ -80707,7 +81638,7 @@ Shader "ShaderRipperTest/VariantMonster"
 						// mad r6.z, |r6.z|, l(2.000000), r5.z
 						r6.z = mad(abs(r6.z), 2.0, r5.z);
 						// lt r6.w, l(2.200000), r6.z
-						r6.w = (2.2 < r6.z) ? 1.0 : 0.0;
+						r6.w = (2.2 < r6.z) ? -1.0 : 0.0;
 							// if_nz r6.w
 						if (any(r6.w)) {
 							// iadd r6.w, r5.w, l(1)
@@ -80741,7 +81672,7 @@ Shader "ShaderRipperTest/VariantMonster"
 					// mul r4.yz, r5.xxyx, l(0.000000, 1.040000, 1.040000, 0.000000)
 					r4.yz = float2(r5.x * 1.04, r5.y * 1.04);
 					// lt r6.xy, r5.zzzz, l(0.600000, 1.400000, 0.000000, 0.000000)
-					r6.xy = float2((r5.z < 0.6) ? 1.0 : 0.0, (r5.z < 1.4) ? 1.0 : 0.0);
+					r6.xy = float2((r5.z < 0.6) ? -1.0 : 0.0, (r5.z < 1.4) ? -1.0 : 0.0);
 					// add r6.zw, r5.xxxy, l(0.000000, 0.000000, 0.020000, 0.010000)
 					r6.zw = float2(r5.x + 0.02, r5.y + 0.01);
 					// mov_sat r5.xy, r5.xyxx
@@ -80753,7 +81684,7 @@ Shader "ShaderRipperTest/VariantMonster"
 					// movc r4.yz, r6.xxxx, r4.yyzy, r6.yyzy
 					r4.yz = float2(r6.x != 0.0 ? r4.y : r6.y, r6.x != 0.0 ? r4.z : r6.z);
 					// lt r4.w, l(1.500000), r4.y
-					r4.w = (1.5 < r4.y) ? 1.0 : 0.0;
+					r4.w = (1.5 < r4.y) ? -1.0 : 0.0;
 						// if_nz r4.w
 					if (any(r4.w)) {
 						// mov r3.z, r4.z
@@ -80769,7 +81700,7 @@ Shader "ShaderRipperTest/VariantMonster"
 				// endloop
 				}
 				// lt r2.z, l(0.500000), cb0[10].w
-				r2.z = (0.5 < cb0[10].w) ? 1.0 : 0.0;
+				r2.z = (0.5 < cb0[10].w) ? -1.0 : 0.0;
 					// if_nz r2.z
 				if (any(r2.z)) {
 					// mul r2.z, r0.x, l(0.250000)
@@ -80891,7 +81822,7 @@ Shader "ShaderRipperTest/VariantMonster"
 				// endif
 				}
 				// lt r2.z, l(0.500000), cb0[11].x
-				r2.z = (0.5 < cb0[11].x) ? 1.0 : 0.0;
+				r2.z = (0.5 < cb0[11].x) ? -1.0 : 0.0;
 					// if_nz r2.z
 				if (any(r2.z)) {
 					// mul r5.xyzw, cb0[8].wwww, l(0.300000, 0.520000, 0.740000, 0.960000)
@@ -80902,6 +81833,8 @@ Shader "ShaderRipperTest/VariantMonster"
 					r2.z = sin(r2.z);
 					// mad r2.w, r1.w, r5.x, -r0.x
 					r2.w = mad(r1.w, r5.x, -(r0.x));
+					// sincos null, r2.w, r2.w
+					r2.w = cos(r2.w);
 					// add r3.x, r1.w, r1.y
 					r3.x = r1.w + r1.y;
 					// mul r6.xyzw, r5.xyzw, r3.xxxx
@@ -80913,27 +81846,31 @@ Shader "ShaderRipperTest/VariantMonster"
 					// mad r3.w, r1.y, r5.y, r7.x
 					r3.w = mad(r1.y, r5.y, r7.x);
 					// sincos r3.yw, null, r3.yyyw
-					r3.yw = sin(r3.yyyw);
+					r3.yw = float2(sin(r3.y), sin(r3.w));
 					// add r2.z, r2.z, r3.w
 					r2.z = r2.z + r3.w;
 					// mad r3.w, r1.w, r5.y, -r7.x
 					r3.w = mad(r1.w, r5.y, -(r7.x));
+					// sincos null, r3.w, r3.w
+					r3.w = cos(r3.w);
 					// add r2.w, r2.w, r3.w
 					r2.w = r2.w + r3.w;
 					// mad r6.xyz, r6.yzwy, l(0.600000, 0.600000, 0.600000, 0.000000), r7.xyzx
 					r6.xyz = float3(mad(r6.y, 0.6, r7.x), mad(r6.z, 0.6, r7.y), mad(r6.w, 0.6, r7.z));
 					// sincos r6.xyz, null, r6.xyzx
-					r6.xyz = sin(r6.xyzx);
+					r6.xyz = float3(sin(r6.x), sin(r6.y), sin(r6.z));
 					// add r3.y, r3.y, r6.x
 					r3.y = r3.y + r6.x;
 					// mad r5.xy, r1.yyyy, r5.zwzz, r7.yzyy
 					r5.xy = float2(mad(r1.y, r5.z, r7.y), mad(r1.y, r5.w, r7.z));
 					// sincos r5.xy, null, r5.xyxx
-					r5.xy = sin(r5.xyxx);
+					r5.xy = float2(sin(r5.x), sin(r5.y));
 					// add r2.z, r2.z, r5.x
 					r2.z = r2.z + r5.x;
 					// mad r5.xz, r1.wwww, r5.zzwz, -r7.yyzy
 					r5.xz = float2(mad(r1.w, r5.z, -(r7.y)), mad(r1.w, r5.w, -(r7.z)));
+					// sincos null, r5.xz, r5.xxzx
+					r5.xz = float2(cos(r5.x), cos(r5.z));
 					// add r3.y, r6.y, r3.y
 					r3.y = r6.y + r3.y;
 					// add r2.zw, r2.zzzw, r5.yyyx
@@ -80952,6 +81889,8 @@ Shader "ShaderRipperTest/VariantMonster"
 					r2.z = r2.z + r3.w;
 					// mad r3.w, r1.w, r5.x, -r7.w
 					r3.w = mad(r1.w, r5.x, -(r7.w));
+					// sincos null, r3.w, r3.w
+					r3.w = cos(r3.w);
 					// add r2.w, r2.w, r3.w
 					r2.w = r2.w + r3.w;
 					// mul r3.xw, r3.xxxx, r5.xxxy
@@ -80972,6 +81911,8 @@ Shader "ShaderRipperTest/VariantMonster"
 					r6.x = r2.z + r4.w;
 					// mad r2.z, r1.w, r5.y, -r3.y
 					r2.z = mad(r1.w, r5.y, -(r3.y));
+					// sincos null, r2.z, r2.z
+					r2.z = cos(r2.z);
 					// add r6.y, r2.z, r2.w
 					r6.y = r2.z + r2.w;
 					// mad r2.z, r3.w, l(0.600000), r3.y
@@ -81015,7 +81956,7 @@ Shader "ShaderRipperTest/VariantMonster"
 					// loop
 				for (;;) {
 					// ige r4.w, r2.w, r2.y
-					r4.w = (((int)(r2.w) >= (int)(r2.y)) ? 1 : 0);
+					r4.w = (((int)(r2.w) >= (int)(r2.y)) ? -1 : 0);
 					// breakc_nz r4.w
 					if (any(r4.w)) break;
 					// itof r4.w, r2.w
@@ -81452,7 +82393,7 @@ Shader "ShaderRipperTest/VariantMonster"
 					// mad r4.w, r4.w, r5.x, r2.z
 					r4.w = mad(r4.w, r5.x, r2.z);
 					// lt r5.x, l(1.100000), r4.w
-					r5.x = (1.1 < r4.w) ? 1.0 : 0.0;
+					r5.x = (1.1 < r4.w) ? -1.0 : 0.0;
 						// if_nz r5.x
 					if (any(r5.x)) {
 						// mov r2.z, r4.w
@@ -81476,7 +82417,7 @@ Shader "ShaderRipperTest/VariantMonster"
 				// mul r0.y, r0.y, r1.z
 				r0.y = r0.y * r1.z;
 				// lt r1.z, r0.y, cb0[9].w
-				r1.z = (r0.y < cb0[9].w) ? 1.0 : 0.0;
+				r1.z = (r0.y < cb0[9].w) ? -1.0 : 0.0;
 				// discard_nz r1.z
 				if (any(r1.z)) discard;
 				// mul r5.xyzw, r0.xxxx, l(0.210000, 0.150000, 0.500000, 0.370000)
@@ -81973,7 +82914,7 @@ Shader "ShaderRipperTest/VariantMonster"
 				// mul r1.z, cb0[8].z, l(0.500000)
 				r1.z = cb0[8].z * 0.5;
 				// lt r1.z, r1.x, r1.z
-				r1.z = (r1.x < r1.z) ? 1.0 : 0.0;
+				r1.z = (r1.x < r1.z) ? -1.0 : 0.0;
 				// mad r2.y, -r1.x, l(3.000000), l(1.000000)
 				r2.y = mad(-(r1.x), 3.0, 1.0);
 				// max r2.y, r2.y, l(0.000000)
@@ -81985,7 +82926,7 @@ Shader "ShaderRipperTest/VariantMonster"
 				// mad r3.xyz, r3.xyzx, cb0[8].zzzz, r0.xzwx
 				r3.xyz = float3(mad(r3.x, cb0[8].z, r0.x), mad(r3.y, cb0[8].z, r0.z), mad(r3.z, cb0[8].z, r0.w));
 				// lt r1.x, r1.x, l(0.400000)
-				r1.x = (r1.x < 0.4) ? 1.0 : 0.0;
+				r1.x = (r1.x < 0.4) ? -1.0 : 0.0;
 				// mul r4.xyz, r0.xzwx, l(0.920000, 0.920000, 0.920000, 0.000000)
 				r4.xyz = float3(r0.x * 0.92, r0.z * 0.92, r0.w * 0.92);
 				// movc r0.xzw, r1.xxxx, r4.xxyz, r0.xxzw
@@ -82849,7 +83790,7 @@ Shader "ShaderRipperTest/VariantMonster"
 				// mul r0.xzw, r0.xxzw, cb0[10].yyyy
 				r0.xzw = float3(r0.x * cb0[10].y, r0.z * cb0[10].y, r0.w * cb0[10].y);
 				// lt r1.x, l(0.500000), cb0[11].y
-				r1.x = (0.5 < cb0[11].y) ? 1.0 : 0.0;
+				r1.x = (0.5 < cb0[11].y) ? -1.0 : 0.0;
 				// mul r1.yz, v1.xxyx, cb1[6].xxyx
 				r1.yz = float2(v1.x * _ScreenParams.x, v1.y * _ScreenParams.y);
 				// mul r1.yz, r1.yyzy, l(0.000000, 127.099998, 311.700012, 0.000000)
@@ -82914,6 +83855,27 @@ Shader "ShaderRipperTest/VariantMonster"
 			//   unnamed single lanes are shared by the Float/Range prop(s): _Iterations, _Steps, _WarpDepth, _Threshold, _Contrast, _Emission, _Saturation, _ToggleDetail, _ToggleBands, _ToggleDither
 			// cb1 = UnityPerDraw  (declared by UnityCG.cginc)
 			// cb2 = UnityPerFrame  (declared by UnityCG.cginc)
+			float4 _MainTex_TexelSize;
+			float4 _NoiseTex_ST;
+			float4 _NoiseTex_TexelSize;
+			float4 _DetailTex_ST;
+			float4 _DetailTex_TexelSize;
+			float4 _MaskTex_ST;
+			float4 _MaskTex_TexelSize;
+			float4 _Color;
+			float4 _ColorC;
+			float4 _Params;
+			float4 _Params3;
+			float _Iterations;
+			float _Steps;
+			float _WarpDepth;
+			float _Threshold;
+			float _Contrast;
+			float _Emission;
+			float _Saturation;
+			float _ToggleDetail;
+			float _ToggleBands;
+			float _ToggleDither;
 			// cbuffer order confirmed by the asset's own register index
 			// $Globals cb0: 1 slot(s) named from the compiled constant-buffer member table
 			// $Globals cb0: 2 slot(s) named from the compiled constant-buffer member table
@@ -82952,7 +83914,7 @@ Shader "ShaderRipperTest/VariantMonster"
 				// sample r0.xyzw, v1.xyxx, t0.xyzw, s3
 				r0.xyzw = tex2D(_MaskTex, float2(v1.x, v1.y));
 				// lt r0.x, r0.w, cb0[9].w
-				r0.x = (r0.w < cb0[9].w) ? 1.0 : 0.0;
+				r0.x = (r0.w < cb0[9].w) ? -1.0 : 0.0;
 				// discard_nz r0.x
 				if (any(r0.x)) discard;
 				// mul r0.x, cb0[6].z, cb1[0].y
@@ -83373,6 +84335,8 @@ Shader "ShaderRipperTest/VariantMonster"
 				r2.x = sin(r1.w);
 				// mad r1.y, r0.z, l(5.000000), -r1.y
 				r1.y = mad(r0.z, 5.0, -(r1.y));
+				// sincos null, r2.y, r1.y
+				r2.y = cos(r1.y);
 				// mul r1.yw, r2.xxxy, cb0[6].yyyy
 				r1.yw = float2(r2.x * cb0[6].y, r2.y * cb0[6].y);
 				// mad r0.zw, r1.yyyw, l(0.000000, 0.000000, 0.250000, 0.250000), r0.zzzw
@@ -83450,7 +84414,7 @@ Shader "ShaderRipperTest/VariantMonster"
 					// loop
 				for (;;) {
 					// ige r3.w, r3.z, r2.x
-					r3.w = (((int)(r3.z) >= (int)(r2.x)) ? 1 : 0);
+					r3.w = (((int)(r3.z) >= (int)(r2.x)) ? -1 : 0);
 					// breakc_nz r3.w
 					if (any(r3.w)) break;
 					// itof r3.w, r3.z
@@ -83864,7 +84828,7 @@ Shader "ShaderRipperTest/VariantMonster"
 						// loop
 					for (;;) {
 						// ige r5.z, r5.y, r2.y
-						r5.z = (((int)(r5.y) >= (int)(r2.y)) ? 1 : 0);
+						r5.z = (((int)(r5.y) >= (int)(r2.y)) ? -1 : 0);
 						// breakc_nz r5.z
 						if (any(r5.z)) break;
 						// itof r5.z, r5.y
@@ -83957,7 +84921,7 @@ Shader "ShaderRipperTest/VariantMonster"
 						// mad r6.x, |r6.x|, l(2.000000), r5.x
 						r6.x = mad(abs(r6.x), 2.0, r5.x);
 						// lt r6.y, l(2.200000), r6.x
-						r6.y = (2.2 < r6.x) ? 1.0 : 0.0;
+						r6.y = (2.2 < r6.x) ? -1.0 : 0.0;
 							// if_nz r6.y
 						if (any(r6.y)) {
 							// iadd r6.y, r5.y, l(1)
@@ -83991,7 +84955,7 @@ Shader "ShaderRipperTest/VariantMonster"
 					// mul r4.xy, r4.zwzz, l(1.040000, 1.040000, 0.000000, 0.000000)
 					r4.xy = float2(r4.z * 1.04, r4.w * 1.04);
 					// lt r5.yz, r5.xxxx, l(0.000000, 0.600000, 1.400000, 0.000000)
-					r5.yz = float2((r5.x < 0.6) ? 1.0 : 0.0, (r5.x < 1.4) ? 1.0 : 0.0);
+					r5.yz = float2((r5.x < 0.6) ? -1.0 : 0.0, (r5.x < 1.4) ? -1.0 : 0.0);
 					// add r6.xy, r4.zwzz, l(0.020000, 0.010000, 0.000000, 0.000000)
 					r6.xy = float2(r4.z + 0.02, r4.w + 0.01);
 					// mov_sat r4.zw, r4.zzzw
@@ -84003,7 +84967,7 @@ Shader "ShaderRipperTest/VariantMonster"
 					// movc r4.xy, r5.yyyy, r4.xyxx, r5.zwzz
 					r4.xy = float2(r5.y != 0.0 ? r4.x : r5.z, r5.y != 0.0 ? r4.y : r5.w);
 					// lt r3.w, l(1.500000), r4.x
-					r3.w = (1.5 < r4.x) ? 1.0 : 0.0;
+					r3.w = (1.5 < r4.x) ? -1.0 : 0.0;
 						// if_nz r3.w
 					if (any(r3.w)) {
 						// mov r3.x, r4.y
@@ -84019,7 +84983,7 @@ Shader "ShaderRipperTest/VariantMonster"
 				// endloop
 				}
 				// lt r2.x, l(0.500000), cb0[10].w
-				r2.x = (0.5 < cb0[10].w) ? 1.0 : 0.0;
+				r2.x = (0.5 < cb0[10].w) ? -1.0 : 0.0;
 					// if_nz r2.x
 				if (any(r2.x)) {
 					// mul r2.x, r0.x, l(0.250000)
@@ -84141,7 +85105,7 @@ Shader "ShaderRipperTest/VariantMonster"
 				// endif
 				}
 				// lt r2.w, l(0.500000), cb0[11].x
-				r2.w = (0.5 < cb0[11].x) ? 1.0 : 0.0;
+				r2.w = (0.5 < cb0[11].x) ? -1.0 : 0.0;
 					// if_nz r2.w
 				if (any(r2.w)) {
 					// mul r4.xyzw, cb0[8].wwww, l(0.300000, 0.520000, 0.740000, 0.960000)
@@ -84152,6 +85116,8 @@ Shader "ShaderRipperTest/VariantMonster"
 					r2.w = sin(r2.w);
 					// mad r3.y, r0.w, r4.x, -r0.x
 					r3.y = mad(r0.w, r4.x, -(r0.x));
+					// sincos null, r3.y, r3.y
+					r3.y = cos(r3.y);
 					// add r3.z, r0.w, r0.z
 					r3.z = r0.w + r0.z;
 					// mul r5.xyzw, r4.xyzw, r3.zzzz
@@ -84170,22 +85136,26 @@ Shader "ShaderRipperTest/VariantMonster"
 					r2.w = r2.w + r4.x;
 					// mad r4.x, r0.w, r4.y, -r6.x
 					r4.x = mad(r0.w, r4.y, -(r6.x));
+					// sincos null, r4.x, r4.x
+					r4.x = cos(r4.x);
 					// add r3.y, r3.y, r4.x
 					r3.y = r3.y + r4.x;
 					// mad r5.xyz, r5.yzwy, l(0.600000, 0.600000, 0.600000, 0.000000), r6.xyzx
 					r5.xyz = float3(mad(r5.y, 0.6, r6.x), mad(r5.z, 0.6, r6.y), mad(r5.w, 0.6, r6.z));
 					// sincos r5.xyz, null, r5.xyzx
-					r5.xyz = sin(r5.xyzx);
+					r5.xyz = float3(sin(r5.x), sin(r5.y), sin(r5.z));
 					// add r3.w, r3.w, r5.x
 					r3.w = r3.w + r5.x;
 					// mad r4.xy, r0.zzzz, r4.zwzz, r6.yzyy
 					r4.xy = float2(mad(r0.z, r4.z, r6.y), mad(r0.z, r4.w, r6.z));
 					// sincos r4.xy, null, r4.xyxx
-					r4.xy = sin(r4.xyxx);
+					r4.xy = float2(sin(r4.x), sin(r4.y));
 					// add r2.w, r2.w, r4.x
 					r2.w = r2.w + r4.x;
 					// mad r4.xz, r0.wwww, r4.zzwz, -r6.yyzy
 					r4.xz = float2(mad(r0.w, r4.z, -(r6.y)), mad(r0.w, r4.w, -(r6.z)));
+					// sincos null, r4.xz, r4.xxzx
+					r4.xz = float2(cos(r4.x), cos(r4.z));
 					// add r3.y, r3.y, r4.x
 					r3.y = r3.y + r4.x;
 					// add r3.w, r5.y, r3.w
@@ -84206,6 +85176,8 @@ Shader "ShaderRipperTest/VariantMonster"
 					r2.w = r2.w + r4.z;
 					// mad r4.z, r0.w, r4.x, -r6.w
 					r4.z = mad(r0.w, r4.x, -(r6.w));
+					// sincos null, r4.z, r4.z
+					r4.z = cos(r4.z);
 					// add r3.y, r3.y, r4.z
 					r3.y = r3.y + r4.z;
 					// mul r4.xz, r3.zzzz, r4.xxyx
@@ -84226,6 +85198,8 @@ Shader "ShaderRipperTest/VariantMonster"
 					r5.x = r2.w + r4.x;
 					// mad r2.w, r0.w, r4.y, -r3.w
 					r2.w = mad(r0.w, r4.y, -(r3.w));
+					// sincos null, r2.w, r2.w
+					r2.w = cos(r2.w);
 					// add r5.y, r2.w, r3.y
 					r5.y = r2.w + r3.y;
 					// mad r2.w, r4.z, l(0.600000), r3.w
@@ -84269,7 +85243,7 @@ Shader "ShaderRipperTest/VariantMonster"
 					// loop
 				for (;;) {
 					// ige r4.y, r4.x, r1.w
-					r4.y = (((int)(r4.x) >= (int)(r1.w)) ? 1 : 0);
+					r4.y = (((int)(r4.x) >= (int)(r1.w)) ? -1 : 0);
 					// breakc_nz r4.y
 					if (any(r4.y)) break;
 					// itof r4.y, r4.x
@@ -84696,7 +85670,7 @@ Shader "ShaderRipperTest/VariantMonster"
 					// mad r4.y, r4.y, r4.z, r2.w
 					r4.y = mad(r4.y, r4.z, r2.w);
 					// lt r4.z, l(1.100000), r4.y
-					r4.z = (1.1 < r4.y) ? 1.0 : 0.0;
+					r4.z = (1.1 < r4.y) ? -1.0 : 0.0;
 						// if_nz r4.z
 					if (any(r4.z)) {
 						// mov r2.w, r4.y
@@ -84720,7 +85694,7 @@ Shader "ShaderRipperTest/VariantMonster"
 				// mul r0.y, r0.y, r1.x
 				r0.y = r0.y * r1.x;
 				// lt r1.x, r0.y, cb0[9].w
-				r1.x = (r0.y < cb0[9].w) ? 1.0 : 0.0;
+				r1.x = (r0.y < cb0[9].w) ? -1.0 : 0.0;
 				// discard_nz r1.x
 				if (any(r1.x)) discard;
 				// mad r1.xzw, r2.xxyz, l(0.900000, 0.000000, 0.900000, 0.900000), l(0.600000, 0.000000, 0.600000, 0.600000)
@@ -84758,7 +85732,7 @@ Shader "ShaderRipperTest/VariantMonster"
 				// mul r2.y, cb0[8].z, l(0.500000)
 				r2.y = cb0[8].z * 0.5;
 				// lt r2.y, r2.x, r2.y
-				r2.y = (r2.x < r2.y) ? 1.0 : 0.0;
+				r2.y = (r2.x < r2.y) ? -1.0 : 0.0;
 				// mad r2.z, -r2.x, l(3.000000), l(1.000000)
 				r2.z = mad(-(r2.x), 3.0, 1.0);
 				// max r2.z, r2.z, l(0.000000)
@@ -84770,7 +85744,7 @@ Shader "ShaderRipperTest/VariantMonster"
 				// mad r3.xyz, r3.xyzx, cb0[8].zzzz, r1.xzwx
 				r3.xyz = float3(mad(r3.x, cb0[8].z, r1.x), mad(r3.y, cb0[8].z, r1.z), mad(r3.z, cb0[8].z, r1.w));
 				// lt r2.x, r2.x, l(0.400000)
-				r2.x = (r2.x < 0.4) ? 1.0 : 0.0;
+				r2.x = (r2.x < 0.4) ? -1.0 : 0.0;
 				// mul r4.xyz, r1.xzwx, l(0.920000, 0.920000, 0.920000, 0.000000)
 				r4.xyz = float3(r1.x * 0.92, r1.z * 0.92, r1.w * 0.92);
 				// movc r1.xzw, r2.xxxx, r4.xxyz, r1.xxzw
@@ -85628,7 +86602,7 @@ Shader "ShaderRipperTest/VariantMonster"
 				// mul r0.xzw, r0.xxzw, cb0[10].yyyy
 				r0.xzw = float3(r0.x * cb0[10].y, r0.z * cb0[10].y, r0.w * cb0[10].y);
 				// lt r1.x, l(0.500000), cb0[11].y
-				r1.x = (0.5 < cb0[11].y) ? 1.0 : 0.0;
+				r1.x = (0.5 < cb0[11].y) ? -1.0 : 0.0;
 				// mul r1.yz, v1.xxyx, cb1[6].xxyx
 				r1.yz = float2(v1.x * _ScreenParams.x, v1.y * _ScreenParams.y);
 				// mul r1.yz, r1.yyzy, l(0.000000, 127.099998, 311.700012, 0.000000)
@@ -85692,6 +86666,28 @@ Shader "ShaderRipperTest/VariantMonster"
 			//   unnamed single lanes are shared by the Float/Range prop(s): _Iterations, _Steps, _WarpDepth, _Threshold, _Contrast, _Emission, _Saturation, _ToggleDetail, _ToggleBands, _ToggleDither
 			// cb1 = UnityPerDraw  (declared by UnityCG.cginc)
 			// cb2 = UnityPerFrame  (declared by UnityCG.cginc)
+			float4 _MainTex_TexelSize;
+			float4 _NoiseTex_ST;
+			float4 _NoiseTex_TexelSize;
+			float4 _DetailTex_ST;
+			float4 _DetailTex_TexelSize;
+			float4 _MaskTex_ST;
+			float4 _MaskTex_TexelSize;
+			float4 _Color;
+			float4 _ColorC;
+			float4 _Params;
+			float4 _Params2;
+			float4 _Params3;
+			float _Iterations;
+			float _Steps;
+			float _WarpDepth;
+			float _Threshold;
+			float _Contrast;
+			float _Emission;
+			float _Saturation;
+			float _ToggleDetail;
+			float _ToggleBands;
+			float _ToggleDither;
 			// cbuffer order confirmed by the asset's own register index
 			// $Globals cb0: 1 slot(s) named from the compiled constant-buffer member table
 
@@ -85729,7 +86725,7 @@ Shader "ShaderRipperTest/VariantMonster"
 				// sample r0.xyzw, v1.xyxx, t0.xyzw, s3
 				r0.xyzw = tex2D(_MaskTex, float2(v1.x, v1.y));
 				// lt r0.x, r0.w, cb0[9].w
-				r0.x = (r0.w < cb0[9].w) ? 1.0 : 0.0;
+				r0.x = (r0.w < cb0[9].w) ? -1.0 : 0.0;
 				// discard_nz r0.x
 				if (any(r0.x)) discard;
 				// mul r0.x, cb0[6].z, cb1[0].y
@@ -86152,6 +87148,8 @@ Shader "ShaderRipperTest/VariantMonster"
 				r2.x = sin(r1.z);
 				// mad r1.y, r0.z, l(5.000000), -r1.y
 				r1.y = mad(r0.z, 5.0, -(r1.y));
+				// sincos null, r2.y, r1.y
+				r2.y = cos(r1.y);
 				// mul r1.yz, r2.xxyx, cb0[6].yyyy
 				r1.yz = float2(r2.x * cb0[6].y, r2.y * cb0[6].y);
 				// mad r1.yz, r1.yyzy, l(0.000000, 0.250000, 0.250000, 0.000000), r0.zzwz
@@ -86201,7 +87199,7 @@ Shader "ShaderRipperTest/VariantMonster"
 					// loop
 				for (;;) {
 					// ige r3.w, r3.z, r2.x
-					r3.w = (((int)(r3.z) >= (int)(r2.x)) ? 1 : 0);
+					r3.w = (((int)(r3.z) >= (int)(r2.x)) ? -1 : 0);
 					// breakc_nz r3.w
 					if (any(r3.w)) break;
 					// itof r3.w, r3.z
@@ -86615,7 +87613,7 @@ Shader "ShaderRipperTest/VariantMonster"
 						// loop
 					for (;;) {
 						// ige r5.z, r5.y, r2.y
-						r5.z = (((int)(r5.y) >= (int)(r2.y)) ? 1 : 0);
+						r5.z = (((int)(r5.y) >= (int)(r2.y)) ? -1 : 0);
 						// breakc_nz r5.z
 						if (any(r5.z)) break;
 						// itof r5.z, r5.y
@@ -86708,7 +87706,7 @@ Shader "ShaderRipperTest/VariantMonster"
 						// mad r6.x, |r6.x|, l(2.000000), r5.x
 						r6.x = mad(abs(r6.x), 2.0, r5.x);
 						// lt r6.y, l(2.200000), r6.x
-						r6.y = (2.2 < r6.x) ? 1.0 : 0.0;
+						r6.y = (2.2 < r6.x) ? -1.0 : 0.0;
 							// if_nz r6.y
 						if (any(r6.y)) {
 							// iadd r6.y, r5.y, l(1)
@@ -86742,7 +87740,7 @@ Shader "ShaderRipperTest/VariantMonster"
 					// mul r4.xy, r4.zwzz, l(1.040000, 1.040000, 0.000000, 0.000000)
 					r4.xy = float2(r4.z * 1.04, r4.w * 1.04);
 					// lt r5.yz, r5.xxxx, l(0.000000, 0.600000, 1.400000, 0.000000)
-					r5.yz = float2((r5.x < 0.6) ? 1.0 : 0.0, (r5.x < 1.4) ? 1.0 : 0.0);
+					r5.yz = float2((r5.x < 0.6) ? -1.0 : 0.0, (r5.x < 1.4) ? -1.0 : 0.0);
 					// add r6.xy, r4.zwzz, l(0.020000, 0.010000, 0.000000, 0.000000)
 					r6.xy = float2(r4.z + 0.02, r4.w + 0.01);
 					// mov_sat r4.zw, r4.zzzw
@@ -86754,7 +87752,7 @@ Shader "ShaderRipperTest/VariantMonster"
 					// movc r4.xy, r5.yyyy, r4.xyxx, r5.zwzz
 					r4.xy = float2(r5.y != 0.0 ? r4.x : r5.z, r5.y != 0.0 ? r4.y : r5.w);
 					// lt r3.w, l(1.500000), r4.x
-					r3.w = (1.5 < r4.x) ? 1.0 : 0.0;
+					r3.w = (1.5 < r4.x) ? -1.0 : 0.0;
 						// if_nz r3.w
 					if (any(r3.w)) {
 						// mov r3.x, r4.y
@@ -86770,7 +87768,7 @@ Shader "ShaderRipperTest/VariantMonster"
 				// endloop
 				}
 				// lt r2.x, l(0.500000), cb0[10].w
-				r2.x = (0.5 < cb0[10].w) ? 1.0 : 0.0;
+				r2.x = (0.5 < cb0[10].w) ? -1.0 : 0.0;
 					// if_nz r2.x
 				if (any(r2.x)) {
 					// mul r2.x, r0.x, l(0.250000)
@@ -86892,7 +87890,7 @@ Shader "ShaderRipperTest/VariantMonster"
 				// endif
 				}
 				// lt r2.w, l(0.500000), cb0[11].x
-				r2.w = (0.5 < cb0[11].x) ? 1.0 : 0.0;
+				r2.w = (0.5 < cb0[11].x) ? -1.0 : 0.0;
 					// if_nz r2.w
 				if (any(r2.w)) {
 					// mul r4.xyzw, cb0[8].wwww, l(0.300000, 0.520000, 0.740000, 0.960000)
@@ -86903,6 +87901,8 @@ Shader "ShaderRipperTest/VariantMonster"
 					r2.w = sin(r2.w);
 					// mad r3.y, r1.z, r4.x, -r0.x
 					r3.y = mad(r1.z, r4.x, -(r0.x));
+					// sincos null, r3.y, r3.y
+					r3.y = cos(r3.y);
 					// add r3.z, r1.z, r1.y
 					r3.z = r1.z + r1.y;
 					// mul r5.xyzw, r4.xyzw, r3.zzzz
@@ -86921,22 +87921,26 @@ Shader "ShaderRipperTest/VariantMonster"
 					r2.w = r2.w + r4.x;
 					// mad r4.x, r1.z, r4.y, -r6.x
 					r4.x = mad(r1.z, r4.y, -(r6.x));
+					// sincos null, r4.x, r4.x
+					r4.x = cos(r4.x);
 					// add r3.y, r3.y, r4.x
 					r3.y = r3.y + r4.x;
 					// mad r5.xyz, r5.yzwy, l(0.600000, 0.600000, 0.600000, 0.000000), r6.xyzx
 					r5.xyz = float3(mad(r5.y, 0.6, r6.x), mad(r5.z, 0.6, r6.y), mad(r5.w, 0.6, r6.z));
 					// sincos r5.xyz, null, r5.xyzx
-					r5.xyz = sin(r5.xyzx);
+					r5.xyz = float3(sin(r5.x), sin(r5.y), sin(r5.z));
 					// add r3.w, r3.w, r5.x
 					r3.w = r3.w + r5.x;
 					// mad r4.xy, r1.yyyy, r4.zwzz, r6.yzyy
 					r4.xy = float2(mad(r1.y, r4.z, r6.y), mad(r1.y, r4.w, r6.z));
 					// sincos r4.xy, null, r4.xyxx
-					r4.xy = sin(r4.xyxx);
+					r4.xy = float2(sin(r4.x), sin(r4.y));
 					// add r2.w, r2.w, r4.x
 					r2.w = r2.w + r4.x;
 					// mad r4.xz, r1.zzzz, r4.zzwz, -r6.yyzy
 					r4.xz = float2(mad(r1.z, r4.z, -(r6.y)), mad(r1.z, r4.w, -(r6.z)));
+					// sincos null, r4.xz, r4.xxzx
+					r4.xz = float2(cos(r4.x), cos(r4.z));
 					// add r3.y, r3.y, r4.x
 					r3.y = r3.y + r4.x;
 					// add r3.w, r5.y, r3.w
@@ -86957,6 +87961,8 @@ Shader "ShaderRipperTest/VariantMonster"
 					r2.w = r2.w + r4.z;
 					// mad r4.z, r1.z, r4.x, -r6.w
 					r4.z = mad(r1.z, r4.x, -(r6.w));
+					// sincos null, r4.z, r4.z
+					r4.z = cos(r4.z);
 					// add r3.y, r3.y, r4.z
 					r3.y = r3.y + r4.z;
 					// mul r4.xz, r3.zzzz, r4.xxyx
@@ -86977,6 +87983,8 @@ Shader "ShaderRipperTest/VariantMonster"
 					r5.x = r2.w + r4.x;
 					// mad r2.w, r1.z, r4.y, -r3.w
 					r2.w = mad(r1.z, r4.y, -(r3.w));
+					// sincos null, r2.w, r2.w
+					r2.w = cos(r2.w);
 					// add r5.y, r2.w, r3.y
 					r5.y = r2.w + r3.y;
 					// mad r2.w, r4.z, l(0.600000), r3.w
@@ -87004,7 +88012,7 @@ Shader "ShaderRipperTest/VariantMonster"
 				// mul r0.y, r0.y, r1.w
 				r0.y = r0.y * r1.w;
 				// lt r1.w, r0.y, cb0[9].w
-				r1.w = (r0.y < cb0[9].w) ? 1.0 : 0.0;
+				r1.w = (r0.y < cb0[9].w) ? -1.0 : 0.0;
 				// discard_nz r1.w
 				if (any(r1.w)) discard;
 				// mul r4.xy, r0.xxxx, l(0.210000, 0.150000, 0.000000, 0.000000)
@@ -87489,7 +88497,7 @@ Shader "ShaderRipperTest/VariantMonster"
 				// mul r1.y, cb0[8].z, l(0.500000)
 				r1.y = cb0[8].z * 0.5;
 				// lt r1.y, r1.x, r1.y
-				r1.y = (r1.x < r1.y) ? 1.0 : 0.0;
+				r1.y = (r1.x < r1.y) ? -1.0 : 0.0;
 				// mad r1.z, -r1.x, l(3.000000), l(1.000000)
 				r1.z = mad(-(r1.x), 3.0, 1.0);
 				// max r1.z, r1.z, l(0.000000)
@@ -87501,7 +88509,7 @@ Shader "ShaderRipperTest/VariantMonster"
 				// mad r2.xyz, r2.xyzx, cb0[8].zzzz, r0.xzwx
 				r2.xyz = float3(mad(r2.x, cb0[8].z, r0.x), mad(r2.y, cb0[8].z, r0.z), mad(r2.z, cb0[8].z, r0.w));
 				// lt r1.x, r1.x, l(0.400000)
-				r1.x = (r1.x < 0.4) ? 1.0 : 0.0;
+				r1.x = (r1.x < 0.4) ? -1.0 : 0.0;
 				// mul r3.xyz, r0.xzwx, l(0.920000, 0.920000, 0.920000, 0.000000)
 				r3.xyz = float3(r0.x * 0.92, r0.z * 0.92, r0.w * 0.92);
 				// movc r0.xzw, r1.xxxx, r3.xxyz, r0.xxzw
@@ -87523,7 +88531,7 @@ Shader "ShaderRipperTest/VariantMonster"
 				// mul r0.xzw, r0.xxzw, cb0[10].yyyy
 				r0.xzw = float3(r0.x * cb0[10].y, r0.z * cb0[10].y, r0.w * cb0[10].y);
 				// lt r1.x, l(0.500000), cb0[11].y
-				r1.x = (0.5 < cb0[11].y) ? 1.0 : 0.0;
+				r1.x = (0.5 < cb0[11].y) ? -1.0 : 0.0;
 				// mul r1.yz, v1.xxyx, cb1[6].xxyx
 				r1.yz = float2(v1.x * _ScreenParams.x, v1.y * _ScreenParams.y);
 				// mul r1.yz, r1.yyzy, l(0.000000, 127.099998, 311.700012, 0.000000)
@@ -87588,6 +88596,27 @@ Shader "ShaderRipperTest/VariantMonster"
 			//   unnamed single lanes are shared by the Float/Range prop(s): _Iterations, _Steps, _WarpDepth, _Threshold, _Contrast, _Emission, _Saturation, _ToggleDetail, _ToggleBands, _ToggleDither
 			// cb1 = UnityPerDraw  (declared by UnityCG.cginc)
 			// cb2 = UnityPerFrame  (declared by UnityCG.cginc)
+			float4 _MainTex_TexelSize;
+			float4 _NoiseTex_ST;
+			float4 _NoiseTex_TexelSize;
+			float4 _DetailTex_ST;
+			float4 _DetailTex_TexelSize;
+			float4 _MaskTex_ST;
+			float4 _MaskTex_TexelSize;
+			float4 _Color;
+			float4 _ColorC;
+			float4 _Params;
+			float4 _Params3;
+			float _Iterations;
+			float _Steps;
+			float _WarpDepth;
+			float _Threshold;
+			float _Contrast;
+			float _Emission;
+			float _Saturation;
+			float _ToggleDetail;
+			float _ToggleBands;
+			float _ToggleDither;
 			// cbuffer order confirmed by the asset's own register index
 			// $Globals cb0: 1 slot(s) named from the compiled constant-buffer member table
 			// $Globals cb0: 2 slot(s) named from the compiled constant-buffer member table
@@ -87626,7 +88655,7 @@ Shader "ShaderRipperTest/VariantMonster"
 				// sample r0.xyzw, v1.xyxx, t0.xyzw, s3
 				r0.xyzw = tex2D(_MaskTex, float2(v1.x, v1.y));
 				// lt r0.x, r0.w, cb0[9].w
-				r0.x = (r0.w < cb0[9].w) ? 1.0 : 0.0;
+				r0.x = (r0.w < cb0[9].w) ? -1.0 : 0.0;
 				// discard_nz r0.x
 				if (any(r0.x)) discard;
 				// mul r0.x, cb0[6].z, cb1[0].y
@@ -88047,6 +89076,8 @@ Shader "ShaderRipperTest/VariantMonster"
 				r2.x = sin(r1.w);
 				// mad r1.y, r0.z, l(5.000000), -r1.y
 				r1.y = mad(r0.z, 5.0, -(r1.y));
+				// sincos null, r2.y, r1.y
+				r2.y = cos(r1.y);
 				// mul r1.yw, r2.xxxy, cb0[6].yyyy
 				r1.yw = float2(r2.x * cb0[6].y, r2.y * cb0[6].y);
 				// mad r1.yw, r1.yyyw, l(0.000000, 0.250000, 0.000000, 0.250000), r0.zzzw
@@ -88126,7 +89157,7 @@ Shader "ShaderRipperTest/VariantMonster"
 					// loop
 				for (;;) {
 					// ige r3.w, r3.z, r2.x
-					r3.w = (((int)(r3.z) >= (int)(r2.x)) ? 1 : 0);
+					r3.w = (((int)(r3.z) >= (int)(r2.x)) ? -1 : 0);
 					// breakc_nz r3.w
 					if (any(r3.w)) break;
 					// itof r3.w, r3.z
@@ -88540,7 +89571,7 @@ Shader "ShaderRipperTest/VariantMonster"
 						// loop
 					for (;;) {
 						// ige r5.z, r5.y, r2.y
-						r5.z = (((int)(r5.y) >= (int)(r2.y)) ? 1 : 0);
+						r5.z = (((int)(r5.y) >= (int)(r2.y)) ? -1 : 0);
 						// breakc_nz r5.z
 						if (any(r5.z)) break;
 						// itof r5.z, r5.y
@@ -88633,7 +89664,7 @@ Shader "ShaderRipperTest/VariantMonster"
 						// mad r6.x, |r6.x|, l(2.000000), r5.x
 						r6.x = mad(abs(r6.x), 2.0, r5.x);
 						// lt r6.y, l(2.200000), r6.x
-						r6.y = (2.2 < r6.x) ? 1.0 : 0.0;
+						r6.y = (2.2 < r6.x) ? -1.0 : 0.0;
 							// if_nz r6.y
 						if (any(r6.y)) {
 							// iadd r6.y, r5.y, l(1)
@@ -88667,7 +89698,7 @@ Shader "ShaderRipperTest/VariantMonster"
 					// mul r4.xy, r4.zwzz, l(1.040000, 1.040000, 0.000000, 0.000000)
 					r4.xy = float2(r4.z * 1.04, r4.w * 1.04);
 					// lt r5.yz, r5.xxxx, l(0.000000, 0.600000, 1.400000, 0.000000)
-					r5.yz = float2((r5.x < 0.6) ? 1.0 : 0.0, (r5.x < 1.4) ? 1.0 : 0.0);
+					r5.yz = float2((r5.x < 0.6) ? -1.0 : 0.0, (r5.x < 1.4) ? -1.0 : 0.0);
 					// add r6.xy, r4.zwzz, l(0.020000, 0.010000, 0.000000, 0.000000)
 					r6.xy = float2(r4.z + 0.02, r4.w + 0.01);
 					// mov_sat r4.zw, r4.zzzw
@@ -88679,7 +89710,7 @@ Shader "ShaderRipperTest/VariantMonster"
 					// movc r4.xy, r5.yyyy, r4.xyxx, r5.zwzz
 					r4.xy = float2(r5.y != 0.0 ? r4.x : r5.z, r5.y != 0.0 ? r4.y : r5.w);
 					// lt r3.w, l(1.500000), r4.x
-					r3.w = (1.5 < r4.x) ? 1.0 : 0.0;
+					r3.w = (1.5 < r4.x) ? -1.0 : 0.0;
 						// if_nz r3.w
 					if (any(r3.w)) {
 						// mov r3.x, r4.y
@@ -88695,7 +89726,7 @@ Shader "ShaderRipperTest/VariantMonster"
 				// endloop
 				}
 				// lt r2.x, l(0.500000), cb0[10].w
-				r2.x = (0.5 < cb0[10].w) ? 1.0 : 0.0;
+				r2.x = (0.5 < cb0[10].w) ? -1.0 : 0.0;
 					// if_nz r2.x
 				if (any(r2.x)) {
 					// mul r2.x, r0.x, l(0.250000)
@@ -88817,7 +89848,7 @@ Shader "ShaderRipperTest/VariantMonster"
 				// endif
 				}
 				// lt r2.w, l(0.500000), cb0[11].x
-				r2.w = (0.5 < cb0[11].x) ? 1.0 : 0.0;
+				r2.w = (0.5 < cb0[11].x) ? -1.0 : 0.0;
 					// if_nz r2.w
 				if (any(r2.w)) {
 					// mul r4.xyzw, cb0[8].wwww, l(0.300000, 0.520000, 0.740000, 0.960000)
@@ -88828,6 +89859,8 @@ Shader "ShaderRipperTest/VariantMonster"
 					r2.w = sin(r2.w);
 					// mad r3.y, r1.w, r4.x, -r0.x
 					r3.y = mad(r1.w, r4.x, -(r0.x));
+					// sincos null, r3.y, r3.y
+					r3.y = cos(r3.y);
 					// add r3.z, r1.w, r1.y
 					r3.z = r1.w + r1.y;
 					// mul r5.xyzw, r4.xyzw, r3.zzzz
@@ -88846,22 +89879,26 @@ Shader "ShaderRipperTest/VariantMonster"
 					r2.w = r2.w + r4.x;
 					// mad r4.x, r1.w, r4.y, -r6.x
 					r4.x = mad(r1.w, r4.y, -(r6.x));
+					// sincos null, r4.x, r4.x
+					r4.x = cos(r4.x);
 					// add r3.y, r3.y, r4.x
 					r3.y = r3.y + r4.x;
 					// mad r5.xyz, r5.yzwy, l(0.600000, 0.600000, 0.600000, 0.000000), r6.xyzx
 					r5.xyz = float3(mad(r5.y, 0.6, r6.x), mad(r5.z, 0.6, r6.y), mad(r5.w, 0.6, r6.z));
 					// sincos r5.xyz, null, r5.xyzx
-					r5.xyz = sin(r5.xyzx);
+					r5.xyz = float3(sin(r5.x), sin(r5.y), sin(r5.z));
 					// add r3.w, r3.w, r5.x
 					r3.w = r3.w + r5.x;
 					// mad r4.xy, r1.yyyy, r4.zwzz, r6.yzyy
 					r4.xy = float2(mad(r1.y, r4.z, r6.y), mad(r1.y, r4.w, r6.z));
 					// sincos r4.xy, null, r4.xyxx
-					r4.xy = sin(r4.xyxx);
+					r4.xy = float2(sin(r4.x), sin(r4.y));
 					// add r2.w, r2.w, r4.x
 					r2.w = r2.w + r4.x;
 					// mad r4.xz, r1.wwww, r4.zzwz, -r6.yyzy
 					r4.xz = float2(mad(r1.w, r4.z, -(r6.y)), mad(r1.w, r4.w, -(r6.z)));
+					// sincos null, r4.xz, r4.xxzx
+					r4.xz = float2(cos(r4.x), cos(r4.z));
 					// add r3.y, r3.y, r4.x
 					r3.y = r3.y + r4.x;
 					// add r3.w, r5.y, r3.w
@@ -88882,6 +89919,8 @@ Shader "ShaderRipperTest/VariantMonster"
 					r2.w = r2.w + r4.z;
 					// mad r4.z, r1.w, r4.x, -r6.w
 					r4.z = mad(r1.w, r4.x, -(r6.w));
+					// sincos null, r4.z, r4.z
+					r4.z = cos(r4.z);
 					// add r3.y, r3.y, r4.z
 					r3.y = r3.y + r4.z;
 					// mul r4.xz, r3.zzzz, r4.xxyx
@@ -88902,6 +89941,8 @@ Shader "ShaderRipperTest/VariantMonster"
 					r5.x = r2.w + r4.x;
 					// mad r2.w, r1.w, r4.y, -r3.w
 					r2.w = mad(r1.w, r4.y, -(r3.w));
+					// sincos null, r2.w, r2.w
+					r2.w = cos(r2.w);
 					// add r5.y, r2.w, r3.y
 					r5.y = r2.w + r3.y;
 					// mad r2.w, r4.z, l(0.600000), r3.w
@@ -88929,7 +89970,7 @@ Shader "ShaderRipperTest/VariantMonster"
 				// mul r0.y, r0.y, r1.z
 				r0.y = r0.y * r1.z;
 				// lt r1.z, r0.y, cb0[9].w
-				r1.z = (r0.y < cb0[9].w) ? 1.0 : 0.0;
+				r1.z = (r0.y < cb0[9].w) ? -1.0 : 0.0;
 				// discard_nz r1.z
 				if (any(r1.z)) discard;
 				// mul r4.xy, r0.xxxx, l(0.210000, 0.150000, 0.000000, 0.000000)
@@ -89414,7 +90455,7 @@ Shader "ShaderRipperTest/VariantMonster"
 				// mul r1.y, cb0[8].z, l(0.500000)
 				r1.y = cb0[8].z * 0.5;
 				// lt r1.y, r1.x, r1.y
-				r1.y = (r1.x < r1.y) ? 1.0 : 0.0;
+				r1.y = (r1.x < r1.y) ? -1.0 : 0.0;
 				// mad r1.z, -r1.x, l(3.000000), l(1.000000)
 				r1.z = mad(-(r1.x), 3.0, 1.0);
 				// max r1.z, r1.z, l(0.000000)
@@ -89426,7 +90467,7 @@ Shader "ShaderRipperTest/VariantMonster"
 				// mad r2.xyz, r2.xyzx, cb0[8].zzzz, r0.xzwx
 				r2.xyz = float3(mad(r2.x, cb0[8].z, r0.x), mad(r2.y, cb0[8].z, r0.z), mad(r2.z, cb0[8].z, r0.w));
 				// lt r1.x, r1.x, l(0.400000)
-				r1.x = (r1.x < 0.4) ? 1.0 : 0.0;
+				r1.x = (r1.x < 0.4) ? -1.0 : 0.0;
 				// mul r3.xyz, r0.xzwx, l(0.920000, 0.920000, 0.920000, 0.000000)
 				r3.xyz = float3(r0.x * 0.92, r0.z * 0.92, r0.w * 0.92);
 				// movc r0.xzw, r1.xxxx, r3.xxyz, r0.xxzw
@@ -89448,7 +90489,7 @@ Shader "ShaderRipperTest/VariantMonster"
 				// mul r0.xzw, r0.xxzw, cb0[10].yyyy
 				r0.xzw = float3(r0.x * cb0[10].y, r0.z * cb0[10].y, r0.w * cb0[10].y);
 				// lt r1.x, l(0.500000), cb0[11].y
-				r1.x = (0.5 < cb0[11].y) ? 1.0 : 0.0;
+				r1.x = (0.5 < cb0[11].y) ? -1.0 : 0.0;
 				// mul r1.yz, v1.xxyx, cb1[6].xxyx
 				r1.yz = float2(v1.x * _ScreenParams.x, v1.y * _ScreenParams.y);
 				// mul r1.yz, r1.yyzy, l(0.000000, 127.099998, 311.700012, 0.000000)
@@ -89512,6 +90553,28 @@ Shader "ShaderRipperTest/VariantMonster"
 			//   unnamed single lanes are shared by the Float/Range prop(s): _Iterations, _Steps, _WarpDepth, _Threshold, _Contrast, _Emission, _Saturation, _ToggleDetail, _ToggleBands, _ToggleDither
 			// cb1 = UnityPerDraw  (declared by UnityCG.cginc)
 			// cb2 = UnityPerFrame  (declared by UnityCG.cginc)
+			float4 _MainTex_TexelSize;
+			float4 _NoiseTex_ST;
+			float4 _NoiseTex_TexelSize;
+			float4 _DetailTex_ST;
+			float4 _DetailTex_TexelSize;
+			float4 _MaskTex_ST;
+			float4 _MaskTex_TexelSize;
+			float4 _Color;
+			float4 _ColorC;
+			float4 _Params;
+			float4 _Params2;
+			float4 _Params3;
+			float _Iterations;
+			float _Steps;
+			float _WarpDepth;
+			float _Threshold;
+			float _Contrast;
+			float _Emission;
+			float _Saturation;
+			float _ToggleDetail;
+			float _ToggleBands;
+			float _ToggleDither;
 			// cbuffer order confirmed by the asset's own register index
 			// $Globals cb0: 1 slot(s) named from the compiled constant-buffer member table
 
@@ -89549,7 +90612,7 @@ Shader "ShaderRipperTest/VariantMonster"
 				// sample r0.xyzw, v1.xyxx, t0.xyzw, s3
 				r0.xyzw = tex2D(_MaskTex, float2(v1.x, v1.y));
 				// lt r0.x, r0.w, cb0[9].w
-				r0.x = (r0.w < cb0[9].w) ? 1.0 : 0.0;
+				r0.x = (r0.w < cb0[9].w) ? -1.0 : 0.0;
 				// discard_nz r0.x
 				if (any(r0.x)) discard;
 				// mul r0.x, cb0[6].z, cb1[0].y
@@ -89972,6 +91035,8 @@ Shader "ShaderRipperTest/VariantMonster"
 				r2.x = sin(r1.z);
 				// mad r1.y, r0.z, l(5.000000), -r1.y
 				r1.y = mad(r0.z, 5.0, -(r1.y));
+				// sincos null, r2.y, r1.y
+				r2.y = cos(r1.y);
 				// mul r1.yz, r2.xxyx, cb0[6].yyyy
 				r1.yz = float2(r2.x * cb0[6].y, r2.y * cb0[6].y);
 				// mad r1.yz, r1.yyzy, l(0.000000, 0.250000, 0.250000, 0.000000), r0.zzwz
@@ -90021,7 +91086,7 @@ Shader "ShaderRipperTest/VariantMonster"
 					// loop
 				for (;;) {
 					// ige r3.w, r3.z, r2.x
-					r3.w = (((int)(r3.z) >= (int)(r2.x)) ? 1 : 0);
+					r3.w = (((int)(r3.z) >= (int)(r2.x)) ? -1 : 0);
 					// breakc_nz r3.w
 					if (any(r3.w)) break;
 					// itof r3.w, r3.z
@@ -90435,7 +91500,7 @@ Shader "ShaderRipperTest/VariantMonster"
 						// loop
 					for (;;) {
 						// ige r5.z, r5.y, r2.y
-						r5.z = (((int)(r5.y) >= (int)(r2.y)) ? 1 : 0);
+						r5.z = (((int)(r5.y) >= (int)(r2.y)) ? -1 : 0);
 						// breakc_nz r5.z
 						if (any(r5.z)) break;
 						// itof r5.z, r5.y
@@ -90528,7 +91593,7 @@ Shader "ShaderRipperTest/VariantMonster"
 						// mad r6.x, |r6.x|, l(2.000000), r5.x
 						r6.x = mad(abs(r6.x), 2.0, r5.x);
 						// lt r6.y, l(2.200000), r6.x
-						r6.y = (2.2 < r6.x) ? 1.0 : 0.0;
+						r6.y = (2.2 < r6.x) ? -1.0 : 0.0;
 							// if_nz r6.y
 						if (any(r6.y)) {
 							// iadd r6.y, r5.y, l(1)
@@ -90562,7 +91627,7 @@ Shader "ShaderRipperTest/VariantMonster"
 					// mul r4.xy, r4.zwzz, l(1.040000, 1.040000, 0.000000, 0.000000)
 					r4.xy = float2(r4.z * 1.04, r4.w * 1.04);
 					// lt r5.yz, r5.xxxx, l(0.000000, 0.600000, 1.400000, 0.000000)
-					r5.yz = float2((r5.x < 0.6) ? 1.0 : 0.0, (r5.x < 1.4) ? 1.0 : 0.0);
+					r5.yz = float2((r5.x < 0.6) ? -1.0 : 0.0, (r5.x < 1.4) ? -1.0 : 0.0);
 					// add r6.xy, r4.zwzz, l(0.020000, 0.010000, 0.000000, 0.000000)
 					r6.xy = float2(r4.z + 0.02, r4.w + 0.01);
 					// mov_sat r4.zw, r4.zzzw
@@ -90574,7 +91639,7 @@ Shader "ShaderRipperTest/VariantMonster"
 					// movc r4.xy, r5.yyyy, r4.xyxx, r5.zwzz
 					r4.xy = float2(r5.y != 0.0 ? r4.x : r5.z, r5.y != 0.0 ? r4.y : r5.w);
 					// lt r3.w, l(1.500000), r4.x
-					r3.w = (1.5 < r4.x) ? 1.0 : 0.0;
+					r3.w = (1.5 < r4.x) ? -1.0 : 0.0;
 						// if_nz r3.w
 					if (any(r3.w)) {
 						// mov r3.x, r4.y
@@ -90590,7 +91655,7 @@ Shader "ShaderRipperTest/VariantMonster"
 				// endloop
 				}
 				// lt r2.x, l(0.500000), cb0[10].w
-				r2.x = (0.5 < cb0[10].w) ? 1.0 : 0.0;
+				r2.x = (0.5 < cb0[10].w) ? -1.0 : 0.0;
 					// if_nz r2.x
 				if (any(r2.x)) {
 					// mul r2.x, r0.x, l(0.250000)
@@ -90712,7 +91777,7 @@ Shader "ShaderRipperTest/VariantMonster"
 				// endif
 				}
 				// lt r2.w, l(0.500000), cb0[11].x
-				r2.w = (0.5 < cb0[11].x) ? 1.0 : 0.0;
+				r2.w = (0.5 < cb0[11].x) ? -1.0 : 0.0;
 					// if_nz r2.w
 				if (any(r2.w)) {
 					// mul r4.xyzw, cb0[8].wwww, l(0.300000, 0.520000, 0.740000, 0.960000)
@@ -90723,6 +91788,8 @@ Shader "ShaderRipperTest/VariantMonster"
 					r2.w = sin(r2.w);
 					// mad r3.y, r1.z, r4.x, -r0.x
 					r3.y = mad(r1.z, r4.x, -(r0.x));
+					// sincos null, r3.y, r3.y
+					r3.y = cos(r3.y);
 					// add r3.z, r1.z, r1.y
 					r3.z = r1.z + r1.y;
 					// mul r5.xyzw, r4.xyzw, r3.zzzz
@@ -90741,22 +91808,26 @@ Shader "ShaderRipperTest/VariantMonster"
 					r2.w = r2.w + r4.x;
 					// mad r4.x, r1.z, r4.y, -r6.x
 					r4.x = mad(r1.z, r4.y, -(r6.x));
+					// sincos null, r4.x, r4.x
+					r4.x = cos(r4.x);
 					// add r3.y, r3.y, r4.x
 					r3.y = r3.y + r4.x;
 					// mad r5.xyz, r5.yzwy, l(0.600000, 0.600000, 0.600000, 0.000000), r6.xyzx
 					r5.xyz = float3(mad(r5.y, 0.6, r6.x), mad(r5.z, 0.6, r6.y), mad(r5.w, 0.6, r6.z));
 					// sincos r5.xyz, null, r5.xyzx
-					r5.xyz = sin(r5.xyzx);
+					r5.xyz = float3(sin(r5.x), sin(r5.y), sin(r5.z));
 					// add r3.w, r3.w, r5.x
 					r3.w = r3.w + r5.x;
 					// mad r4.xy, r1.yyyy, r4.zwzz, r6.yzyy
 					r4.xy = float2(mad(r1.y, r4.z, r6.y), mad(r1.y, r4.w, r6.z));
 					// sincos r4.xy, null, r4.xyxx
-					r4.xy = sin(r4.xyxx);
+					r4.xy = float2(sin(r4.x), sin(r4.y));
 					// add r2.w, r2.w, r4.x
 					r2.w = r2.w + r4.x;
 					// mad r4.xz, r1.zzzz, r4.zzwz, -r6.yyzy
 					r4.xz = float2(mad(r1.z, r4.z, -(r6.y)), mad(r1.z, r4.w, -(r6.z)));
+					// sincos null, r4.xz, r4.xxzx
+					r4.xz = float2(cos(r4.x), cos(r4.z));
 					// add r3.y, r3.y, r4.x
 					r3.y = r3.y + r4.x;
 					// add r3.w, r5.y, r3.w
@@ -90777,6 +91848,8 @@ Shader "ShaderRipperTest/VariantMonster"
 					r2.w = r2.w + r4.z;
 					// mad r4.z, r1.z, r4.x, -r6.w
 					r4.z = mad(r1.z, r4.x, -(r6.w));
+					// sincos null, r4.z, r4.z
+					r4.z = cos(r4.z);
 					// add r3.y, r3.y, r4.z
 					r3.y = r3.y + r4.z;
 					// mul r4.xz, r3.zzzz, r4.xxyx
@@ -90797,6 +91870,8 @@ Shader "ShaderRipperTest/VariantMonster"
 					r5.x = r2.w + r4.x;
 					// mad r2.w, r1.z, r4.y, -r3.w
 					r2.w = mad(r1.z, r4.y, -(r3.w));
+					// sincos null, r2.w, r2.w
+					r2.w = cos(r2.w);
 					// add r5.y, r2.w, r3.y
 					r5.y = r2.w + r3.y;
 					// mad r2.w, r4.z, l(0.600000), r3.w
@@ -90824,7 +91899,7 @@ Shader "ShaderRipperTest/VariantMonster"
 				// mul r0.y, r0.y, r1.w
 				r0.y = r0.y * r1.w;
 				// lt r1.w, r0.y, cb0[9].w
-				r1.w = (r0.y < cb0[9].w) ? 1.0 : 0.0;
+				r1.w = (r0.y < cb0[9].w) ? -1.0 : 0.0;
 				// discard_nz r1.w
 				if (any(r1.w)) discard;
 				// mul r4.xy, r0.xxxx, l(0.210000, 0.150000, 0.000000, 0.000000)
@@ -91309,7 +92384,7 @@ Shader "ShaderRipperTest/VariantMonster"
 				// mul r1.y, cb0[8].z, l(0.500000)
 				r1.y = cb0[8].z * 0.5;
 				// lt r1.y, r1.x, r1.y
-				r1.y = (r1.x < r1.y) ? 1.0 : 0.0;
+				r1.y = (r1.x < r1.y) ? -1.0 : 0.0;
 				// mad r1.z, -r1.x, l(3.000000), l(1.000000)
 				r1.z = mad(-(r1.x), 3.0, 1.0);
 				// max r1.z, r1.z, l(0.000000)
@@ -91321,7 +92396,7 @@ Shader "ShaderRipperTest/VariantMonster"
 				// mad r2.xyz, r2.xyzx, cb0[8].zzzz, r0.xzwx
 				r2.xyz = float3(mad(r2.x, cb0[8].z, r0.x), mad(r2.y, cb0[8].z, r0.z), mad(r2.z, cb0[8].z, r0.w));
 				// lt r1.x, r1.x, l(0.400000)
-				r1.x = (r1.x < 0.4) ? 1.0 : 0.0;
+				r1.x = (r1.x < 0.4) ? -1.0 : 0.0;
 				// mul r3.xyz, r0.xzwx, l(0.920000, 0.920000, 0.920000, 0.000000)
 				r3.xyz = float3(r0.x * 0.92, r0.z * 0.92, r0.w * 0.92);
 				// movc r0.xzw, r1.xxxx, r3.xxyz, r0.xxzw
@@ -91343,7 +92418,7 @@ Shader "ShaderRipperTest/VariantMonster"
 				// mul r0.xzw, r0.xxzw, cb0[10].yyyy
 				r0.xzw = float3(r0.x * cb0[10].y, r0.z * cb0[10].y, r0.w * cb0[10].y);
 				// lt r1.x, l(0.500000), cb0[11].y
-				r1.x = (0.5 < cb0[11].y) ? 1.0 : 0.0;
+				r1.x = (0.5 < cb0[11].y) ? -1.0 : 0.0;
 				// mul r1.yz, v1.xxyx, cb1[6].xxyx
 				r1.yz = float2(v1.x * _ScreenParams.x, v1.y * _ScreenParams.y);
 				// mul r1.yz, r1.yyzy, l(0.000000, 127.099998, 311.700012, 0.000000)
@@ -91408,6 +92483,27 @@ Shader "ShaderRipperTest/VariantMonster"
 			//   unnamed single lanes are shared by the Float/Range prop(s): _Iterations, _Steps, _WarpDepth, _Threshold, _Contrast, _Emission, _Saturation, _ToggleDetail, _ToggleBands, _ToggleDither
 			// cb1 = UnityPerDraw  (declared by UnityCG.cginc)
 			// cb2 = UnityPerFrame  (declared by UnityCG.cginc)
+			float4 _MainTex_TexelSize;
+			float4 _NoiseTex_ST;
+			float4 _NoiseTex_TexelSize;
+			float4 _DetailTex_ST;
+			float4 _DetailTex_TexelSize;
+			float4 _MaskTex_ST;
+			float4 _MaskTex_TexelSize;
+			float4 _Color;
+			float4 _ColorC;
+			float4 _Params;
+			float4 _Params3;
+			float _Iterations;
+			float _Steps;
+			float _WarpDepth;
+			float _Threshold;
+			float _Contrast;
+			float _Emission;
+			float _Saturation;
+			float _ToggleDetail;
+			float _ToggleBands;
+			float _ToggleDither;
 			// cbuffer order confirmed by the asset's own register index
 			// $Globals cb0: 1 slot(s) named from the compiled constant-buffer member table
 			// $Globals cb0: 2 slot(s) named from the compiled constant-buffer member table
@@ -91446,7 +92542,7 @@ Shader "ShaderRipperTest/VariantMonster"
 				// sample r0.xyzw, v1.xyxx, t0.xyzw, s3
 				r0.xyzw = tex2D(_MaskTex, float2(v1.x, v1.y));
 				// lt r0.x, r0.w, cb0[9].w
-				r0.x = (r0.w < cb0[9].w) ? 1.0 : 0.0;
+				r0.x = (r0.w < cb0[9].w) ? -1.0 : 0.0;
 				// discard_nz r0.x
 				if (any(r0.x)) discard;
 				// mul r0.x, cb0[6].z, cb1[0].y
@@ -91867,6 +92963,8 @@ Shader "ShaderRipperTest/VariantMonster"
 				r2.x = sin(r1.w);
 				// mad r1.y, r0.z, l(5.000000), -r1.y
 				r1.y = mad(r0.z, 5.0, -(r1.y));
+				// sincos null, r2.y, r1.y
+				r2.y = cos(r1.y);
 				// mul r1.yw, r2.xxxy, cb0[6].yyyy
 				r1.yw = float2(r2.x * cb0[6].y, r2.y * cb0[6].y);
 				// mad r1.yw, r1.yyyw, l(0.000000, 0.250000, 0.000000, 0.250000), r0.zzzw
@@ -91946,7 +93044,7 @@ Shader "ShaderRipperTest/VariantMonster"
 					// loop
 				for (;;) {
 					// ige r3.w, r3.z, r2.x
-					r3.w = (((int)(r3.z) >= (int)(r2.x)) ? 1 : 0);
+					r3.w = (((int)(r3.z) >= (int)(r2.x)) ? -1 : 0);
 					// breakc_nz r3.w
 					if (any(r3.w)) break;
 					// itof r3.w, r3.z
@@ -92360,7 +93458,7 @@ Shader "ShaderRipperTest/VariantMonster"
 						// loop
 					for (;;) {
 						// ige r5.z, r5.y, r2.y
-						r5.z = (((int)(r5.y) >= (int)(r2.y)) ? 1 : 0);
+						r5.z = (((int)(r5.y) >= (int)(r2.y)) ? -1 : 0);
 						// breakc_nz r5.z
 						if (any(r5.z)) break;
 						// itof r5.z, r5.y
@@ -92453,7 +93551,7 @@ Shader "ShaderRipperTest/VariantMonster"
 						// mad r6.x, |r6.x|, l(2.000000), r5.x
 						r6.x = mad(abs(r6.x), 2.0, r5.x);
 						// lt r6.y, l(2.200000), r6.x
-						r6.y = (2.2 < r6.x) ? 1.0 : 0.0;
+						r6.y = (2.2 < r6.x) ? -1.0 : 0.0;
 							// if_nz r6.y
 						if (any(r6.y)) {
 							// iadd r6.y, r5.y, l(1)
@@ -92487,7 +93585,7 @@ Shader "ShaderRipperTest/VariantMonster"
 					// mul r4.xy, r4.zwzz, l(1.040000, 1.040000, 0.000000, 0.000000)
 					r4.xy = float2(r4.z * 1.04, r4.w * 1.04);
 					// lt r5.yz, r5.xxxx, l(0.000000, 0.600000, 1.400000, 0.000000)
-					r5.yz = float2((r5.x < 0.6) ? 1.0 : 0.0, (r5.x < 1.4) ? 1.0 : 0.0);
+					r5.yz = float2((r5.x < 0.6) ? -1.0 : 0.0, (r5.x < 1.4) ? -1.0 : 0.0);
 					// add r6.xy, r4.zwzz, l(0.020000, 0.010000, 0.000000, 0.000000)
 					r6.xy = float2(r4.z + 0.02, r4.w + 0.01);
 					// mov_sat r4.zw, r4.zzzw
@@ -92499,7 +93597,7 @@ Shader "ShaderRipperTest/VariantMonster"
 					// movc r4.xy, r5.yyyy, r4.xyxx, r5.zwzz
 					r4.xy = float2(r5.y != 0.0 ? r4.x : r5.z, r5.y != 0.0 ? r4.y : r5.w);
 					// lt r3.w, l(1.500000), r4.x
-					r3.w = (1.5 < r4.x) ? 1.0 : 0.0;
+					r3.w = (1.5 < r4.x) ? -1.0 : 0.0;
 						// if_nz r3.w
 					if (any(r3.w)) {
 						// mov r3.x, r4.y
@@ -92515,7 +93613,7 @@ Shader "ShaderRipperTest/VariantMonster"
 				// endloop
 				}
 				// lt r2.x, l(0.500000), cb0[10].w
-				r2.x = (0.5 < cb0[10].w) ? 1.0 : 0.0;
+				r2.x = (0.5 < cb0[10].w) ? -1.0 : 0.0;
 					// if_nz r2.x
 				if (any(r2.x)) {
 					// mul r2.x, r0.x, l(0.250000)
@@ -92637,7 +93735,7 @@ Shader "ShaderRipperTest/VariantMonster"
 				// endif
 				}
 				// lt r2.w, l(0.500000), cb0[11].x
-				r2.w = (0.5 < cb0[11].x) ? 1.0 : 0.0;
+				r2.w = (0.5 < cb0[11].x) ? -1.0 : 0.0;
 					// if_nz r2.w
 				if (any(r2.w)) {
 					// mul r4.xyzw, cb0[8].wwww, l(0.300000, 0.520000, 0.740000, 0.960000)
@@ -92648,6 +93746,8 @@ Shader "ShaderRipperTest/VariantMonster"
 					r2.w = sin(r2.w);
 					// mad r3.y, r1.w, r4.x, -r0.x
 					r3.y = mad(r1.w, r4.x, -(r0.x));
+					// sincos null, r3.y, r3.y
+					r3.y = cos(r3.y);
 					// add r3.z, r1.w, r1.y
 					r3.z = r1.w + r1.y;
 					// mul r5.xyzw, r4.xyzw, r3.zzzz
@@ -92666,22 +93766,26 @@ Shader "ShaderRipperTest/VariantMonster"
 					r2.w = r2.w + r4.x;
 					// mad r4.x, r1.w, r4.y, -r6.x
 					r4.x = mad(r1.w, r4.y, -(r6.x));
+					// sincos null, r4.x, r4.x
+					r4.x = cos(r4.x);
 					// add r3.y, r3.y, r4.x
 					r3.y = r3.y + r4.x;
 					// mad r5.xyz, r5.yzwy, l(0.600000, 0.600000, 0.600000, 0.000000), r6.xyzx
 					r5.xyz = float3(mad(r5.y, 0.6, r6.x), mad(r5.z, 0.6, r6.y), mad(r5.w, 0.6, r6.z));
 					// sincos r5.xyz, null, r5.xyzx
-					r5.xyz = sin(r5.xyzx);
+					r5.xyz = float3(sin(r5.x), sin(r5.y), sin(r5.z));
 					// add r3.w, r3.w, r5.x
 					r3.w = r3.w + r5.x;
 					// mad r4.xy, r1.yyyy, r4.zwzz, r6.yzyy
 					r4.xy = float2(mad(r1.y, r4.z, r6.y), mad(r1.y, r4.w, r6.z));
 					// sincos r4.xy, null, r4.xyxx
-					r4.xy = sin(r4.xyxx);
+					r4.xy = float2(sin(r4.x), sin(r4.y));
 					// add r2.w, r2.w, r4.x
 					r2.w = r2.w + r4.x;
 					// mad r4.xz, r1.wwww, r4.zzwz, -r6.yyzy
 					r4.xz = float2(mad(r1.w, r4.z, -(r6.y)), mad(r1.w, r4.w, -(r6.z)));
+					// sincos null, r4.xz, r4.xxzx
+					r4.xz = float2(cos(r4.x), cos(r4.z));
 					// add r3.y, r3.y, r4.x
 					r3.y = r3.y + r4.x;
 					// add r3.w, r5.y, r3.w
@@ -92702,6 +93806,8 @@ Shader "ShaderRipperTest/VariantMonster"
 					r2.w = r2.w + r4.z;
 					// mad r4.z, r1.w, r4.x, -r6.w
 					r4.z = mad(r1.w, r4.x, -(r6.w));
+					// sincos null, r4.z, r4.z
+					r4.z = cos(r4.z);
 					// add r3.y, r3.y, r4.z
 					r3.y = r3.y + r4.z;
 					// mul r4.xz, r3.zzzz, r4.xxyx
@@ -92722,6 +93828,8 @@ Shader "ShaderRipperTest/VariantMonster"
 					r5.x = r2.w + r4.x;
 					// mad r2.w, r1.w, r4.y, -r3.w
 					r2.w = mad(r1.w, r4.y, -(r3.w));
+					// sincos null, r2.w, r2.w
+					r2.w = cos(r2.w);
 					// add r5.y, r2.w, r3.y
 					r5.y = r2.w + r3.y;
 					// mad r2.w, r4.z, l(0.600000), r3.w
@@ -92749,7 +93857,7 @@ Shader "ShaderRipperTest/VariantMonster"
 				// mul r0.y, r0.y, r1.z
 				r0.y = r0.y * r1.z;
 				// lt r1.z, r0.y, cb0[9].w
-				r1.z = (r0.y < cb0[9].w) ? 1.0 : 0.0;
+				r1.z = (r0.y < cb0[9].w) ? -1.0 : 0.0;
 				// discard_nz r1.z
 				if (any(r1.z)) discard;
 				// mul r4.xy, r0.xxxx, l(0.210000, 0.150000, 0.000000, 0.000000)
@@ -93234,7 +94342,7 @@ Shader "ShaderRipperTest/VariantMonster"
 				// mul r1.y, cb0[8].z, l(0.500000)
 				r1.y = cb0[8].z * 0.5;
 				// lt r1.y, r1.x, r1.y
-				r1.y = (r1.x < r1.y) ? 1.0 : 0.0;
+				r1.y = (r1.x < r1.y) ? -1.0 : 0.0;
 				// mad r1.z, -r1.x, l(3.000000), l(1.000000)
 				r1.z = mad(-(r1.x), 3.0, 1.0);
 				// max r1.z, r1.z, l(0.000000)
@@ -93246,7 +94354,7 @@ Shader "ShaderRipperTest/VariantMonster"
 				// mad r2.xyz, r2.xyzx, cb0[8].zzzz, r0.xzwx
 				r2.xyz = float3(mad(r2.x, cb0[8].z, r0.x), mad(r2.y, cb0[8].z, r0.z), mad(r2.z, cb0[8].z, r0.w));
 				// lt r1.x, r1.x, l(0.400000)
-				r1.x = (r1.x < 0.4) ? 1.0 : 0.0;
+				r1.x = (r1.x < 0.4) ? -1.0 : 0.0;
 				// mul r3.xyz, r0.xzwx, l(0.920000, 0.920000, 0.920000, 0.000000)
 				r3.xyz = float3(r0.x * 0.92, r0.z * 0.92, r0.w * 0.92);
 				// movc r0.xzw, r1.xxxx, r3.xxyz, r0.xxzw
@@ -93268,7 +94376,7 @@ Shader "ShaderRipperTest/VariantMonster"
 				// mul r0.xzw, r0.xxzw, cb0[10].yyyy
 				r0.xzw = float3(r0.x * cb0[10].y, r0.z * cb0[10].y, r0.w * cb0[10].y);
 				// lt r1.x, l(0.500000), cb0[11].y
-				r1.x = (0.5 < cb0[11].y) ? 1.0 : 0.0;
+				r1.x = (0.5 < cb0[11].y) ? -1.0 : 0.0;
 				// mul r1.yz, v1.xxyx, cb1[6].xxyx
 				r1.yz = float2(v1.x * _ScreenParams.x, v1.y * _ScreenParams.y);
 				// mul r1.yz, r1.yyzy, l(0.000000, 127.099998, 311.700012, 0.000000)
@@ -93332,6 +94440,28 @@ Shader "ShaderRipperTest/VariantMonster"
 			//   unnamed single lanes are shared by the Float/Range prop(s): _Iterations, _Steps, _WarpDepth, _Threshold, _Contrast, _Emission, _Saturation, _ToggleDetail, _ToggleBands, _ToggleDither
 			// cb1 = UnityPerDraw  (declared by UnityCG.cginc)
 			// cb2 = UnityPerFrame  (declared by UnityCG.cginc)
+			float4 _MainTex_TexelSize;
+			float4 _NoiseTex_ST;
+			float4 _NoiseTex_TexelSize;
+			float4 _DetailTex_ST;
+			float4 _DetailTex_TexelSize;
+			float4 _MaskTex_ST;
+			float4 _MaskTex_TexelSize;
+			float4 _Color;
+			float4 _ColorC;
+			float4 _Params;
+			float4 _Params2;
+			float4 _Params3;
+			float _Iterations;
+			float _Steps;
+			float _WarpDepth;
+			float _Threshold;
+			float _Contrast;
+			float _Emission;
+			float _Saturation;
+			float _ToggleDetail;
+			float _ToggleBands;
+			float _ToggleDither;
 			// cbuffer order confirmed by the asset's own register index
 			// $Globals cb0: 1 slot(s) named from the compiled constant-buffer member table
 
@@ -93369,7 +94499,7 @@ Shader "ShaderRipperTest/VariantMonster"
 				// sample r0.xyzw, v1.xyxx, t0.xyzw, s3
 				r0.xyzw = tex2D(_MaskTex, float2(v1.x, v1.y));
 				// lt r0.x, r0.w, cb0[9].w
-				r0.x = (r0.w < cb0[9].w) ? 1.0 : 0.0;
+				r0.x = (r0.w < cb0[9].w) ? -1.0 : 0.0;
 				// discard_nz r0.x
 				if (any(r0.x)) discard;
 				// mul r0.x, cb0[6].z, cb1[0].y
@@ -93792,6 +94922,8 @@ Shader "ShaderRipperTest/VariantMonster"
 				r2.x = sin(r1.z);
 				// mad r1.y, r0.z, l(5.000000), -r1.y
 				r1.y = mad(r0.z, 5.0, -(r1.y));
+				// sincos null, r2.y, r1.y
+				r2.y = cos(r1.y);
 				// mul r1.yz, r2.xxyx, cb0[6].yyyy
 				r1.yz = float2(r2.x * cb0[6].y, r2.y * cb0[6].y);
 				// mad r1.yz, r1.yyzy, l(0.000000, 0.250000, 0.250000, 0.000000), r0.zzwz
@@ -93841,7 +94973,7 @@ Shader "ShaderRipperTest/VariantMonster"
 					// loop
 				for (;;) {
 					// ige r3.w, r3.z, r2.x
-					r3.w = (((int)(r3.z) >= (int)(r2.x)) ? 1 : 0);
+					r3.w = (((int)(r3.z) >= (int)(r2.x)) ? -1 : 0);
 					// breakc_nz r3.w
 					if (any(r3.w)) break;
 					// itof r3.w, r3.z
@@ -94255,7 +95387,7 @@ Shader "ShaderRipperTest/VariantMonster"
 						// loop
 					for (;;) {
 						// ige r5.z, r5.y, r2.y
-						r5.z = (((int)(r5.y) >= (int)(r2.y)) ? 1 : 0);
+						r5.z = (((int)(r5.y) >= (int)(r2.y)) ? -1 : 0);
 						// breakc_nz r5.z
 						if (any(r5.z)) break;
 						// itof r5.z, r5.y
@@ -94348,7 +95480,7 @@ Shader "ShaderRipperTest/VariantMonster"
 						// mad r6.x, |r6.x|, l(2.000000), r5.x
 						r6.x = mad(abs(r6.x), 2.0, r5.x);
 						// lt r6.y, l(2.200000), r6.x
-						r6.y = (2.2 < r6.x) ? 1.0 : 0.0;
+						r6.y = (2.2 < r6.x) ? -1.0 : 0.0;
 							// if_nz r6.y
 						if (any(r6.y)) {
 							// iadd r6.y, r5.y, l(1)
@@ -94382,7 +95514,7 @@ Shader "ShaderRipperTest/VariantMonster"
 					// mul r4.xy, r4.zwzz, l(1.040000, 1.040000, 0.000000, 0.000000)
 					r4.xy = float2(r4.z * 1.04, r4.w * 1.04);
 					// lt r5.yz, r5.xxxx, l(0.000000, 0.600000, 1.400000, 0.000000)
-					r5.yz = float2((r5.x < 0.6) ? 1.0 : 0.0, (r5.x < 1.4) ? 1.0 : 0.0);
+					r5.yz = float2((r5.x < 0.6) ? -1.0 : 0.0, (r5.x < 1.4) ? -1.0 : 0.0);
 					// add r6.xy, r4.zwzz, l(0.020000, 0.010000, 0.000000, 0.000000)
 					r6.xy = float2(r4.z + 0.02, r4.w + 0.01);
 					// mov_sat r4.zw, r4.zzzw
@@ -94394,7 +95526,7 @@ Shader "ShaderRipperTest/VariantMonster"
 					// movc r4.xy, r5.yyyy, r4.xyxx, r5.zwzz
 					r4.xy = float2(r5.y != 0.0 ? r4.x : r5.z, r5.y != 0.0 ? r4.y : r5.w);
 					// lt r3.w, l(1.500000), r4.x
-					r3.w = (1.5 < r4.x) ? 1.0 : 0.0;
+					r3.w = (1.5 < r4.x) ? -1.0 : 0.0;
 						// if_nz r3.w
 					if (any(r3.w)) {
 						// mov r3.x, r4.y
@@ -94410,7 +95542,7 @@ Shader "ShaderRipperTest/VariantMonster"
 				// endloop
 				}
 				// lt r2.x, l(0.500000), cb0[10].w
-				r2.x = (0.5 < cb0[10].w) ? 1.0 : 0.0;
+				r2.x = (0.5 < cb0[10].w) ? -1.0 : 0.0;
 					// if_nz r2.x
 				if (any(r2.x)) {
 					// mul r2.x, r0.x, l(0.250000)
@@ -94532,7 +95664,7 @@ Shader "ShaderRipperTest/VariantMonster"
 				// endif
 				}
 				// lt r2.w, l(0.500000), cb0[11].x
-				r2.w = (0.5 < cb0[11].x) ? 1.0 : 0.0;
+				r2.w = (0.5 < cb0[11].x) ? -1.0 : 0.0;
 					// if_nz r2.w
 				if (any(r2.w)) {
 					// mul r4.xyzw, cb0[8].wwww, l(0.300000, 0.520000, 0.740000, 0.960000)
@@ -94543,6 +95675,8 @@ Shader "ShaderRipperTest/VariantMonster"
 					r2.w = sin(r2.w);
 					// mad r3.y, r1.z, r4.x, -r0.x
 					r3.y = mad(r1.z, r4.x, -(r0.x));
+					// sincos null, r3.y, r3.y
+					r3.y = cos(r3.y);
 					// add r3.z, r1.z, r1.y
 					r3.z = r1.z + r1.y;
 					// mul r5.xyzw, r4.xyzw, r3.zzzz
@@ -94561,22 +95695,26 @@ Shader "ShaderRipperTest/VariantMonster"
 					r2.w = r2.w + r4.x;
 					// mad r4.x, r1.z, r4.y, -r6.x
 					r4.x = mad(r1.z, r4.y, -(r6.x));
+					// sincos null, r4.x, r4.x
+					r4.x = cos(r4.x);
 					// add r3.y, r3.y, r4.x
 					r3.y = r3.y + r4.x;
 					// mad r5.xyz, r5.yzwy, l(0.600000, 0.600000, 0.600000, 0.000000), r6.xyzx
 					r5.xyz = float3(mad(r5.y, 0.6, r6.x), mad(r5.z, 0.6, r6.y), mad(r5.w, 0.6, r6.z));
 					// sincos r5.xyz, null, r5.xyzx
-					r5.xyz = sin(r5.xyzx);
+					r5.xyz = float3(sin(r5.x), sin(r5.y), sin(r5.z));
 					// add r3.w, r3.w, r5.x
 					r3.w = r3.w + r5.x;
 					// mad r4.xy, r1.yyyy, r4.zwzz, r6.yzyy
 					r4.xy = float2(mad(r1.y, r4.z, r6.y), mad(r1.y, r4.w, r6.z));
 					// sincos r4.xy, null, r4.xyxx
-					r4.xy = sin(r4.xyxx);
+					r4.xy = float2(sin(r4.x), sin(r4.y));
 					// add r2.w, r2.w, r4.x
 					r2.w = r2.w + r4.x;
 					// mad r4.xz, r1.zzzz, r4.zzwz, -r6.yyzy
 					r4.xz = float2(mad(r1.z, r4.z, -(r6.y)), mad(r1.z, r4.w, -(r6.z)));
+					// sincos null, r4.xz, r4.xxzx
+					r4.xz = float2(cos(r4.x), cos(r4.z));
 					// add r3.y, r3.y, r4.x
 					r3.y = r3.y + r4.x;
 					// add r3.w, r5.y, r3.w
@@ -94597,6 +95735,8 @@ Shader "ShaderRipperTest/VariantMonster"
 					r2.w = r2.w + r4.z;
 					// mad r4.z, r1.z, r4.x, -r6.w
 					r4.z = mad(r1.z, r4.x, -(r6.w));
+					// sincos null, r4.z, r4.z
+					r4.z = cos(r4.z);
 					// add r3.y, r3.y, r4.z
 					r3.y = r3.y + r4.z;
 					// mul r4.xz, r3.zzzz, r4.xxyx
@@ -94617,6 +95757,8 @@ Shader "ShaderRipperTest/VariantMonster"
 					r5.x = r2.w + r4.x;
 					// mad r2.w, r1.z, r4.y, -r3.w
 					r2.w = mad(r1.z, r4.y, -(r3.w));
+					// sincos null, r2.w, r2.w
+					r2.w = cos(r2.w);
 					// add r5.y, r2.w, r3.y
 					r5.y = r2.w + r3.y;
 					// mad r2.w, r4.z, l(0.600000), r3.w
@@ -94644,7 +95786,7 @@ Shader "ShaderRipperTest/VariantMonster"
 				// mul r0.y, r0.y, r1.w
 				r0.y = r0.y * r1.w;
 				// lt r1.w, r0.y, cb0[9].w
-				r1.w = (r0.y < cb0[9].w) ? 1.0 : 0.0;
+				r1.w = (r0.y < cb0[9].w) ? -1.0 : 0.0;
 				// discard_nz r1.w
 				if (any(r1.w)) discard;
 				// mul r4.xy, r0.xxxx, l(0.210000, 0.150000, 0.000000, 0.000000)
@@ -95105,7 +96247,7 @@ Shader "ShaderRipperTest/VariantMonster"
 				// mad r3.yzw, -r6.xxyz, r3.yyzw, l(0.000000, 1.000000, 1.000000, 1.000000)
 				r3.yzw = float3(mad(-(r6.x), r3.y, 1.0), mad(-(r6.y), r3.z, 1.0), mad(-(r6.z), r3.w, 1.0));
 				// ge r0.xzw, r0.xxzw, l(0.500000, 0.000000, 0.500000, 0.500000)
-				r0.xzw = float3((r0.x >= 0.5) ? 1.0 : 0.0, (r0.z >= 0.5) ? 1.0 : 0.0, (r0.w >= 0.5) ? 1.0 : 0.0);
+				r0.xzw = float3((r0.x >= 0.5) ? -1.0 : 0.0, (r0.z >= 0.5) ? -1.0 : 0.0, (r0.w >= 0.5) ? -1.0 : 0.0);
 				// and r0.xzw, r0.xxzw, l(0x3f800000, 0, 0x3f800000, 0x3f800000)
 				r0.xzw = float3((((r0.x) != 0.0) ? 1.0 : 0.0), (((r0.z) != 0.0) ? 1.0 : 0.0), (((r0.w) != 0.0) ? 1.0 : 0.0));
 				// mad r3.yzw, -r4.xxyz, l(0.000000, 2.000000, 2.000000, 2.000000), r3.yyzw
@@ -95147,7 +96289,7 @@ Shader "ShaderRipperTest/VariantMonster"
 				// mul r1.y, cb0[8].z, l(0.500000)
 				r1.y = cb0[8].z * 0.5;
 				// lt r1.y, r1.x, r1.y
-				r1.y = (r1.x < r1.y) ? 1.0 : 0.0;
+				r1.y = (r1.x < r1.y) ? -1.0 : 0.0;
 				// mad r1.z, -r1.x, l(3.000000), l(1.000000)
 				r1.z = mad(-(r1.x), 3.0, 1.0);
 				// max r1.z, r1.z, l(0.000000)
@@ -95159,7 +96301,7 @@ Shader "ShaderRipperTest/VariantMonster"
 				// mad r2.xyz, r2.xyzx, cb0[8].zzzz, r0.xzwx
 				r2.xyz = float3(mad(r2.x, cb0[8].z, r0.x), mad(r2.y, cb0[8].z, r0.z), mad(r2.z, cb0[8].z, r0.w));
 				// lt r1.x, r1.x, l(0.400000)
-				r1.x = (r1.x < 0.4) ? 1.0 : 0.0;
+				r1.x = (r1.x < 0.4) ? -1.0 : 0.0;
 				// mul r3.xyz, r0.xzwx, l(0.920000, 0.920000, 0.920000, 0.000000)
 				r3.xyz = float3(r0.x * 0.92, r0.z * 0.92, r0.w * 0.92);
 				// movc r0.xzw, r1.xxxx, r3.xxyz, r0.xxzw
@@ -95181,7 +96323,7 @@ Shader "ShaderRipperTest/VariantMonster"
 				// mul r0.xzw, r0.xxzw, cb0[10].yyyy
 				r0.xzw = float3(r0.x * cb0[10].y, r0.z * cb0[10].y, r0.w * cb0[10].y);
 				// lt r1.x, l(0.500000), cb0[11].y
-				r1.x = (0.5 < cb0[11].y) ? 1.0 : 0.0;
+				r1.x = (0.5 < cb0[11].y) ? -1.0 : 0.0;
 				// mul r1.yz, v1.xxyx, cb1[6].xxyx
 				r1.yz = float2(v1.x * _ScreenParams.x, v1.y * _ScreenParams.y);
 				// mul r1.yz, r1.yyzy, l(0.000000, 127.099998, 311.700012, 0.000000)
@@ -95246,6 +96388,27 @@ Shader "ShaderRipperTest/VariantMonster"
 			//   unnamed single lanes are shared by the Float/Range prop(s): _Iterations, _Steps, _WarpDepth, _Threshold, _Contrast, _Emission, _Saturation, _ToggleDetail, _ToggleBands, _ToggleDither
 			// cb1 = UnityPerDraw  (declared by UnityCG.cginc)
 			// cb2 = UnityPerFrame  (declared by UnityCG.cginc)
+			float4 _MainTex_TexelSize;
+			float4 _NoiseTex_ST;
+			float4 _NoiseTex_TexelSize;
+			float4 _DetailTex_ST;
+			float4 _DetailTex_TexelSize;
+			float4 _MaskTex_ST;
+			float4 _MaskTex_TexelSize;
+			float4 _Color;
+			float4 _ColorC;
+			float4 _Params;
+			float4 _Params3;
+			float _Iterations;
+			float _Steps;
+			float _WarpDepth;
+			float _Threshold;
+			float _Contrast;
+			float _Emission;
+			float _Saturation;
+			float _ToggleDetail;
+			float _ToggleBands;
+			float _ToggleDither;
 			// cbuffer order confirmed by the asset's own register index
 			// $Globals cb0: 1 slot(s) named from the compiled constant-buffer member table
 			// $Globals cb0: 2 slot(s) named from the compiled constant-buffer member table
@@ -95284,7 +96447,7 @@ Shader "ShaderRipperTest/VariantMonster"
 				// sample r0.xyzw, v1.xyxx, t0.xyzw, s3
 				r0.xyzw = tex2D(_MaskTex, float2(v1.x, v1.y));
 				// lt r0.x, r0.w, cb0[9].w
-				r0.x = (r0.w < cb0[9].w) ? 1.0 : 0.0;
+				r0.x = (r0.w < cb0[9].w) ? -1.0 : 0.0;
 				// discard_nz r0.x
 				if (any(r0.x)) discard;
 				// mul r0.x, cb0[6].z, cb1[0].y
@@ -95705,6 +96868,8 @@ Shader "ShaderRipperTest/VariantMonster"
 				r2.x = sin(r1.w);
 				// mad r1.y, r0.z, l(5.000000), -r1.y
 				r1.y = mad(r0.z, 5.0, -(r1.y));
+				// sincos null, r2.y, r1.y
+				r2.y = cos(r1.y);
 				// mul r1.yw, r2.xxxy, cb0[6].yyyy
 				r1.yw = float2(r2.x * cb0[6].y, r2.y * cb0[6].y);
 				// mad r1.yw, r1.yyyw, l(0.000000, 0.250000, 0.000000, 0.250000), r0.zzzw
@@ -95784,7 +96949,7 @@ Shader "ShaderRipperTest/VariantMonster"
 					// loop
 				for (;;) {
 					// ige r3.w, r3.z, r2.x
-					r3.w = (((int)(r3.z) >= (int)(r2.x)) ? 1 : 0);
+					r3.w = (((int)(r3.z) >= (int)(r2.x)) ? -1 : 0);
 					// breakc_nz r3.w
 					if (any(r3.w)) break;
 					// itof r3.w, r3.z
@@ -96198,7 +97363,7 @@ Shader "ShaderRipperTest/VariantMonster"
 						// loop
 					for (;;) {
 						// ige r5.z, r5.y, r2.y
-						r5.z = (((int)(r5.y) >= (int)(r2.y)) ? 1 : 0);
+						r5.z = (((int)(r5.y) >= (int)(r2.y)) ? -1 : 0);
 						// breakc_nz r5.z
 						if (any(r5.z)) break;
 						// itof r5.z, r5.y
@@ -96291,7 +97456,7 @@ Shader "ShaderRipperTest/VariantMonster"
 						// mad r6.x, |r6.x|, l(2.000000), r5.x
 						r6.x = mad(abs(r6.x), 2.0, r5.x);
 						// lt r6.y, l(2.200000), r6.x
-						r6.y = (2.2 < r6.x) ? 1.0 : 0.0;
+						r6.y = (2.2 < r6.x) ? -1.0 : 0.0;
 							// if_nz r6.y
 						if (any(r6.y)) {
 							// iadd r6.y, r5.y, l(1)
@@ -96325,7 +97490,7 @@ Shader "ShaderRipperTest/VariantMonster"
 					// mul r4.xy, r4.zwzz, l(1.040000, 1.040000, 0.000000, 0.000000)
 					r4.xy = float2(r4.z * 1.04, r4.w * 1.04);
 					// lt r5.yz, r5.xxxx, l(0.000000, 0.600000, 1.400000, 0.000000)
-					r5.yz = float2((r5.x < 0.6) ? 1.0 : 0.0, (r5.x < 1.4) ? 1.0 : 0.0);
+					r5.yz = float2((r5.x < 0.6) ? -1.0 : 0.0, (r5.x < 1.4) ? -1.0 : 0.0);
 					// add r6.xy, r4.zwzz, l(0.020000, 0.010000, 0.000000, 0.000000)
 					r6.xy = float2(r4.z + 0.02, r4.w + 0.01);
 					// mov_sat r4.zw, r4.zzzw
@@ -96337,7 +97502,7 @@ Shader "ShaderRipperTest/VariantMonster"
 					// movc r4.xy, r5.yyyy, r4.xyxx, r5.zwzz
 					r4.xy = float2(r5.y != 0.0 ? r4.x : r5.z, r5.y != 0.0 ? r4.y : r5.w);
 					// lt r3.w, l(1.500000), r4.x
-					r3.w = (1.5 < r4.x) ? 1.0 : 0.0;
+					r3.w = (1.5 < r4.x) ? -1.0 : 0.0;
 						// if_nz r3.w
 					if (any(r3.w)) {
 						// mov r3.x, r4.y
@@ -96353,7 +97518,7 @@ Shader "ShaderRipperTest/VariantMonster"
 				// endloop
 				}
 				// lt r2.x, l(0.500000), cb0[10].w
-				r2.x = (0.5 < cb0[10].w) ? 1.0 : 0.0;
+				r2.x = (0.5 < cb0[10].w) ? -1.0 : 0.0;
 					// if_nz r2.x
 				if (any(r2.x)) {
 					// mul r2.x, r0.x, l(0.250000)
@@ -96475,7 +97640,7 @@ Shader "ShaderRipperTest/VariantMonster"
 				// endif
 				}
 				// lt r2.w, l(0.500000), cb0[11].x
-				r2.w = (0.5 < cb0[11].x) ? 1.0 : 0.0;
+				r2.w = (0.5 < cb0[11].x) ? -1.0 : 0.0;
 					// if_nz r2.w
 				if (any(r2.w)) {
 					// mul r4.xyzw, cb0[8].wwww, l(0.300000, 0.520000, 0.740000, 0.960000)
@@ -96486,6 +97651,8 @@ Shader "ShaderRipperTest/VariantMonster"
 					r2.w = sin(r2.w);
 					// mad r3.y, r1.w, r4.x, -r0.x
 					r3.y = mad(r1.w, r4.x, -(r0.x));
+					// sincos null, r3.y, r3.y
+					r3.y = cos(r3.y);
 					// add r3.z, r1.w, r1.y
 					r3.z = r1.w + r1.y;
 					// mul r5.xyzw, r4.xyzw, r3.zzzz
@@ -96504,22 +97671,26 @@ Shader "ShaderRipperTest/VariantMonster"
 					r2.w = r2.w + r4.x;
 					// mad r4.x, r1.w, r4.y, -r6.x
 					r4.x = mad(r1.w, r4.y, -(r6.x));
+					// sincos null, r4.x, r4.x
+					r4.x = cos(r4.x);
 					// add r3.y, r3.y, r4.x
 					r3.y = r3.y + r4.x;
 					// mad r5.xyz, r5.yzwy, l(0.600000, 0.600000, 0.600000, 0.000000), r6.xyzx
 					r5.xyz = float3(mad(r5.y, 0.6, r6.x), mad(r5.z, 0.6, r6.y), mad(r5.w, 0.6, r6.z));
 					// sincos r5.xyz, null, r5.xyzx
-					r5.xyz = sin(r5.xyzx);
+					r5.xyz = float3(sin(r5.x), sin(r5.y), sin(r5.z));
 					// add r3.w, r3.w, r5.x
 					r3.w = r3.w + r5.x;
 					// mad r4.xy, r1.yyyy, r4.zwzz, r6.yzyy
 					r4.xy = float2(mad(r1.y, r4.z, r6.y), mad(r1.y, r4.w, r6.z));
 					// sincos r4.xy, null, r4.xyxx
-					r4.xy = sin(r4.xyxx);
+					r4.xy = float2(sin(r4.x), sin(r4.y));
 					// add r2.w, r2.w, r4.x
 					r2.w = r2.w + r4.x;
 					// mad r4.xz, r1.wwww, r4.zzwz, -r6.yyzy
 					r4.xz = float2(mad(r1.w, r4.z, -(r6.y)), mad(r1.w, r4.w, -(r6.z)));
+					// sincos null, r4.xz, r4.xxzx
+					r4.xz = float2(cos(r4.x), cos(r4.z));
 					// add r3.y, r3.y, r4.x
 					r3.y = r3.y + r4.x;
 					// add r3.w, r5.y, r3.w
@@ -96540,6 +97711,8 @@ Shader "ShaderRipperTest/VariantMonster"
 					r2.w = r2.w + r4.z;
 					// mad r4.z, r1.w, r4.x, -r6.w
 					r4.z = mad(r1.w, r4.x, -(r6.w));
+					// sincos null, r4.z, r4.z
+					r4.z = cos(r4.z);
 					// add r3.y, r3.y, r4.z
 					r3.y = r3.y + r4.z;
 					// mul r4.xz, r3.zzzz, r4.xxyx
@@ -96560,6 +97733,8 @@ Shader "ShaderRipperTest/VariantMonster"
 					r5.x = r2.w + r4.x;
 					// mad r2.w, r1.w, r4.y, -r3.w
 					r2.w = mad(r1.w, r4.y, -(r3.w));
+					// sincos null, r2.w, r2.w
+					r2.w = cos(r2.w);
 					// add r5.y, r2.w, r3.y
 					r5.y = r2.w + r3.y;
 					// mad r2.w, r4.z, l(0.600000), r3.w
@@ -96587,7 +97762,7 @@ Shader "ShaderRipperTest/VariantMonster"
 				// mul r0.y, r0.y, r1.z
 				r0.y = r0.y * r1.z;
 				// lt r1.z, r0.y, cb0[9].w
-				r1.z = (r0.y < cb0[9].w) ? 1.0 : 0.0;
+				r1.z = (r0.y < cb0[9].w) ? -1.0 : 0.0;
 				// discard_nz r1.z
 				if (any(r1.z)) discard;
 				// mul r4.xy, r0.xxxx, l(0.210000, 0.150000, 0.000000, 0.000000)
@@ -97048,7 +98223,7 @@ Shader "ShaderRipperTest/VariantMonster"
 				// mad r3.yzw, -r6.xxyz, r3.yyzw, l(0.000000, 1.000000, 1.000000, 1.000000)
 				r3.yzw = float3(mad(-(r6.x), r3.y, 1.0), mad(-(r6.y), r3.z, 1.0), mad(-(r6.z), r3.w, 1.0));
 				// ge r0.xzw, r0.xxzw, l(0.500000, 0.000000, 0.500000, 0.500000)
-				r0.xzw = float3((r0.x >= 0.5) ? 1.0 : 0.0, (r0.z >= 0.5) ? 1.0 : 0.0, (r0.w >= 0.5) ? 1.0 : 0.0);
+				r0.xzw = float3((r0.x >= 0.5) ? -1.0 : 0.0, (r0.z >= 0.5) ? -1.0 : 0.0, (r0.w >= 0.5) ? -1.0 : 0.0);
 				// and r0.xzw, r0.xxzw, l(0x3f800000, 0, 0x3f800000, 0x3f800000)
 				r0.xzw = float3((((r0.x) != 0.0) ? 1.0 : 0.0), (((r0.z) != 0.0) ? 1.0 : 0.0), (((r0.w) != 0.0) ? 1.0 : 0.0));
 				// mad r3.yzw, -r4.xxyz, l(0.000000, 2.000000, 2.000000, 2.000000), r3.yyzw
@@ -97090,7 +98265,7 @@ Shader "ShaderRipperTest/VariantMonster"
 				// mul r1.y, cb0[8].z, l(0.500000)
 				r1.y = cb0[8].z * 0.5;
 				// lt r1.y, r1.x, r1.y
-				r1.y = (r1.x < r1.y) ? 1.0 : 0.0;
+				r1.y = (r1.x < r1.y) ? -1.0 : 0.0;
 				// mad r1.z, -r1.x, l(3.000000), l(1.000000)
 				r1.z = mad(-(r1.x), 3.0, 1.0);
 				// max r1.z, r1.z, l(0.000000)
@@ -97102,7 +98277,7 @@ Shader "ShaderRipperTest/VariantMonster"
 				// mad r2.xyz, r2.xyzx, cb0[8].zzzz, r0.xzwx
 				r2.xyz = float3(mad(r2.x, cb0[8].z, r0.x), mad(r2.y, cb0[8].z, r0.z), mad(r2.z, cb0[8].z, r0.w));
 				// lt r1.x, r1.x, l(0.400000)
-				r1.x = (r1.x < 0.4) ? 1.0 : 0.0;
+				r1.x = (r1.x < 0.4) ? -1.0 : 0.0;
 				// mul r3.xyz, r0.xzwx, l(0.920000, 0.920000, 0.920000, 0.000000)
 				r3.xyz = float3(r0.x * 0.92, r0.z * 0.92, r0.w * 0.92);
 				// movc r0.xzw, r1.xxxx, r3.xxyz, r0.xxzw
@@ -97124,7 +98299,7 @@ Shader "ShaderRipperTest/VariantMonster"
 				// mul r0.xzw, r0.xxzw, cb0[10].yyyy
 				r0.xzw = float3(r0.x * cb0[10].y, r0.z * cb0[10].y, r0.w * cb0[10].y);
 				// lt r1.x, l(0.500000), cb0[11].y
-				r1.x = (0.5 < cb0[11].y) ? 1.0 : 0.0;
+				r1.x = (0.5 < cb0[11].y) ? -1.0 : 0.0;
 				// mul r1.yz, v1.xxyx, cb1[6].xxyx
 				r1.yz = float2(v1.x * _ScreenParams.x, v1.y * _ScreenParams.y);
 				// mul r1.yz, r1.yyzy, l(0.000000, 127.099998, 311.700012, 0.000000)
@@ -97188,6 +98363,28 @@ Shader "ShaderRipperTest/VariantMonster"
 			//   unnamed single lanes are shared by the Float/Range prop(s): _Iterations, _Steps, _WarpDepth, _Threshold, _Contrast, _Emission, _Saturation, _ToggleDetail, _ToggleBands, _ToggleDither
 			// cb1 = UnityPerDraw  (declared by UnityCG.cginc)
 			// cb2 = UnityPerFrame  (declared by UnityCG.cginc)
+			float4 _MainTex_TexelSize;
+			float4 _NoiseTex_ST;
+			float4 _NoiseTex_TexelSize;
+			float4 _DetailTex_ST;
+			float4 _DetailTex_TexelSize;
+			float4 _MaskTex_ST;
+			float4 _MaskTex_TexelSize;
+			float4 _Color;
+			float4 _ColorC;
+			float4 _Params;
+			float4 _Params2;
+			float4 _Params3;
+			float _Iterations;
+			float _Steps;
+			float _WarpDepth;
+			float _Threshold;
+			float _Contrast;
+			float _Emission;
+			float _Saturation;
+			float _ToggleDetail;
+			float _ToggleBands;
+			float _ToggleDither;
 			// cbuffer order confirmed by the asset's own register index
 			// $Globals cb0: 1 slot(s) named from the compiled constant-buffer member table
 
@@ -97225,7 +98422,7 @@ Shader "ShaderRipperTest/VariantMonster"
 				// sample r0.xyzw, v1.xyxx, t0.xyzw, s3
 				r0.xyzw = tex2D(_MaskTex, float2(v1.x, v1.y));
 				// lt r0.x, r0.w, cb0[9].w
-				r0.x = (r0.w < cb0[9].w) ? 1.0 : 0.0;
+				r0.x = (r0.w < cb0[9].w) ? -1.0 : 0.0;
 				// discard_nz r0.x
 				if (any(r0.x)) discard;
 				// mul r0.x, cb0[6].z, cb1[0].y
@@ -97648,6 +98845,8 @@ Shader "ShaderRipperTest/VariantMonster"
 				r2.x = sin(r1.z);
 				// mad r1.y, r0.z, l(5.000000), -r1.y
 				r1.y = mad(r0.z, 5.0, -(r1.y));
+				// sincos null, r2.y, r1.y
+				r2.y = cos(r1.y);
 				// mul r1.yz, r2.xxyx, cb0[6].yyyy
 				r1.yz = float2(r2.x * cb0[6].y, r2.y * cb0[6].y);
 				// mad r1.yz, r1.yyzy, l(0.000000, 0.250000, 0.250000, 0.000000), r0.zzwz
@@ -97697,7 +98896,7 @@ Shader "ShaderRipperTest/VariantMonster"
 					// loop
 				for (;;) {
 					// ige r3.w, r3.z, r2.x
-					r3.w = (((int)(r3.z) >= (int)(r2.x)) ? 1 : 0);
+					r3.w = (((int)(r3.z) >= (int)(r2.x)) ? -1 : 0);
 					// breakc_nz r3.w
 					if (any(r3.w)) break;
 					// itof r3.w, r3.z
@@ -98111,7 +99310,7 @@ Shader "ShaderRipperTest/VariantMonster"
 						// loop
 					for (;;) {
 						// ige r5.z, r5.y, r2.y
-						r5.z = (((int)(r5.y) >= (int)(r2.y)) ? 1 : 0);
+						r5.z = (((int)(r5.y) >= (int)(r2.y)) ? -1 : 0);
 						// breakc_nz r5.z
 						if (any(r5.z)) break;
 						// itof r5.z, r5.y
@@ -98204,7 +99403,7 @@ Shader "ShaderRipperTest/VariantMonster"
 						// mad r6.x, |r6.x|, l(2.000000), r5.x
 						r6.x = mad(abs(r6.x), 2.0, r5.x);
 						// lt r6.y, l(2.200000), r6.x
-						r6.y = (2.2 < r6.x) ? 1.0 : 0.0;
+						r6.y = (2.2 < r6.x) ? -1.0 : 0.0;
 							// if_nz r6.y
 						if (any(r6.y)) {
 							// iadd r6.y, r5.y, l(1)
@@ -98238,7 +99437,7 @@ Shader "ShaderRipperTest/VariantMonster"
 					// mul r4.xy, r4.zwzz, l(1.040000, 1.040000, 0.000000, 0.000000)
 					r4.xy = float2(r4.z * 1.04, r4.w * 1.04);
 					// lt r5.yz, r5.xxxx, l(0.000000, 0.600000, 1.400000, 0.000000)
-					r5.yz = float2((r5.x < 0.6) ? 1.0 : 0.0, (r5.x < 1.4) ? 1.0 : 0.0);
+					r5.yz = float2((r5.x < 0.6) ? -1.0 : 0.0, (r5.x < 1.4) ? -1.0 : 0.0);
 					// add r6.xy, r4.zwzz, l(0.020000, 0.010000, 0.000000, 0.000000)
 					r6.xy = float2(r4.z + 0.02, r4.w + 0.01);
 					// mov_sat r4.zw, r4.zzzw
@@ -98250,7 +99449,7 @@ Shader "ShaderRipperTest/VariantMonster"
 					// movc r4.xy, r5.yyyy, r4.xyxx, r5.zwzz
 					r4.xy = float2(r5.y != 0.0 ? r4.x : r5.z, r5.y != 0.0 ? r4.y : r5.w);
 					// lt r3.w, l(1.500000), r4.x
-					r3.w = (1.5 < r4.x) ? 1.0 : 0.0;
+					r3.w = (1.5 < r4.x) ? -1.0 : 0.0;
 						// if_nz r3.w
 					if (any(r3.w)) {
 						// mov r3.x, r4.y
@@ -98266,7 +99465,7 @@ Shader "ShaderRipperTest/VariantMonster"
 				// endloop
 				}
 				// lt r2.x, l(0.500000), cb0[10].w
-				r2.x = (0.5 < cb0[10].w) ? 1.0 : 0.0;
+				r2.x = (0.5 < cb0[10].w) ? -1.0 : 0.0;
 					// if_nz r2.x
 				if (any(r2.x)) {
 					// mul r2.x, r0.x, l(0.250000)
@@ -98388,7 +99587,7 @@ Shader "ShaderRipperTest/VariantMonster"
 				// endif
 				}
 				// lt r2.w, l(0.500000), cb0[11].x
-				r2.w = (0.5 < cb0[11].x) ? 1.0 : 0.0;
+				r2.w = (0.5 < cb0[11].x) ? -1.0 : 0.0;
 					// if_nz r2.w
 				if (any(r2.w)) {
 					// mul r4.xyzw, cb0[8].wwww, l(0.300000, 0.520000, 0.740000, 0.960000)
@@ -98399,6 +99598,8 @@ Shader "ShaderRipperTest/VariantMonster"
 					r2.w = sin(r2.w);
 					// mad r3.y, r1.z, r4.x, -r0.x
 					r3.y = mad(r1.z, r4.x, -(r0.x));
+					// sincos null, r3.y, r3.y
+					r3.y = cos(r3.y);
 					// add r3.z, r1.z, r1.y
 					r3.z = r1.z + r1.y;
 					// mul r5.xyzw, r4.xyzw, r3.zzzz
@@ -98417,22 +99618,26 @@ Shader "ShaderRipperTest/VariantMonster"
 					r2.w = r2.w + r4.x;
 					// mad r4.x, r1.z, r4.y, -r6.x
 					r4.x = mad(r1.z, r4.y, -(r6.x));
+					// sincos null, r4.x, r4.x
+					r4.x = cos(r4.x);
 					// add r3.y, r3.y, r4.x
 					r3.y = r3.y + r4.x;
 					// mad r5.xyz, r5.yzwy, l(0.600000, 0.600000, 0.600000, 0.000000), r6.xyzx
 					r5.xyz = float3(mad(r5.y, 0.6, r6.x), mad(r5.z, 0.6, r6.y), mad(r5.w, 0.6, r6.z));
 					// sincos r5.xyz, null, r5.xyzx
-					r5.xyz = sin(r5.xyzx);
+					r5.xyz = float3(sin(r5.x), sin(r5.y), sin(r5.z));
 					// add r3.w, r3.w, r5.x
 					r3.w = r3.w + r5.x;
 					// mad r4.xy, r1.yyyy, r4.zwzz, r6.yzyy
 					r4.xy = float2(mad(r1.y, r4.z, r6.y), mad(r1.y, r4.w, r6.z));
 					// sincos r4.xy, null, r4.xyxx
-					r4.xy = sin(r4.xyxx);
+					r4.xy = float2(sin(r4.x), sin(r4.y));
 					// add r2.w, r2.w, r4.x
 					r2.w = r2.w + r4.x;
 					// mad r4.xz, r1.zzzz, r4.zzwz, -r6.yyzy
 					r4.xz = float2(mad(r1.z, r4.z, -(r6.y)), mad(r1.z, r4.w, -(r6.z)));
+					// sincos null, r4.xz, r4.xxzx
+					r4.xz = float2(cos(r4.x), cos(r4.z));
 					// add r3.y, r3.y, r4.x
 					r3.y = r3.y + r4.x;
 					// add r3.w, r5.y, r3.w
@@ -98453,6 +99658,8 @@ Shader "ShaderRipperTest/VariantMonster"
 					r2.w = r2.w + r4.z;
 					// mad r4.z, r1.z, r4.x, -r6.w
 					r4.z = mad(r1.z, r4.x, -(r6.w));
+					// sincos null, r4.z, r4.z
+					r4.z = cos(r4.z);
 					// add r3.y, r3.y, r4.z
 					r3.y = r3.y + r4.z;
 					// mul r4.xz, r3.zzzz, r4.xxyx
@@ -98473,6 +99680,8 @@ Shader "ShaderRipperTest/VariantMonster"
 					r5.x = r2.w + r4.x;
 					// mad r2.w, r1.z, r4.y, -r3.w
 					r2.w = mad(r1.z, r4.y, -(r3.w));
+					// sincos null, r2.w, r2.w
+					r2.w = cos(r2.w);
 					// add r5.y, r2.w, r3.y
 					r5.y = r2.w + r3.y;
 					// mad r2.w, r4.z, l(0.600000), r3.w
@@ -98500,7 +99709,7 @@ Shader "ShaderRipperTest/VariantMonster"
 				// mul r0.y, r0.y, r1.w
 				r0.y = r0.y * r1.w;
 				// lt r1.w, r0.y, cb0[9].w
-				r1.w = (r0.y < cb0[9].w) ? 1.0 : 0.0;
+				r1.w = (r0.y < cb0[9].w) ? -1.0 : 0.0;
 				// discard_nz r1.w
 				if (any(r1.w)) discard;
 				// mul r4.xy, r0.xxxx, l(0.210000, 0.150000, 0.000000, 0.000000)
@@ -98989,7 +100198,7 @@ Shader "ShaderRipperTest/VariantMonster"
 				// mul r1.y, cb0[8].z, l(0.500000)
 				r1.y = cb0[8].z * 0.5;
 				// lt r1.y, r1.x, r1.y
-				r1.y = (r1.x < r1.y) ? 1.0 : 0.0;
+				r1.y = (r1.x < r1.y) ? -1.0 : 0.0;
 				// mad r1.z, -r1.x, l(3.000000), l(1.000000)
 				r1.z = mad(-(r1.x), 3.0, 1.0);
 				// max r1.z, r1.z, l(0.000000)
@@ -99001,7 +100210,7 @@ Shader "ShaderRipperTest/VariantMonster"
 				// mad r2.xyz, r2.xyzx, cb0[8].zzzz, r0.xzwx
 				r2.xyz = float3(mad(r2.x, cb0[8].z, r0.x), mad(r2.y, cb0[8].z, r0.z), mad(r2.z, cb0[8].z, r0.w));
 				// lt r1.x, r1.x, l(0.400000)
-				r1.x = (r1.x < 0.4) ? 1.0 : 0.0;
+				r1.x = (r1.x < 0.4) ? -1.0 : 0.0;
 				// mul r3.xyz, r0.xzwx, l(0.920000, 0.920000, 0.920000, 0.000000)
 				r3.xyz = float3(r0.x * 0.92, r0.z * 0.92, r0.w * 0.92);
 				// movc r0.xzw, r1.xxxx, r3.xxyz, r0.xxzw
@@ -99023,7 +100232,7 @@ Shader "ShaderRipperTest/VariantMonster"
 				// mul r0.xzw, r0.xxzw, cb0[10].yyyy
 				r0.xzw = float3(r0.x * cb0[10].y, r0.z * cb0[10].y, r0.w * cb0[10].y);
 				// lt r1.x, l(0.500000), cb0[11].y
-				r1.x = (0.5 < cb0[11].y) ? 1.0 : 0.0;
+				r1.x = (0.5 < cb0[11].y) ? -1.0 : 0.0;
 				// mul r1.yz, v1.xxyx, cb1[6].xxyx
 				r1.yz = float2(v1.x * _ScreenParams.x, v1.y * _ScreenParams.y);
 				// mul r1.yz, r1.yyzy, l(0.000000, 127.099998, 311.700012, 0.000000)
@@ -99088,6 +100297,27 @@ Shader "ShaderRipperTest/VariantMonster"
 			//   unnamed single lanes are shared by the Float/Range prop(s): _Iterations, _Steps, _WarpDepth, _Threshold, _Contrast, _Emission, _Saturation, _ToggleDetail, _ToggleBands, _ToggleDither
 			// cb1 = UnityPerDraw  (declared by UnityCG.cginc)
 			// cb2 = UnityPerFrame  (declared by UnityCG.cginc)
+			float4 _MainTex_TexelSize;
+			float4 _NoiseTex_ST;
+			float4 _NoiseTex_TexelSize;
+			float4 _DetailTex_ST;
+			float4 _DetailTex_TexelSize;
+			float4 _MaskTex_ST;
+			float4 _MaskTex_TexelSize;
+			float4 _Color;
+			float4 _ColorC;
+			float4 _Params;
+			float4 _Params3;
+			float _Iterations;
+			float _Steps;
+			float _WarpDepth;
+			float _Threshold;
+			float _Contrast;
+			float _Emission;
+			float _Saturation;
+			float _ToggleDetail;
+			float _ToggleBands;
+			float _ToggleDither;
 			// cbuffer order confirmed by the asset's own register index
 			// $Globals cb0: 1 slot(s) named from the compiled constant-buffer member table
 			// $Globals cb0: 2 slot(s) named from the compiled constant-buffer member table
@@ -99126,7 +100356,7 @@ Shader "ShaderRipperTest/VariantMonster"
 				// sample r0.xyzw, v1.xyxx, t0.xyzw, s3
 				r0.xyzw = tex2D(_MaskTex, float2(v1.x, v1.y));
 				// lt r0.x, r0.w, cb0[9].w
-				r0.x = (r0.w < cb0[9].w) ? 1.0 : 0.0;
+				r0.x = (r0.w < cb0[9].w) ? -1.0 : 0.0;
 				// discard_nz r0.x
 				if (any(r0.x)) discard;
 				// mul r0.x, cb0[6].z, cb1[0].y
@@ -99547,6 +100777,8 @@ Shader "ShaderRipperTest/VariantMonster"
 				r2.x = sin(r1.w);
 				// mad r1.y, r0.z, l(5.000000), -r1.y
 				r1.y = mad(r0.z, 5.0, -(r1.y));
+				// sincos null, r2.y, r1.y
+				r2.y = cos(r1.y);
 				// mul r1.yw, r2.xxxy, cb0[6].yyyy
 				r1.yw = float2(r2.x * cb0[6].y, r2.y * cb0[6].y);
 				// mad r1.yw, r1.yyyw, l(0.000000, 0.250000, 0.000000, 0.250000), r0.zzzw
@@ -99626,7 +100858,7 @@ Shader "ShaderRipperTest/VariantMonster"
 					// loop
 				for (;;) {
 					// ige r3.w, r3.z, r2.x
-					r3.w = (((int)(r3.z) >= (int)(r2.x)) ? 1 : 0);
+					r3.w = (((int)(r3.z) >= (int)(r2.x)) ? -1 : 0);
 					// breakc_nz r3.w
 					if (any(r3.w)) break;
 					// itof r3.w, r3.z
@@ -100040,7 +101272,7 @@ Shader "ShaderRipperTest/VariantMonster"
 						// loop
 					for (;;) {
 						// ige r5.z, r5.y, r2.y
-						r5.z = (((int)(r5.y) >= (int)(r2.y)) ? 1 : 0);
+						r5.z = (((int)(r5.y) >= (int)(r2.y)) ? -1 : 0);
 						// breakc_nz r5.z
 						if (any(r5.z)) break;
 						// itof r5.z, r5.y
@@ -100133,7 +101365,7 @@ Shader "ShaderRipperTest/VariantMonster"
 						// mad r6.x, |r6.x|, l(2.000000), r5.x
 						r6.x = mad(abs(r6.x), 2.0, r5.x);
 						// lt r6.y, l(2.200000), r6.x
-						r6.y = (2.2 < r6.x) ? 1.0 : 0.0;
+						r6.y = (2.2 < r6.x) ? -1.0 : 0.0;
 							// if_nz r6.y
 						if (any(r6.y)) {
 							// iadd r6.y, r5.y, l(1)
@@ -100167,7 +101399,7 @@ Shader "ShaderRipperTest/VariantMonster"
 					// mul r4.xy, r4.zwzz, l(1.040000, 1.040000, 0.000000, 0.000000)
 					r4.xy = float2(r4.z * 1.04, r4.w * 1.04);
 					// lt r5.yz, r5.xxxx, l(0.000000, 0.600000, 1.400000, 0.000000)
-					r5.yz = float2((r5.x < 0.6) ? 1.0 : 0.0, (r5.x < 1.4) ? 1.0 : 0.0);
+					r5.yz = float2((r5.x < 0.6) ? -1.0 : 0.0, (r5.x < 1.4) ? -1.0 : 0.0);
 					// add r6.xy, r4.zwzz, l(0.020000, 0.010000, 0.000000, 0.000000)
 					r6.xy = float2(r4.z + 0.02, r4.w + 0.01);
 					// mov_sat r4.zw, r4.zzzw
@@ -100179,7 +101411,7 @@ Shader "ShaderRipperTest/VariantMonster"
 					// movc r4.xy, r5.yyyy, r4.xyxx, r5.zwzz
 					r4.xy = float2(r5.y != 0.0 ? r4.x : r5.z, r5.y != 0.0 ? r4.y : r5.w);
 					// lt r3.w, l(1.500000), r4.x
-					r3.w = (1.5 < r4.x) ? 1.0 : 0.0;
+					r3.w = (1.5 < r4.x) ? -1.0 : 0.0;
 						// if_nz r3.w
 					if (any(r3.w)) {
 						// mov r3.x, r4.y
@@ -100195,7 +101427,7 @@ Shader "ShaderRipperTest/VariantMonster"
 				// endloop
 				}
 				// lt r2.x, l(0.500000), cb0[10].w
-				r2.x = (0.5 < cb0[10].w) ? 1.0 : 0.0;
+				r2.x = (0.5 < cb0[10].w) ? -1.0 : 0.0;
 					// if_nz r2.x
 				if (any(r2.x)) {
 					// mul r2.x, r0.x, l(0.250000)
@@ -100317,7 +101549,7 @@ Shader "ShaderRipperTest/VariantMonster"
 				// endif
 				}
 				// lt r2.w, l(0.500000), cb0[11].x
-				r2.w = (0.5 < cb0[11].x) ? 1.0 : 0.0;
+				r2.w = (0.5 < cb0[11].x) ? -1.0 : 0.0;
 					// if_nz r2.w
 				if (any(r2.w)) {
 					// mul r4.xyzw, cb0[8].wwww, l(0.300000, 0.520000, 0.740000, 0.960000)
@@ -100328,6 +101560,8 @@ Shader "ShaderRipperTest/VariantMonster"
 					r2.w = sin(r2.w);
 					// mad r3.y, r1.w, r4.x, -r0.x
 					r3.y = mad(r1.w, r4.x, -(r0.x));
+					// sincos null, r3.y, r3.y
+					r3.y = cos(r3.y);
 					// add r3.z, r1.w, r1.y
 					r3.z = r1.w + r1.y;
 					// mul r5.xyzw, r4.xyzw, r3.zzzz
@@ -100346,22 +101580,26 @@ Shader "ShaderRipperTest/VariantMonster"
 					r2.w = r2.w + r4.x;
 					// mad r4.x, r1.w, r4.y, -r6.x
 					r4.x = mad(r1.w, r4.y, -(r6.x));
+					// sincos null, r4.x, r4.x
+					r4.x = cos(r4.x);
 					// add r3.y, r3.y, r4.x
 					r3.y = r3.y + r4.x;
 					// mad r5.xyz, r5.yzwy, l(0.600000, 0.600000, 0.600000, 0.000000), r6.xyzx
 					r5.xyz = float3(mad(r5.y, 0.6, r6.x), mad(r5.z, 0.6, r6.y), mad(r5.w, 0.6, r6.z));
 					// sincos r5.xyz, null, r5.xyzx
-					r5.xyz = sin(r5.xyzx);
+					r5.xyz = float3(sin(r5.x), sin(r5.y), sin(r5.z));
 					// add r3.w, r3.w, r5.x
 					r3.w = r3.w + r5.x;
 					// mad r4.xy, r1.yyyy, r4.zwzz, r6.yzyy
 					r4.xy = float2(mad(r1.y, r4.z, r6.y), mad(r1.y, r4.w, r6.z));
 					// sincos r4.xy, null, r4.xyxx
-					r4.xy = sin(r4.xyxx);
+					r4.xy = float2(sin(r4.x), sin(r4.y));
 					// add r2.w, r2.w, r4.x
 					r2.w = r2.w + r4.x;
 					// mad r4.xz, r1.wwww, r4.zzwz, -r6.yyzy
 					r4.xz = float2(mad(r1.w, r4.z, -(r6.y)), mad(r1.w, r4.w, -(r6.z)));
+					// sincos null, r4.xz, r4.xxzx
+					r4.xz = float2(cos(r4.x), cos(r4.z));
 					// add r3.y, r3.y, r4.x
 					r3.y = r3.y + r4.x;
 					// add r3.w, r5.y, r3.w
@@ -100382,6 +101620,8 @@ Shader "ShaderRipperTest/VariantMonster"
 					r2.w = r2.w + r4.z;
 					// mad r4.z, r1.w, r4.x, -r6.w
 					r4.z = mad(r1.w, r4.x, -(r6.w));
+					// sincos null, r4.z, r4.z
+					r4.z = cos(r4.z);
 					// add r3.y, r3.y, r4.z
 					r3.y = r3.y + r4.z;
 					// mul r4.xz, r3.zzzz, r4.xxyx
@@ -100402,6 +101642,8 @@ Shader "ShaderRipperTest/VariantMonster"
 					r5.x = r2.w + r4.x;
 					// mad r2.w, r1.w, r4.y, -r3.w
 					r2.w = mad(r1.w, r4.y, -(r3.w));
+					// sincos null, r2.w, r2.w
+					r2.w = cos(r2.w);
 					// add r5.y, r2.w, r3.y
 					r5.y = r2.w + r3.y;
 					// mad r2.w, r4.z, l(0.600000), r3.w
@@ -100429,7 +101671,7 @@ Shader "ShaderRipperTest/VariantMonster"
 				// mul r0.y, r0.y, r1.z
 				r0.y = r0.y * r1.z;
 				// lt r1.z, r0.y, cb0[9].w
-				r1.z = (r0.y < cb0[9].w) ? 1.0 : 0.0;
+				r1.z = (r0.y < cb0[9].w) ? -1.0 : 0.0;
 				// discard_nz r1.z
 				if (any(r1.z)) discard;
 				// mul r4.xy, r0.xxxx, l(0.210000, 0.150000, 0.000000, 0.000000)
@@ -100918,7 +102160,7 @@ Shader "ShaderRipperTest/VariantMonster"
 				// mul r1.y, cb0[8].z, l(0.500000)
 				r1.y = cb0[8].z * 0.5;
 				// lt r1.y, r1.x, r1.y
-				r1.y = (r1.x < r1.y) ? 1.0 : 0.0;
+				r1.y = (r1.x < r1.y) ? -1.0 : 0.0;
 				// mad r1.z, -r1.x, l(3.000000), l(1.000000)
 				r1.z = mad(-(r1.x), 3.0, 1.0);
 				// max r1.z, r1.z, l(0.000000)
@@ -100930,7 +102172,7 @@ Shader "ShaderRipperTest/VariantMonster"
 				// mad r2.xyz, r2.xyzx, cb0[8].zzzz, r0.xzwx
 				r2.xyz = float3(mad(r2.x, cb0[8].z, r0.x), mad(r2.y, cb0[8].z, r0.z), mad(r2.z, cb0[8].z, r0.w));
 				// lt r1.x, r1.x, l(0.400000)
-				r1.x = (r1.x < 0.4) ? 1.0 : 0.0;
+				r1.x = (r1.x < 0.4) ? -1.0 : 0.0;
 				// mul r3.xyz, r0.xzwx, l(0.920000, 0.920000, 0.920000, 0.000000)
 				r3.xyz = float3(r0.x * 0.92, r0.z * 0.92, r0.w * 0.92);
 				// movc r0.xzw, r1.xxxx, r3.xxyz, r0.xxzw
@@ -100952,7 +102194,7 @@ Shader "ShaderRipperTest/VariantMonster"
 				// mul r0.xzw, r0.xxzw, cb0[10].yyyy
 				r0.xzw = float3(r0.x * cb0[10].y, r0.z * cb0[10].y, r0.w * cb0[10].y);
 				// lt r1.x, l(0.500000), cb0[11].y
-				r1.x = (0.5 < cb0[11].y) ? 1.0 : 0.0;
+				r1.x = (0.5 < cb0[11].y) ? -1.0 : 0.0;
 				// mul r1.yz, v1.xxyx, cb1[6].xxyx
 				r1.yz = float2(v1.x * _ScreenParams.x, v1.y * _ScreenParams.y);
 				// mul r1.yz, r1.yyzy, l(0.000000, 127.099998, 311.700012, 0.000000)
@@ -101016,6 +102258,28 @@ Shader "ShaderRipperTest/VariantMonster"
 			//   unnamed single lanes are shared by the Float/Range prop(s): _Iterations, _Steps, _WarpDepth, _Threshold, _Contrast, _Emission, _Saturation, _ToggleDetail, _ToggleBands, _ToggleDither
 			// cb1 = UnityPerDraw  (declared by UnityCG.cginc)
 			// cb2 = UnityPerFrame  (declared by UnityCG.cginc)
+			float4 _MainTex_TexelSize;
+			float4 _NoiseTex_ST;
+			float4 _NoiseTex_TexelSize;
+			float4 _DetailTex_ST;
+			float4 _DetailTex_TexelSize;
+			float4 _MaskTex_ST;
+			float4 _MaskTex_TexelSize;
+			float4 _Color;
+			float4 _ColorB;
+			float4 _ColorC;
+			float4 _Params;
+			float4 _Params3;
+			float _Iterations;
+			float _Steps;
+			float _WarpDepth;
+			float _Threshold;
+			float _Contrast;
+			float _Emission;
+			float _Saturation;
+			float _ToggleDetail;
+			float _ToggleBands;
+			float _ToggleDither;
 			// cbuffer order confirmed by the asset's own register index
 			// $Globals cb0: 1 slot(s) named from the compiled constant-buffer member table
 
@@ -101053,7 +102317,7 @@ Shader "ShaderRipperTest/VariantMonster"
 				// sample r0.xyzw, v1.xyxx, t0.xyzw, s3
 				r0.xyzw = tex2D(_MaskTex, float2(v1.x, v1.y));
 				// lt r0.x, r0.w, cb0[9].w
-				r0.x = (r0.w < cb0[9].w) ? 1.0 : 0.0;
+				r0.x = (r0.w < cb0[9].w) ? -1.0 : 0.0;
 				// discard_nz r0.x
 				if (any(r0.x)) discard;
 				// mul r0.x, cb0[6].z, cb1[0].y
@@ -101474,6 +102738,8 @@ Shader "ShaderRipperTest/VariantMonster"
 				r2.x = sin(r1.w);
 				// mad r1.y, r0.z, l(5.000000), -r1.y
 				r1.y = mad(r0.z, 5.0, -(r1.y));
+				// sincos null, r2.y, r1.y
+				r2.y = cos(r1.y);
 				// mul r1.yw, r2.xxxy, cb0[6].yyyy
 				r1.yw = float2(r2.x * cb0[6].y, r2.y * cb0[6].y);
 				// mad r0.zw, r1.yyyw, l(0.000000, 0.000000, 0.250000, 0.250000), r0.zzzw
@@ -101555,7 +102821,7 @@ Shader "ShaderRipperTest/VariantMonster"
 					// loop
 				for (;;) {
 					// ige r3.y, r3.x, r1.z
-					r3.y = (((int)(r3.x) >= (int)(r1.z)) ? 1 : 0);
+					r3.y = (((int)(r3.x) >= (int)(r1.z)) ? -1 : 0);
 					// breakc_nz r3.y
 					if (any(r3.y)) break;
 					// itof r3.y, r3.x
@@ -101977,7 +103243,7 @@ Shader "ShaderRipperTest/VariantMonster"
 						// loop
 					for (;;) {
 						// ige r5.x, r4.w, r1.w
-						r5.x = (((int)(r4.w) >= (int)(r1.w)) ? 1 : 0);
+						r5.x = (((int)(r4.w) >= (int)(r1.w)) ? -1 : 0);
 						// breakc_nz r5.x
 						if (any(r5.x)) break;
 						// itof r5.x, r4.w
@@ -102068,7 +103334,7 @@ Shader "ShaderRipperTest/VariantMonster"
 						// mad r5.z, |r5.z|, l(2.000000), r4.z
 						r5.z = mad(abs(r5.z), 2.0, r4.z);
 						// lt r5.w, l(2.200000), r5.z
-						r5.w = (2.2 < r5.z) ? 1.0 : 0.0;
+						r5.w = (2.2 < r5.z) ? -1.0 : 0.0;
 							// if_nz r5.w
 						if (any(r5.w)) {
 							// iadd r5.w, r4.w, l(1)
@@ -102102,7 +103368,7 @@ Shader "ShaderRipperTest/VariantMonster"
 					// mul r3.yz, r4.xxyx, l(0.000000, 1.040000, 1.040000, 0.000000)
 					r3.yz = float2(r4.x * 1.04, r4.y * 1.04);
 					// lt r5.xy, r4.zzzz, l(0.600000, 1.400000, 0.000000, 0.000000)
-					r5.xy = float2((r4.z < 0.6) ? 1.0 : 0.0, (r4.z < 1.4) ? 1.0 : 0.0);
+					r5.xy = float2((r4.z < 0.6) ? -1.0 : 0.0, (r4.z < 1.4) ? -1.0 : 0.0);
 					// add r5.zw, r4.xxxy, l(0.000000, 0.000000, 0.020000, 0.010000)
 					r5.zw = float2(r4.x + 0.02, r4.y + 0.01);
 					// mov_sat r4.xy, r4.xyxx
@@ -102114,7 +103380,7 @@ Shader "ShaderRipperTest/VariantMonster"
 					// movc r3.yz, r5.xxxx, r3.yyzy, r5.yyzy
 					r3.yz = float2(r5.x != 0.0 ? r3.y : r5.y, r5.x != 0.0 ? r3.z : r5.z);
 					// lt r3.w, l(1.500000), r3.y
-					r3.w = (1.5 < r3.y) ? 1.0 : 0.0;
+					r3.w = (1.5 < r3.y) ? -1.0 : 0.0;
 						// if_nz r3.w
 					if (any(r3.w)) {
 						// mov r2.z, r3.z
@@ -102130,7 +103396,7 @@ Shader "ShaderRipperTest/VariantMonster"
 				// endloop
 				}
 				// lt r1.z, l(0.500000), cb0[10].w
-				r1.z = (0.5 < cb0[10].w) ? 1.0 : 0.0;
+				r1.z = (0.5 < cb0[10].w) ? -1.0 : 0.0;
 					// if_nz r1.z
 				if (any(r1.z)) {
 					// mul r1.z, r0.x, l(0.250000)
@@ -102252,7 +103518,7 @@ Shader "ShaderRipperTest/VariantMonster"
 				// endif
 				}
 				// lt r1.z, l(0.500000), cb0[11].x
-				r1.z = (0.5 < cb0[11].x) ? 1.0 : 0.0;
+				r1.z = (0.5 < cb0[11].x) ? -1.0 : 0.0;
 					// if_nz r1.z
 				if (any(r1.z)) {
 					// mul r4.xyzw, cb0[8].wwww, l(0.300000, 0.520000, 0.740000, 0.960000)
@@ -102263,6 +103529,8 @@ Shader "ShaderRipperTest/VariantMonster"
 					r1.z = sin(r1.z);
 					// mad r1.w, r0.w, r4.x, -r0.x
 					r1.w = mad(r0.w, r4.x, -(r0.x));
+					// sincos null, r1.w, r1.w
+					r1.w = cos(r1.w);
 					// add r2.x, r0.w, r0.z
 					r2.x = r0.w + r0.z;
 					// mul r5.xyzw, r4.xyzw, r2.xxxx
@@ -102281,22 +103549,26 @@ Shader "ShaderRipperTest/VariantMonster"
 					r1.z = r1.z + r2.y;
 					// mad r2.y, r0.w, r4.y, -r6.x
 					r2.y = mad(r0.w, r4.y, -(r6.x));
+					// sincos null, r2.y, r2.y
+					r2.y = cos(r2.y);
 					// add r1.w, r1.w, r2.y
 					r1.w = r1.w + r2.y;
 					// mad r5.xyz, r5.yzwy, l(0.600000, 0.600000, 0.600000, 0.000000), r6.xyzx
 					r5.xyz = float3(mad(r5.y, 0.6, r6.x), mad(r5.z, 0.6, r6.y), mad(r5.w, 0.6, r6.z));
 					// sincos r5.xyz, null, r5.xyzx
-					r5.xyz = sin(r5.xyzx);
+					r5.xyz = float3(sin(r5.x), sin(r5.y), sin(r5.z));
 					// add r0.x, r0.x, r5.x
 					r0.x = r0.x + r5.x;
 					// mad r2.yw, r0.zzzz, r4.zzzw, r6.yyyz
 					r2.yw = float2(mad(r0.z, r4.z, r6.y), mad(r0.z, r4.w, r6.z));
 					// sincos r2.yw, null, r2.yyyw
-					r2.yw = sin(r2.yyyw);
+					r2.yw = float2(sin(r2.y), sin(r2.w));
 					// add r1.z, r1.z, r2.y
 					r1.z = r1.z + r2.y;
 					// mad r4.xy, r0.wwww, r4.zwzz, -r6.yzyy
 					r4.xy = float2(mad(r0.w, r4.z, -(r6.y)), mad(r0.w, r4.w, -(r6.z)));
+					// sincos null, r4.xy, r4.xyxx
+					r4.xy = float2(cos(r4.x), cos(r4.y));
 					// add r1.w, r1.w, r4.x
 					r1.w = r1.w + r4.x;
 					// add r0.x, r5.y, r0.x
@@ -102317,6 +103589,8 @@ Shader "ShaderRipperTest/VariantMonster"
 					r1.z = r1.z + r3.w;
 					// mad r3.w, r0.w, r2.y, -r6.w
 					r3.w = mad(r0.w, r2.y, -(r6.w));
+					// sincos null, r3.w, r3.w
+					r3.w = cos(r3.w);
 					// add r1.w, r1.w, r3.w
 					r1.w = r1.w + r3.w;
 					// mul r2.xy, r2.ywyy, r2.xxxx
@@ -102337,6 +103611,8 @@ Shader "ShaderRipperTest/VariantMonster"
 					r4.x = r1.z + r3.w;
 					// mad r1.z, r0.w, r2.w, -r2.x
 					r1.z = mad(r0.w, r2.w, -(r2.x));
+					// sincos null, r1.z, r1.z
+					r1.z = cos(r1.z);
 					// add r4.y, r1.z, r1.w
 					r4.y = r1.z + r1.w;
 					// mad r1.z, r2.y, l(0.600000), r2.x
@@ -102364,7 +103640,7 @@ Shader "ShaderRipperTest/VariantMonster"
 				// mul r0.x, r0.y, r0.x
 				r0.x = r0.y * r0.x;
 				// lt r0.y, r0.x, cb0[9].w
-				r0.y = (r0.x < cb0[9].w) ? 1.0 : 0.0;
+				r0.y = (r0.x < cb0[9].w) ? -1.0 : 0.0;
 				// discard_nz r0.y
 				if (any(r0.y)) discard;
 				// mad r1.xyz, r3.xyzx, l(0.900000, 0.900000, 0.900000, 0.000000), l(0.600000, 0.600000, 0.600000, 0.000000)
@@ -102402,7 +103678,7 @@ Shader "ShaderRipperTest/VariantMonster"
 				// mul r0.z, cb0[8].z, l(0.500000)
 				r0.z = cb0[8].z * 0.5;
 				// lt r0.z, r0.y, r0.z
-				r0.z = (r0.y < r0.z) ? 1.0 : 0.0;
+				r0.z = (r0.y < r0.z) ? -1.0 : 0.0;
 				// mad r0.w, -r0.y, l(3.000000), l(1.000000)
 				r0.w = mad(-(r0.y), 3.0, 1.0);
 				// max r0.w, r0.w, l(0.000000)
@@ -102414,7 +103690,7 @@ Shader "ShaderRipperTest/VariantMonster"
 				// mad r2.xyz, r2.xyzx, cb0[8].zzzz, r1.xyzx
 				r2.xyz = float3(mad(r2.x, cb0[8].z, r1.x), mad(r2.y, cb0[8].z, r1.y), mad(r2.z, cb0[8].z, r1.z));
 				// lt r0.y, r0.y, l(0.400000)
-				r0.y = (r0.y < 0.4) ? 1.0 : 0.0;
+				r0.y = (r0.y < 0.4) ? -1.0 : 0.0;
 				// mul r3.xyz, r1.xyzx, l(0.920000, 0.920000, 0.920000, 0.000000)
 				r3.xyz = float3(r1.x * 0.92, r1.y * 0.92, r1.z * 0.92);
 				// movc r1.xyz, r0.yyyy, r3.xyzx, r1.xyzx
@@ -102436,7 +103712,7 @@ Shader "ShaderRipperTest/VariantMonster"
 				// mul r0.yzw, r0.yyzw, cb0[10].yyyy
 				r0.yzw = float3(r0.y * cb0[10].y, r0.z * cb0[10].y, r0.w * cb0[10].y);
 				// lt r1.x, l(0.500000), cb0[11].y
-				r1.x = (0.5 < cb0[11].y) ? 1.0 : 0.0;
+				r1.x = (0.5 < cb0[11].y) ? -1.0 : 0.0;
 				// mul r1.yz, v1.xxyx, cb1[6].xxyx
 				r1.yz = float2(v1.x * _ScreenParams.x, v1.y * _ScreenParams.y);
 				// mul r1.yz, r1.yyzy, l(0.000000, 127.099998, 311.700012, 0.000000)
@@ -102501,6 +103777,27 @@ Shader "ShaderRipperTest/VariantMonster"
 			//   unnamed single lanes are shared by the Float/Range prop(s): _Iterations, _Steps, _WarpDepth, _Threshold, _Contrast, _Emission, _Saturation, _ToggleDetail, _ToggleBands, _ToggleDither
 			// cb1 = UnityPerDraw  (declared by UnityCG.cginc)
 			// cb2 = UnityPerFrame  (declared by UnityCG.cginc)
+			float4 _MainTex_TexelSize;
+			float4 _NoiseTex_ST;
+			float4 _NoiseTex_TexelSize;
+			float4 _DetailTex_ST;
+			float4 _DetailTex_TexelSize;
+			float4 _MaskTex_ST;
+			float4 _MaskTex_TexelSize;
+			float4 _Color;
+			float4 _ColorC;
+			float4 _Params;
+			float4 _Params3;
+			float _Iterations;
+			float _Steps;
+			float _WarpDepth;
+			float _Threshold;
+			float _Contrast;
+			float _Emission;
+			float _Saturation;
+			float _ToggleDetail;
+			float _ToggleBands;
+			float _ToggleDither;
 			// cbuffer order confirmed by the asset's own register index
 			// $Globals cb0: 1 slot(s) named from the compiled constant-buffer member table
 			// $Globals cb0: 2 slot(s) named from the compiled constant-buffer member table
@@ -102539,7 +103836,7 @@ Shader "ShaderRipperTest/VariantMonster"
 				// sample r0.xyzw, v1.xyxx, t0.xyzw, s3
 				r0.xyzw = tex2D(_MaskTex, float2(v1.x, v1.y));
 				// lt r0.x, r0.w, cb0[9].w
-				r0.x = (r0.w < cb0[9].w) ? 1.0 : 0.0;
+				r0.x = (r0.w < cb0[9].w) ? -1.0 : 0.0;
 				// discard_nz r0.x
 				if (any(r0.x)) discard;
 				// mul r0.x, cb0[6].z, cb1[0].y
@@ -103405,7 +104702,7 @@ Shader "ShaderRipperTest/VariantMonster"
 					// loop
 				for (;;) {
 					// ige r3.w, r3.z, r2.x
-					r3.w = (((int)(r3.z) >= (int)(r2.x)) ? 1 : 0);
+					r3.w = (((int)(r3.z) >= (int)(r2.x)) ? -1 : 0);
 					// breakc_nz r3.w
 					if (any(r3.w)) break;
 					// itof r3.w, r3.z
@@ -103819,7 +105116,7 @@ Shader "ShaderRipperTest/VariantMonster"
 						// loop
 					for (;;) {
 						// ige r5.z, r5.y, r2.y
-						r5.z = (((int)(r5.y) >= (int)(r2.y)) ? 1 : 0);
+						r5.z = (((int)(r5.y) >= (int)(r2.y)) ? -1 : 0);
 						// breakc_nz r5.z
 						if (any(r5.z)) break;
 						// itof r5.z, r5.y
@@ -103912,7 +105209,7 @@ Shader "ShaderRipperTest/VariantMonster"
 						// mad r6.x, |r6.x|, l(2.000000), r5.x
 						r6.x = mad(abs(r6.x), 2.0, r5.x);
 						// lt r6.y, l(2.200000), r6.x
-						r6.y = (2.2 < r6.x) ? 1.0 : 0.0;
+						r6.y = (2.2 < r6.x) ? -1.0 : 0.0;
 							// if_nz r6.y
 						if (any(r6.y)) {
 							// iadd r6.y, r5.y, l(1)
@@ -103946,7 +105243,7 @@ Shader "ShaderRipperTest/VariantMonster"
 					// mul r4.xy, r4.zwzz, l(1.040000, 1.040000, 0.000000, 0.000000)
 					r4.xy = float2(r4.z * 1.04, r4.w * 1.04);
 					// lt r5.yz, r5.xxxx, l(0.000000, 0.600000, 1.400000, 0.000000)
-					r5.yz = float2((r5.x < 0.6) ? 1.0 : 0.0, (r5.x < 1.4) ? 1.0 : 0.0);
+					r5.yz = float2((r5.x < 0.6) ? -1.0 : 0.0, (r5.x < 1.4) ? -1.0 : 0.0);
 					// add r6.xy, r4.zwzz, l(0.020000, 0.010000, 0.000000, 0.000000)
 					r6.xy = float2(r4.z + 0.02, r4.w + 0.01);
 					// mov_sat r4.zw, r4.zzzw
@@ -103958,7 +105255,7 @@ Shader "ShaderRipperTest/VariantMonster"
 					// movc r4.xy, r5.yyyy, r4.xyxx, r5.zwzz
 					r4.xy = float2(r5.y != 0.0 ? r4.x : r5.z, r5.y != 0.0 ? r4.y : r5.w);
 					// lt r3.w, l(1.500000), r4.x
-					r3.w = (1.5 < r4.x) ? 1.0 : 0.0;
+					r3.w = (1.5 < r4.x) ? -1.0 : 0.0;
 						// if_nz r3.w
 					if (any(r3.w)) {
 						// mov r3.x, r4.y
@@ -103974,7 +105271,7 @@ Shader "ShaderRipperTest/VariantMonster"
 				// endloop
 				}
 				// lt r2.x, l(0.500000), cb0[10].w
-				r2.x = (0.5 < cb0[10].w) ? 1.0 : 0.0;
+				r2.x = (0.5 < cb0[10].w) ? -1.0 : 0.0;
 					// if_nz r2.x
 				if (any(r2.x)) {
 					// mul r2.x, r0.x, l(0.250000)
@@ -104096,7 +105393,7 @@ Shader "ShaderRipperTest/VariantMonster"
 				// endif
 				}
 				// lt r2.w, l(0.500000), cb0[11].x
-				r2.w = (0.5 < cb0[11].x) ? 1.0 : 0.0;
+				r2.w = (0.5 < cb0[11].x) ? -1.0 : 0.0;
 					// if_nz r2.w
 				if (any(r2.w)) {
 					// mul r4.xyzw, cb0[8].wwww, l(0.300000, 0.520000, 0.740000, 0.960000)
@@ -104107,6 +105404,8 @@ Shader "ShaderRipperTest/VariantMonster"
 					r2.w = sin(r2.w);
 					// mad r3.y, r0.w, r4.x, -r0.x
 					r3.y = mad(r0.w, r4.x, -(r0.x));
+					// sincos null, r3.y, r3.y
+					r3.y = cos(r3.y);
 					// add r3.z, r0.w, r0.z
 					r3.z = r0.w + r0.z;
 					// mul r5.xyzw, r4.xyzw, r3.zzzz
@@ -104125,22 +105424,26 @@ Shader "ShaderRipperTest/VariantMonster"
 					r2.w = r2.w + r4.x;
 					// mad r4.x, r0.w, r4.y, -r6.x
 					r4.x = mad(r0.w, r4.y, -(r6.x));
+					// sincos null, r4.x, r4.x
+					r4.x = cos(r4.x);
 					// add r3.y, r3.y, r4.x
 					r3.y = r3.y + r4.x;
 					// mad r5.xyz, r5.yzwy, l(0.600000, 0.600000, 0.600000, 0.000000), r6.xyzx
 					r5.xyz = float3(mad(r5.y, 0.6, r6.x), mad(r5.z, 0.6, r6.y), mad(r5.w, 0.6, r6.z));
 					// sincos r5.xyz, null, r5.xyzx
-					r5.xyz = sin(r5.xyzx);
+					r5.xyz = float3(sin(r5.x), sin(r5.y), sin(r5.z));
 					// add r3.w, r3.w, r5.x
 					r3.w = r3.w + r5.x;
 					// mad r4.xy, r0.zzzz, r4.zwzz, r6.yzyy
 					r4.xy = float2(mad(r0.z, r4.z, r6.y), mad(r0.z, r4.w, r6.z));
 					// sincos r4.xy, null, r4.xyxx
-					r4.xy = sin(r4.xyxx);
+					r4.xy = float2(sin(r4.x), sin(r4.y));
 					// add r2.w, r2.w, r4.x
 					r2.w = r2.w + r4.x;
 					// mad r4.xz, r0.wwww, r4.zzwz, -r6.yyzy
 					r4.xz = float2(mad(r0.w, r4.z, -(r6.y)), mad(r0.w, r4.w, -(r6.z)));
+					// sincos null, r4.xz, r4.xxzx
+					r4.xz = float2(cos(r4.x), cos(r4.z));
 					// add r3.y, r3.y, r4.x
 					r3.y = r3.y + r4.x;
 					// add r3.w, r5.y, r3.w
@@ -104161,6 +105464,8 @@ Shader "ShaderRipperTest/VariantMonster"
 					r2.w = r2.w + r4.z;
 					// mad r4.z, r0.w, r4.x, -r6.w
 					r4.z = mad(r0.w, r4.x, -(r6.w));
+					// sincos null, r4.z, r4.z
+					r4.z = cos(r4.z);
 					// add r3.y, r3.y, r4.z
 					r3.y = r3.y + r4.z;
 					// mul r4.xz, r3.zzzz, r4.xxyx
@@ -104181,6 +105486,8 @@ Shader "ShaderRipperTest/VariantMonster"
 					r5.x = r2.w + r4.x;
 					// mad r2.w, r0.w, r4.y, -r3.w
 					r2.w = mad(r0.w, r4.y, -(r3.w));
+					// sincos null, r2.w, r2.w
+					r2.w = cos(r2.w);
 					// add r5.y, r2.w, r3.y
 					r5.y = r2.w + r3.y;
 					// mad r2.w, r4.z, l(0.600000), r3.w
@@ -104224,7 +105531,7 @@ Shader "ShaderRipperTest/VariantMonster"
 					// loop
 				for (;;) {
 					// ige r4.y, r4.x, r1.w
-					r4.y = (((int)(r4.x) >= (int)(r1.w)) ? 1 : 0);
+					r4.y = (((int)(r4.x) >= (int)(r1.w)) ? -1 : 0);
 					// breakc_nz r4.y
 					if (any(r4.y)) break;
 					// itof r4.y, r4.x
@@ -104651,7 +105958,7 @@ Shader "ShaderRipperTest/VariantMonster"
 					// mad r4.y, r4.y, r4.z, r2.w
 					r4.y = mad(r4.y, r4.z, r2.w);
 					// lt r4.z, l(1.100000), r4.y
-					r4.z = (1.1 < r4.y) ? 1.0 : 0.0;
+					r4.z = (1.1 < r4.y) ? -1.0 : 0.0;
 						// if_nz r4.z
 					if (any(r4.z)) {
 						// mov r2.w, r4.y
@@ -104675,7 +105982,7 @@ Shader "ShaderRipperTest/VariantMonster"
 				// mul r0.y, r0.y, r1.x
 				r0.y = r0.y * r1.x;
 				// lt r1.x, r0.y, cb0[9].w
-				r1.x = (r0.y < cb0[9].w) ? 1.0 : 0.0;
+				r1.x = (r0.y < cb0[9].w) ? -1.0 : 0.0;
 				// discard_nz r1.x
 				if (any(r1.x)) discard;
 				// mad r1.xzw, r2.xxyz, l(0.900000, 0.000000, 0.900000, 0.900000), l(0.600000, 0.000000, 0.600000, 0.600000)
@@ -104713,7 +106020,7 @@ Shader "ShaderRipperTest/VariantMonster"
 				// mul r2.y, cb0[8].z, l(0.500000)
 				r2.y = cb0[8].z * 0.5;
 				// lt r2.y, r2.x, r2.y
-				r2.y = (r2.x < r2.y) ? 1.0 : 0.0;
+				r2.y = (r2.x < r2.y) ? -1.0 : 0.0;
 				// mad r2.z, -r2.x, l(3.000000), l(1.000000)
 				r2.z = mad(-(r2.x), 3.0, 1.0);
 				// max r2.z, r2.z, l(0.000000)
@@ -104725,7 +106032,7 @@ Shader "ShaderRipperTest/VariantMonster"
 				// mad r3.xyz, r3.xyzx, cb0[8].zzzz, r1.xzwx
 				r3.xyz = float3(mad(r3.x, cb0[8].z, r1.x), mad(r3.y, cb0[8].z, r1.z), mad(r3.z, cb0[8].z, r1.w));
 				// lt r2.x, r2.x, l(0.400000)
-				r2.x = (r2.x < 0.4) ? 1.0 : 0.0;
+				r2.x = (r2.x < 0.4) ? -1.0 : 0.0;
 				// mul r4.xyz, r1.xzwx, l(0.920000, 0.920000, 0.920000, 0.000000)
 				r4.xyz = float3(r1.x * 0.92, r1.z * 0.92, r1.w * 0.92);
 				// movc r1.xzw, r2.xxxx, r4.xxyz, r1.xxzw
@@ -105583,7 +106890,7 @@ Shader "ShaderRipperTest/VariantMonster"
 				// mul r0.xzw, r0.xxzw, cb0[10].yyyy
 				r0.xzw = float3(r0.x * cb0[10].y, r0.z * cb0[10].y, r0.w * cb0[10].y);
 				// lt r1.x, l(0.500000), cb0[11].y
-				r1.x = (0.5 < cb0[11].y) ? 1.0 : 0.0;
+				r1.x = (0.5 < cb0[11].y) ? -1.0 : 0.0;
 				// mul r1.yz, v1.xxyx, cb1[6].xxyx
 				r1.yz = float2(v1.x * _ScreenParams.x, v1.y * _ScreenParams.y);
 				// mul r1.yz, r1.yyzy, l(0.000000, 127.099998, 311.700012, 0.000000)
@@ -105648,6 +106955,27 @@ Shader "ShaderRipperTest/VariantMonster"
 			//   unnamed single lanes are shared by the Float/Range prop(s): _Iterations, _Steps, _WarpDepth, _Threshold, _Contrast, _Emission, _Saturation, _ToggleDetail, _ToggleBands, _ToggleDither
 			// cb1 = UnityPerDraw  (declared by UnityCG.cginc)
 			// cb2 = UnityPerFrame  (declared by UnityCG.cginc)
+			float4 _MainTex_TexelSize;
+			float4 _NoiseTex_ST;
+			float4 _NoiseTex_TexelSize;
+			float4 _DetailTex_ST;
+			float4 _DetailTex_TexelSize;
+			float4 _MaskTex_ST;
+			float4 _MaskTex_TexelSize;
+			float4 _Color;
+			float4 _ColorC;
+			float4 _Params;
+			float4 _Params3;
+			float _Iterations;
+			float _Steps;
+			float _WarpDepth;
+			float _Threshold;
+			float _Contrast;
+			float _Emission;
+			float _Saturation;
+			float _ToggleDetail;
+			float _ToggleBands;
+			float _ToggleDither;
 			// cbuffer order confirmed by the asset's own register index
 			// $Globals cb0: 1 slot(s) named from the compiled constant-buffer member table
 			// $Globals cb0: 2 slot(s) named from the compiled constant-buffer member table
@@ -105686,7 +107014,7 @@ Shader "ShaderRipperTest/VariantMonster"
 				// sample r0.xyzw, v1.xyxx, t0.xyzw, s3
 				r0.xyzw = tex2D(_MaskTex, float2(v1.x, v1.y));
 				// lt r0.x, r0.w, cb0[9].w
-				r0.x = (r0.w < cb0[9].w) ? 1.0 : 0.0;
+				r0.x = (r0.w < cb0[9].w) ? -1.0 : 0.0;
 				// discard_nz r0.x
 				if (any(r0.x)) discard;
 				// mul r0.x, cb0[6].z, cb1[0].y
@@ -106554,7 +107882,7 @@ Shader "ShaderRipperTest/VariantMonster"
 					// loop
 				for (;;) {
 					// ige r4.x, r2.w, r2.y
-					r4.x = (((int)(r2.w) >= (int)(r2.y)) ? 1 : 0);
+					r4.x = (((int)(r2.w) >= (int)(r2.y)) ? -1 : 0);
 					// breakc_nz r4.x
 					if (any(r4.x)) break;
 					// itof r4.x, r2.w
@@ -106970,7 +108298,7 @@ Shader "ShaderRipperTest/VariantMonster"
 						// loop
 					for (;;) {
 						// ige r5.w, r5.z, r2.z
-						r5.w = (((int)(r5.z) >= (int)(r2.z)) ? 1 : 0);
+						r5.w = (((int)(r5.z) >= (int)(r2.z)) ? -1 : 0);
 						// breakc_nz r5.w
 						if (any(r5.w)) break;
 						// itof r5.w, r5.z
@@ -107061,7 +108389,7 @@ Shader "ShaderRipperTest/VariantMonster"
 						// mad r6.y, |r6.y|, l(2.000000), r4.w
 						r6.y = mad(abs(r6.y), 2.0, r4.w);
 						// lt r6.z, l(2.200000), r6.y
-						r6.z = (2.2 < r6.y) ? 1.0 : 0.0;
+						r6.z = (2.2 < r6.y) ? -1.0 : 0.0;
 							// if_nz r6.z
 						if (any(r6.z)) {
 							// iadd r6.z, r5.z, l(1)
@@ -107095,7 +108423,7 @@ Shader "ShaderRipperTest/VariantMonster"
 					// mul r4.xy, r5.xyxx, l(1.040000, 1.040000, 0.000000, 0.000000)
 					r4.xy = float2(r5.x * 1.04, r5.y * 1.04);
 					// lt r5.zw, r4.wwww, l(0.000000, 0.000000, 0.600000, 1.400000)
-					r5.zw = float2((r4.w < 0.6) ? 1.0 : 0.0, (r4.w < 1.4) ? 1.0 : 0.0);
+					r5.zw = float2((r4.w < 0.6) ? -1.0 : 0.0, (r4.w < 1.4) ? -1.0 : 0.0);
 					// add r6.xy, r5.xyxx, l(0.020000, 0.010000, 0.000000, 0.000000)
 					r6.xy = float2(r5.x + 0.02, r5.y + 0.01);
 					// mov_sat r5.xy, r5.xyxx
@@ -107107,7 +108435,7 @@ Shader "ShaderRipperTest/VariantMonster"
 					// movc r4.xy, r5.zzzz, r4.xyxx, r6.xyxx
 					r4.xy = float2(r5.z != 0.0 ? r4.x : r6.x, r5.z != 0.0 ? r4.y : r6.y);
 					// lt r4.z, l(1.500000), r4.x
-					r4.z = (1.5 < r4.x) ? 1.0 : 0.0;
+					r4.z = (1.5 < r4.x) ? -1.0 : 0.0;
 						// if_nz r4.z
 					if (any(r4.z)) {
 						// mov r3.z, r4.y
@@ -107123,7 +108451,7 @@ Shader "ShaderRipperTest/VariantMonster"
 				// endloop
 				}
 				// lt r2.y, l(0.500000), cb0[10].w
-				r2.y = (0.5 < cb0[10].w) ? 1.0 : 0.0;
+				r2.y = (0.5 < cb0[10].w) ? -1.0 : 0.0;
 					// if_nz r2.y
 				if (any(r2.y)) {
 					// mul r2.y, r0.x, l(0.250000)
@@ -107245,7 +108573,7 @@ Shader "ShaderRipperTest/VariantMonster"
 				// endif
 				}
 				// lt r2.y, l(0.500000), cb0[11].x
-				r2.y = (0.5 < cb0[11].x) ? 1.0 : 0.0;
+				r2.y = (0.5 < cb0[11].x) ? -1.0 : 0.0;
 					// if_nz r2.y
 				if (any(r2.y)) {
 					// mul r5.xyzw, cb0[8].wwww, l(0.300000, 0.520000, 0.740000, 0.960000)
@@ -107256,6 +108584,8 @@ Shader "ShaderRipperTest/VariantMonster"
 					r2.y = sin(r2.y);
 					// mad r2.z, r0.w, r5.x, -r0.x
 					r2.z = mad(r0.w, r5.x, -(r0.x));
+					// sincos null, r2.z, r2.z
+					r2.z = cos(r2.z);
 					// add r2.w, r0.w, r0.z
 					r2.w = r0.w + r0.z;
 					// mul r6.xyzw, r5.xyzw, r2.wwww
@@ -107267,27 +108597,31 @@ Shader "ShaderRipperTest/VariantMonster"
 					// mad r3.y, r0.z, r5.y, r7.x
 					r3.y = mad(r0.z, r5.y, r7.x);
 					// sincos r3.xy, null, r3.xyxx
-					r3.xy = sin(r3.xyxx);
+					r3.xy = float2(sin(r3.x), sin(r3.y));
 					// add r2.y, r2.y, r3.y
 					r2.y = r2.y + r3.y;
 					// mad r3.y, r0.w, r5.y, -r7.x
 					r3.y = mad(r0.w, r5.y, -(r7.x));
+					// sincos null, r3.y, r3.y
+					r3.y = cos(r3.y);
 					// add r2.z, r2.z, r3.y
 					r2.z = r2.z + r3.y;
 					// mad r6.xyz, r6.yzwy, l(0.600000, 0.600000, 0.600000, 0.000000), r7.xyzx
 					r6.xyz = float3(mad(r6.y, 0.6, r7.x), mad(r6.z, 0.6, r7.y), mad(r6.w, 0.6, r7.z));
 					// sincos r6.xyz, null, r6.xyzx
-					r6.xyz = sin(r6.xyzx);
+					r6.xyz = float3(sin(r6.x), sin(r6.y), sin(r6.z));
 					// add r3.x, r3.x, r6.x
 					r3.x = r3.x + r6.x;
 					// mad r3.yw, r0.zzzz, r5.zzzw, r7.yyyz
 					r3.yw = float2(mad(r0.z, r5.z, r7.y), mad(r0.z, r5.w, r7.z));
 					// sincos r3.yw, null, r3.yyyw
-					r3.yw = sin(r3.yyyw);
+					r3.yw = float2(sin(r3.y), sin(r3.w));
 					// add r2.y, r2.y, r3.y
 					r2.y = r2.y + r3.y;
 					// mad r5.xy, r0.wwww, r5.zwzz, -r7.yzyy
 					r5.xy = float2(mad(r0.w, r5.z, -(r7.y)), mad(r0.w, r5.w, -(r7.z)));
+					// sincos null, r5.xy, r5.xyxx
+					r5.xy = float2(cos(r5.x), cos(r5.y));
 					// add r2.z, r2.z, r5.x
 					r2.z = r2.z + r5.x;
 					// add r3.x, r6.y, r3.x
@@ -107308,6 +108642,8 @@ Shader "ShaderRipperTest/VariantMonster"
 					r2.y = r2.y + r4.w;
 					// mad r4.w, r0.w, r3.y, -r7.w
 					r4.w = mad(r0.w, r3.y, -(r7.w));
+					// sincos null, r4.w, r4.w
+					r4.w = cos(r4.w);
 					// add r2.z, r2.z, r4.w
 					r2.z = r2.z + r4.w;
 					// mul r5.xy, r2.wwww, r3.ywyy
@@ -107328,6 +108664,8 @@ Shader "ShaderRipperTest/VariantMonster"
 					r6.x = r2.y + r3.y;
 					// mad r2.y, r0.w, r3.w, -r3.x
 					r2.y = mad(r0.w, r3.w, -(r3.x));
+					// sincos null, r2.y, r2.y
+					r2.y = cos(r2.y);
 					// add r6.y, r2.y, r2.z
 					r6.y = r2.y + r2.z;
 					// mad r2.y, r5.y, l(0.600000), r3.x
@@ -107371,7 +108709,7 @@ Shader "ShaderRipperTest/VariantMonster"
 					// loop
 				for (;;) {
 					// ige r3.w, r3.y, r2.x
-					r3.w = (((int)(r3.y) >= (int)(r2.x)) ? 1 : 0);
+					r3.w = (((int)(r3.y) >= (int)(r2.x)) ? -1 : 0);
 					// breakc_nz r3.w
 					if (any(r3.w)) break;
 					// itof r3.w, r3.y
@@ -107816,7 +109154,7 @@ Shader "ShaderRipperTest/VariantMonster"
 					// mad r3.w, r3.w, r4.w, r3.x
 					r3.w = mad(r3.w, r4.w, r3.x);
 					// lt r4.w, l(1.100000), r3.w
-					r4.w = (1.1 < r3.w) ? 1.0 : 0.0;
+					r4.w = (1.1 < r3.w) ? -1.0 : 0.0;
 						// if_nz r4.w
 					if (any(r4.w)) {
 						// mov r3.x, r3.w
@@ -107840,7 +109178,7 @@ Shader "ShaderRipperTest/VariantMonster"
 				// mul r0.y, r0.y, r1.w
 				r0.y = r0.y * r1.w;
 				// lt r1.w, r0.y, cb0[9].w
-				r1.w = (r0.y < cb0[9].w) ? 1.0 : 0.0;
+				r1.w = (r0.y < cb0[9].w) ? -1.0 : 0.0;
 				// discard_nz r1.w
 				if (any(r1.w)) discard;
 				// mul_sat r1.x, r1.x, l(1.400000)
@@ -107909,7 +109247,7 @@ Shader "ShaderRipperTest/VariantMonster"
 				// mul r2.x, cb0[8].z, l(0.500000)
 				r2.x = cb0[8].z * 0.5;
 				// lt r2.x, r0.x, r2.x
-				r2.x = (r0.x < r2.x) ? 1.0 : 0.0;
+				r2.x = (r0.x < r2.x) ? -1.0 : 0.0;
 				// mad r2.y, -r0.x, l(3.000000), l(1.000000)
 				r2.y = mad(-(r0.x), 3.0, 1.0);
 				// max r2.y, r2.y, l(0.000000)
@@ -107921,7 +109259,7 @@ Shader "ShaderRipperTest/VariantMonster"
 				// mad r2.yzw, r2.yyzw, cb0[8].zzzz, r1.xxyw
 				r2.yzw = float3(mad(r2.y, cb0[8].z, r1.x), mad(r2.z, cb0[8].z, r1.y), mad(r2.w, cb0[8].z, r1.w));
 				// lt r0.x, r0.x, l(0.400000)
-				r0.x = (r0.x < 0.4) ? 1.0 : 0.0;
+				r0.x = (r0.x < 0.4) ? -1.0 : 0.0;
 				// mul r3.yzw, r1.xxyw, l(0.000000, 0.920000, 0.920000, 0.920000)
 				r3.yzw = float3(r1.x * 0.92, r1.y * 0.92, r1.w * 0.92);
 				// movc r1.xyw, r0.xxxx, r3.yzyw, r1.xyxw
@@ -108785,7 +110123,7 @@ Shader "ShaderRipperTest/VariantMonster"
 				// mul r0.xzw, r0.xxzw, cb0[10].yyyy
 				r0.xzw = float3(r0.x * cb0[10].y, r0.z * cb0[10].y, r0.w * cb0[10].y);
 				// lt r1.x, l(0.500000), cb0[11].y
-				r1.x = (0.5 < cb0[11].y) ? 1.0 : 0.0;
+				r1.x = (0.5 < cb0[11].y) ? -1.0 : 0.0;
 				// mul r1.yz, v1.xxyx, cb1[6].xxyx
 				r1.yz = float2(v1.x * _ScreenParams.x, v1.y * _ScreenParams.y);
 				// mul r1.yz, r1.yyzy, l(0.000000, 127.099998, 311.700012, 0.000000)
@@ -108850,6 +110188,27 @@ Shader "ShaderRipperTest/VariantMonster"
 			//   unnamed single lanes are shared by the Float/Range prop(s): _Iterations, _Steps, _WarpDepth, _Threshold, _Contrast, _Emission, _Saturation, _ToggleDetail, _ToggleBands, _ToggleDither
 			// cb1 = UnityPerDraw  (declared by UnityCG.cginc)
 			// cb2 = UnityPerFrame  (declared by UnityCG.cginc)
+			float4 _MainTex_TexelSize;
+			float4 _NoiseTex_ST;
+			float4 _NoiseTex_TexelSize;
+			float4 _DetailTex_ST;
+			float4 _DetailTex_TexelSize;
+			float4 _MaskTex_ST;
+			float4 _MaskTex_TexelSize;
+			float4 _Color;
+			float4 _ColorC;
+			float4 _Params;
+			float4 _Params3;
+			float _Iterations;
+			float _Steps;
+			float _WarpDepth;
+			float _Threshold;
+			float _Contrast;
+			float _Emission;
+			float _Saturation;
+			float _ToggleDetail;
+			float _ToggleBands;
+			float _ToggleDither;
 			// cbuffer order confirmed by the asset's own register index
 			// $Globals cb0: 1 slot(s) named from the compiled constant-buffer member table
 			// $Globals cb0: 2 slot(s) named from the compiled constant-buffer member table
@@ -108888,7 +110247,7 @@ Shader "ShaderRipperTest/VariantMonster"
 				// sample r0.xyzw, v1.xyxx, t0.xyzw, s3
 				r0.xyzw = tex2D(_MaskTex, float2(v1.x, v1.y));
 				// lt r0.x, r0.w, cb0[9].w
-				r0.x = (r0.w < cb0[9].w) ? 1.0 : 0.0;
+				r0.x = (r0.w < cb0[9].w) ? -1.0 : 0.0;
 				// discard_nz r0.x
 				if (any(r0.x)) discard;
 				// mul r0.x, cb0[6].z, cb1[0].y
@@ -109782,7 +111141,7 @@ Shader "ShaderRipperTest/VariantMonster"
 					// loop
 				for (;;) {
 					// ige r4.x, r2.w, r2.y
-					r4.x = (((int)(r2.w) >= (int)(r2.y)) ? 1 : 0);
+					r4.x = (((int)(r2.w) >= (int)(r2.y)) ? -1 : 0);
 					// breakc_nz r4.x
 					if (any(r4.x)) break;
 					// itof r4.x, r2.w
@@ -110198,7 +111557,7 @@ Shader "ShaderRipperTest/VariantMonster"
 						// loop
 					for (;;) {
 						// ige r5.w, r5.z, r2.z
-						r5.w = (((int)(r5.z) >= (int)(r2.z)) ? 1 : 0);
+						r5.w = (((int)(r5.z) >= (int)(r2.z)) ? -1 : 0);
 						// breakc_nz r5.w
 						if (any(r5.w)) break;
 						// itof r5.w, r5.z
@@ -110289,7 +111648,7 @@ Shader "ShaderRipperTest/VariantMonster"
 						// mad r6.y, |r6.y|, l(2.000000), r4.w
 						r6.y = mad(abs(r6.y), 2.0, r4.w);
 						// lt r6.z, l(2.200000), r6.y
-						r6.z = (2.2 < r6.y) ? 1.0 : 0.0;
+						r6.z = (2.2 < r6.y) ? -1.0 : 0.0;
 							// if_nz r6.z
 						if (any(r6.z)) {
 							// iadd r6.z, r5.z, l(1)
@@ -110323,7 +111682,7 @@ Shader "ShaderRipperTest/VariantMonster"
 					// mul r4.xy, r5.xyxx, l(1.040000, 1.040000, 0.000000, 0.000000)
 					r4.xy = float2(r5.x * 1.04, r5.y * 1.04);
 					// lt r5.zw, r4.wwww, l(0.000000, 0.000000, 0.600000, 1.400000)
-					r5.zw = float2((r4.w < 0.6) ? 1.0 : 0.0, (r4.w < 1.4) ? 1.0 : 0.0);
+					r5.zw = float2((r4.w < 0.6) ? -1.0 : 0.0, (r4.w < 1.4) ? -1.0 : 0.0);
 					// add r6.xy, r5.xyxx, l(0.020000, 0.010000, 0.000000, 0.000000)
 					r6.xy = float2(r5.x + 0.02, r5.y + 0.01);
 					// mov_sat r5.xy, r5.xyxx
@@ -110335,7 +111694,7 @@ Shader "ShaderRipperTest/VariantMonster"
 					// movc r4.xy, r5.zzzz, r4.xyxx, r6.xyxx
 					r4.xy = float2(r5.z != 0.0 ? r4.x : r6.x, r5.z != 0.0 ? r4.y : r6.y);
 					// lt r4.z, l(1.500000), r4.x
-					r4.z = (1.5 < r4.x) ? 1.0 : 0.0;
+					r4.z = (1.5 < r4.x) ? -1.0 : 0.0;
 						// if_nz r4.z
 					if (any(r4.z)) {
 						// mov r3.z, r4.y
@@ -110351,7 +111710,7 @@ Shader "ShaderRipperTest/VariantMonster"
 				// endloop
 				}
 				// lt r2.y, l(0.500000), cb0[10].w
-				r2.y = (0.5 < cb0[10].w) ? 1.0 : 0.0;
+				r2.y = (0.5 < cb0[10].w) ? -1.0 : 0.0;
 					// if_nz r2.y
 				if (any(r2.y)) {
 					// mul r2.y, r0.x, l(0.250000)
@@ -110473,7 +111832,7 @@ Shader "ShaderRipperTest/VariantMonster"
 				// endif
 				}
 				// lt r2.y, l(0.500000), cb0[11].x
-				r2.y = (0.5 < cb0[11].x) ? 1.0 : 0.0;
+				r2.y = (0.5 < cb0[11].x) ? -1.0 : 0.0;
 					// if_nz r2.y
 				if (any(r2.y)) {
 					// mul r5.xyzw, cb0[8].wwww, l(0.300000, 0.520000, 0.740000, 0.960000)
@@ -110484,6 +111843,8 @@ Shader "ShaderRipperTest/VariantMonster"
 					r2.y = sin(r2.y);
 					// mad r2.z, r0.w, r5.x, -r0.x
 					r2.z = mad(r0.w, r5.x, -(r0.x));
+					// sincos null, r2.z, r2.z
+					r2.z = cos(r2.z);
 					// add r2.w, r0.w, r0.z
 					r2.w = r0.w + r0.z;
 					// mul r6.xyzw, r5.xyzw, r2.wwww
@@ -110495,27 +111856,31 @@ Shader "ShaderRipperTest/VariantMonster"
 					// mad r3.y, r0.z, r5.y, r7.x
 					r3.y = mad(r0.z, r5.y, r7.x);
 					// sincos r3.xy, null, r3.xyxx
-					r3.xy = sin(r3.xyxx);
+					r3.xy = float2(sin(r3.x), sin(r3.y));
 					// add r2.y, r2.y, r3.y
 					r2.y = r2.y + r3.y;
 					// mad r3.y, r0.w, r5.y, -r7.x
 					r3.y = mad(r0.w, r5.y, -(r7.x));
+					// sincos null, r3.y, r3.y
+					r3.y = cos(r3.y);
 					// add r2.z, r2.z, r3.y
 					r2.z = r2.z + r3.y;
 					// mad r6.xyz, r6.yzwy, l(0.600000, 0.600000, 0.600000, 0.000000), r7.xyzx
 					r6.xyz = float3(mad(r6.y, 0.6, r7.x), mad(r6.z, 0.6, r7.y), mad(r6.w, 0.6, r7.z));
 					// sincos r6.xyz, null, r6.xyzx
-					r6.xyz = sin(r6.xyzx);
+					r6.xyz = float3(sin(r6.x), sin(r6.y), sin(r6.z));
 					// add r3.x, r3.x, r6.x
 					r3.x = r3.x + r6.x;
 					// mad r3.yw, r0.zzzz, r5.zzzw, r7.yyyz
 					r3.yw = float2(mad(r0.z, r5.z, r7.y), mad(r0.z, r5.w, r7.z));
 					// sincos r3.yw, null, r3.yyyw
-					r3.yw = sin(r3.yyyw);
+					r3.yw = float2(sin(r3.y), sin(r3.w));
 					// add r2.y, r2.y, r3.y
 					r2.y = r2.y + r3.y;
 					// mad r5.xy, r0.wwww, r5.zwzz, -r7.yzyy
 					r5.xy = float2(mad(r0.w, r5.z, -(r7.y)), mad(r0.w, r5.w, -(r7.z)));
+					// sincos null, r5.xy, r5.xyxx
+					r5.xy = float2(cos(r5.x), cos(r5.y));
 					// add r2.z, r2.z, r5.x
 					r2.z = r2.z + r5.x;
 					// add r3.x, r6.y, r3.x
@@ -110536,6 +111901,8 @@ Shader "ShaderRipperTest/VariantMonster"
 					r2.y = r2.y + r4.w;
 					// mad r4.w, r0.w, r3.y, -r7.w
 					r4.w = mad(r0.w, r3.y, -(r7.w));
+					// sincos null, r4.w, r4.w
+					r4.w = cos(r4.w);
 					// add r2.z, r2.z, r4.w
 					r2.z = r2.z + r4.w;
 					// mul r5.xy, r2.wwww, r3.ywyy
@@ -110556,6 +111923,8 @@ Shader "ShaderRipperTest/VariantMonster"
 					r6.x = r2.y + r3.y;
 					// mad r2.y, r0.w, r3.w, -r3.x
 					r2.y = mad(r0.w, r3.w, -(r3.x));
+					// sincos null, r2.y, r2.y
+					r2.y = cos(r2.y);
 					// add r6.y, r2.y, r2.z
 					r6.y = r2.y + r2.z;
 					// mad r2.y, r5.y, l(0.600000), r3.x
@@ -110599,7 +111968,7 @@ Shader "ShaderRipperTest/VariantMonster"
 					// loop
 				for (;;) {
 					// ige r3.w, r3.y, r2.x
-					r3.w = (((int)(r3.y) >= (int)(r2.x)) ? 1 : 0);
+					r3.w = (((int)(r3.y) >= (int)(r2.x)) ? -1 : 0);
 					// breakc_nz r3.w
 					if (any(r3.w)) break;
 					// itof r3.w, r3.y
@@ -111044,7 +112413,7 @@ Shader "ShaderRipperTest/VariantMonster"
 					// mad r3.w, r3.w, r4.w, r3.x
 					r3.w = mad(r3.w, r4.w, r3.x);
 					// lt r4.w, l(1.100000), r3.w
-					r4.w = (1.1 < r3.w) ? 1.0 : 0.0;
+					r4.w = (1.1 < r3.w) ? -1.0 : 0.0;
 						// if_nz r4.w
 					if (any(r4.w)) {
 						// mov r3.x, r3.w
@@ -111068,7 +112437,7 @@ Shader "ShaderRipperTest/VariantMonster"
 				// mul r0.y, r0.y, r1.z
 				r0.y = r0.y * r1.z;
 				// lt r1.z, r0.y, cb0[9].w
-				r1.z = (r0.y < cb0[9].w) ? 1.0 : 0.0;
+				r1.z = (r0.y < cb0[9].w) ? -1.0 : 0.0;
 				// discard_nz r1.z
 				if (any(r1.z)) discard;
 				// mul_sat r1.x, r1.x, l(1.400000)
@@ -111137,7 +112506,7 @@ Shader "ShaderRipperTest/VariantMonster"
 				// mul r2.x, cb0[8].z, l(0.500000)
 				r2.x = cb0[8].z * 0.5;
 				// lt r2.x, r0.x, r2.x
-				r2.x = (r0.x < r2.x) ? 1.0 : 0.0;
+				r2.x = (r0.x < r2.x) ? -1.0 : 0.0;
 				// mad r2.y, -r0.x, l(3.000000), l(1.000000)
 				r2.y = mad(-(r0.x), 3.0, 1.0);
 				// max r2.y, r2.y, l(0.000000)
@@ -111149,7 +112518,7 @@ Shader "ShaderRipperTest/VariantMonster"
 				// mad r2.yzw, r2.yyzw, cb0[8].zzzz, r1.xxyz
 				r2.yzw = float3(mad(r2.y, cb0[8].z, r1.x), mad(r2.z, cb0[8].z, r1.y), mad(r2.w, cb0[8].z, r1.z));
 				// lt r0.x, r0.x, l(0.400000)
-				r0.x = (r0.x < 0.4) ? 1.0 : 0.0;
+				r0.x = (r0.x < 0.4) ? -1.0 : 0.0;
 				// mul r3.yzw, r1.xxyz, l(0.000000, 0.920000, 0.920000, 0.920000)
 				r3.yzw = float3(r1.x * 0.92, r1.y * 0.92, r1.z * 0.92);
 				// movc r1.xyz, r0.xxxx, r3.yzwy, r1.xyzx
@@ -112013,7 +113382,7 @@ Shader "ShaderRipperTest/VariantMonster"
 				// mul r0.xzw, r0.xxzw, cb0[10].yyyy
 				r0.xzw = float3(r0.x * cb0[10].y, r0.z * cb0[10].y, r0.w * cb0[10].y);
 				// lt r1.x, l(0.500000), cb0[11].y
-				r1.x = (0.5 < cb0[11].y) ? 1.0 : 0.0;
+				r1.x = (0.5 < cb0[11].y) ? -1.0 : 0.0;
 				// mul r1.yz, v1.xxyx, cb1[6].xxyx
 				r1.yz = float2(v1.x * _ScreenParams.x, v1.y * _ScreenParams.y);
 				// mul r1.yz, r1.yyzy, l(0.000000, 127.099998, 311.700012, 0.000000)
@@ -112078,6 +113447,27 @@ Shader "ShaderRipperTest/VariantMonster"
 			//   unnamed single lanes are shared by the Float/Range prop(s): _Iterations, _Steps, _WarpDepth, _Threshold, _Contrast, _Emission, _Saturation, _ToggleDetail, _ToggleBands, _ToggleDither
 			// cb1 = UnityPerDraw  (declared by UnityCG.cginc)
 			// cb2 = UnityPerFrame  (declared by UnityCG.cginc)
+			float4 _MainTex_TexelSize;
+			float4 _NoiseTex_ST;
+			float4 _NoiseTex_TexelSize;
+			float4 _DetailTex_ST;
+			float4 _DetailTex_TexelSize;
+			float4 _MaskTex_ST;
+			float4 _MaskTex_TexelSize;
+			float4 _Color;
+			float4 _ColorC;
+			float4 _Params;
+			float4 _Params3;
+			float _Iterations;
+			float _Steps;
+			float _WarpDepth;
+			float _Threshold;
+			float _Contrast;
+			float _Emission;
+			float _Saturation;
+			float _ToggleDetail;
+			float _ToggleBands;
+			float _ToggleDither;
 			// cbuffer order confirmed by the asset's own register index
 			// $Globals cb0: 1 slot(s) named from the compiled constant-buffer member table
 			// $Globals cb0: 2 slot(s) named from the compiled constant-buffer member table
@@ -112116,7 +113506,7 @@ Shader "ShaderRipperTest/VariantMonster"
 				// sample r0.xyzw, v1.xyxx, t0.xyzw, s3
 				r0.xyzw = tex2D(_MaskTex, float2(v1.x, v1.y));
 				// lt r0.x, r0.w, cb0[9].w
-				r0.x = (r0.w < cb0[9].w) ? 1.0 : 0.0;
+				r0.x = (r0.w < cb0[9].w) ? -1.0 : 0.0;
 				// discard_nz r0.x
 				if (any(r0.x)) discard;
 				// mul r0.x, cb0[6].z, cb1[0].y
@@ -112984,7 +114374,7 @@ Shader "ShaderRipperTest/VariantMonster"
 					// loop
 				for (;;) {
 					// ige r4.x, r2.w, r2.y
-					r4.x = (((int)(r2.w) >= (int)(r2.y)) ? 1 : 0);
+					r4.x = (((int)(r2.w) >= (int)(r2.y)) ? -1 : 0);
 					// breakc_nz r4.x
 					if (any(r4.x)) break;
 					// itof r4.x, r2.w
@@ -113400,7 +114790,7 @@ Shader "ShaderRipperTest/VariantMonster"
 						// loop
 					for (;;) {
 						// ige r5.w, r5.z, r2.z
-						r5.w = (((int)(r5.z) >= (int)(r2.z)) ? 1 : 0);
+						r5.w = (((int)(r5.z) >= (int)(r2.z)) ? -1 : 0);
 						// breakc_nz r5.w
 						if (any(r5.w)) break;
 						// itof r5.w, r5.z
@@ -113491,7 +114881,7 @@ Shader "ShaderRipperTest/VariantMonster"
 						// mad r6.y, |r6.y|, l(2.000000), r4.w
 						r6.y = mad(abs(r6.y), 2.0, r4.w);
 						// lt r6.z, l(2.200000), r6.y
-						r6.z = (2.2 < r6.y) ? 1.0 : 0.0;
+						r6.z = (2.2 < r6.y) ? -1.0 : 0.0;
 							// if_nz r6.z
 						if (any(r6.z)) {
 							// iadd r6.z, r5.z, l(1)
@@ -113525,7 +114915,7 @@ Shader "ShaderRipperTest/VariantMonster"
 					// mul r4.xy, r5.xyxx, l(1.040000, 1.040000, 0.000000, 0.000000)
 					r4.xy = float2(r5.x * 1.04, r5.y * 1.04);
 					// lt r5.zw, r4.wwww, l(0.000000, 0.000000, 0.600000, 1.400000)
-					r5.zw = float2((r4.w < 0.6) ? 1.0 : 0.0, (r4.w < 1.4) ? 1.0 : 0.0);
+					r5.zw = float2((r4.w < 0.6) ? -1.0 : 0.0, (r4.w < 1.4) ? -1.0 : 0.0);
 					// add r6.xy, r5.xyxx, l(0.020000, 0.010000, 0.000000, 0.000000)
 					r6.xy = float2(r5.x + 0.02, r5.y + 0.01);
 					// mov_sat r5.xy, r5.xyxx
@@ -113537,7 +114927,7 @@ Shader "ShaderRipperTest/VariantMonster"
 					// movc r4.xy, r5.zzzz, r4.xyxx, r6.xyxx
 					r4.xy = float2(r5.z != 0.0 ? r4.x : r6.x, r5.z != 0.0 ? r4.y : r6.y);
 					// lt r4.z, l(1.500000), r4.x
-					r4.z = (1.5 < r4.x) ? 1.0 : 0.0;
+					r4.z = (1.5 < r4.x) ? -1.0 : 0.0;
 						// if_nz r4.z
 					if (any(r4.z)) {
 						// mov r3.z, r4.y
@@ -113553,7 +114943,7 @@ Shader "ShaderRipperTest/VariantMonster"
 				// endloop
 				}
 				// lt r2.y, l(0.500000), cb0[10].w
-				r2.y = (0.5 < cb0[10].w) ? 1.0 : 0.0;
+				r2.y = (0.5 < cb0[10].w) ? -1.0 : 0.0;
 					// if_nz r2.y
 				if (any(r2.y)) {
 					// mul r2.y, r0.x, l(0.250000)
@@ -113675,7 +115065,7 @@ Shader "ShaderRipperTest/VariantMonster"
 				// endif
 				}
 				// lt r2.y, l(0.500000), cb0[11].x
-				r2.y = (0.5 < cb0[11].x) ? 1.0 : 0.0;
+				r2.y = (0.5 < cb0[11].x) ? -1.0 : 0.0;
 					// if_nz r2.y
 				if (any(r2.y)) {
 					// mul r5.xyzw, cb0[8].wwww, l(0.300000, 0.520000, 0.740000, 0.960000)
@@ -113686,6 +115076,8 @@ Shader "ShaderRipperTest/VariantMonster"
 					r2.y = sin(r2.y);
 					// mad r2.z, r0.w, r5.x, -r0.x
 					r2.z = mad(r0.w, r5.x, -(r0.x));
+					// sincos null, r2.z, r2.z
+					r2.z = cos(r2.z);
 					// add r2.w, r0.w, r0.z
 					r2.w = r0.w + r0.z;
 					// mul r6.xyzw, r5.xyzw, r2.wwww
@@ -113697,27 +115089,31 @@ Shader "ShaderRipperTest/VariantMonster"
 					// mad r3.y, r0.z, r5.y, r7.x
 					r3.y = mad(r0.z, r5.y, r7.x);
 					// sincos r3.xy, null, r3.xyxx
-					r3.xy = sin(r3.xyxx);
+					r3.xy = float2(sin(r3.x), sin(r3.y));
 					// add r2.y, r2.y, r3.y
 					r2.y = r2.y + r3.y;
 					// mad r3.y, r0.w, r5.y, -r7.x
 					r3.y = mad(r0.w, r5.y, -(r7.x));
+					// sincos null, r3.y, r3.y
+					r3.y = cos(r3.y);
 					// add r2.z, r2.z, r3.y
 					r2.z = r2.z + r3.y;
 					// mad r6.xyz, r6.yzwy, l(0.600000, 0.600000, 0.600000, 0.000000), r7.xyzx
 					r6.xyz = float3(mad(r6.y, 0.6, r7.x), mad(r6.z, 0.6, r7.y), mad(r6.w, 0.6, r7.z));
 					// sincos r6.xyz, null, r6.xyzx
-					r6.xyz = sin(r6.xyzx);
+					r6.xyz = float3(sin(r6.x), sin(r6.y), sin(r6.z));
 					// add r3.x, r3.x, r6.x
 					r3.x = r3.x + r6.x;
 					// mad r3.yw, r0.zzzz, r5.zzzw, r7.yyyz
 					r3.yw = float2(mad(r0.z, r5.z, r7.y), mad(r0.z, r5.w, r7.z));
 					// sincos r3.yw, null, r3.yyyw
-					r3.yw = sin(r3.yyyw);
+					r3.yw = float2(sin(r3.y), sin(r3.w));
 					// add r2.y, r2.y, r3.y
 					r2.y = r2.y + r3.y;
 					// mad r5.xy, r0.wwww, r5.zwzz, -r7.yzyy
 					r5.xy = float2(mad(r0.w, r5.z, -(r7.y)), mad(r0.w, r5.w, -(r7.z)));
+					// sincos null, r5.xy, r5.xyxx
+					r5.xy = float2(cos(r5.x), cos(r5.y));
 					// add r2.z, r2.z, r5.x
 					r2.z = r2.z + r5.x;
 					// add r3.x, r6.y, r3.x
@@ -113738,6 +115134,8 @@ Shader "ShaderRipperTest/VariantMonster"
 					r2.y = r2.y + r4.w;
 					// mad r4.w, r0.w, r3.y, -r7.w
 					r4.w = mad(r0.w, r3.y, -(r7.w));
+					// sincos null, r4.w, r4.w
+					r4.w = cos(r4.w);
 					// add r2.z, r2.z, r4.w
 					r2.z = r2.z + r4.w;
 					// mul r5.xy, r2.wwww, r3.ywyy
@@ -113758,6 +115156,8 @@ Shader "ShaderRipperTest/VariantMonster"
 					r6.x = r2.y + r3.y;
 					// mad r2.y, r0.w, r3.w, -r3.x
 					r2.y = mad(r0.w, r3.w, -(r3.x));
+					// sincos null, r2.y, r2.y
+					r2.y = cos(r2.y);
 					// add r6.y, r2.y, r2.z
 					r6.y = r2.y + r2.z;
 					// mad r2.y, r5.y, l(0.600000), r3.x
@@ -113801,7 +115201,7 @@ Shader "ShaderRipperTest/VariantMonster"
 					// loop
 				for (;;) {
 					// ige r3.w, r3.y, r2.x
-					r3.w = (((int)(r3.y) >= (int)(r2.x)) ? 1 : 0);
+					r3.w = (((int)(r3.y) >= (int)(r2.x)) ? -1 : 0);
 					// breakc_nz r3.w
 					if (any(r3.w)) break;
 					// itof r3.w, r3.y
@@ -114246,7 +115646,7 @@ Shader "ShaderRipperTest/VariantMonster"
 					// mad r3.w, r3.w, r4.w, r3.x
 					r3.w = mad(r3.w, r4.w, r3.x);
 					// lt r4.w, l(1.100000), r3.w
-					r4.w = (1.1 < r3.w) ? 1.0 : 0.0;
+					r4.w = (1.1 < r3.w) ? -1.0 : 0.0;
 						// if_nz r4.w
 					if (any(r4.w)) {
 						// mov r3.x, r3.w
@@ -114270,7 +115670,7 @@ Shader "ShaderRipperTest/VariantMonster"
 				// mul r0.y, r0.y, r1.w
 				r0.y = r0.y * r1.w;
 				// lt r1.w, r0.y, cb0[9].w
-				r1.w = (r0.y < cb0[9].w) ? 1.0 : 0.0;
+				r1.w = (r0.y < cb0[9].w) ? -1.0 : 0.0;
 				// discard_nz r1.w
 				if (any(r1.w)) discard;
 				// mul_sat r1.x, r1.x, l(1.400000)
@@ -114339,7 +115739,7 @@ Shader "ShaderRipperTest/VariantMonster"
 				// mul r2.x, cb0[8].z, l(0.500000)
 				r2.x = cb0[8].z * 0.5;
 				// lt r2.x, r0.x, r2.x
-				r2.x = (r0.x < r2.x) ? 1.0 : 0.0;
+				r2.x = (r0.x < r2.x) ? -1.0 : 0.0;
 				// mad r2.y, -r0.x, l(3.000000), l(1.000000)
 				r2.y = mad(-(r0.x), 3.0, 1.0);
 				// max r2.y, r2.y, l(0.000000)
@@ -114351,7 +115751,7 @@ Shader "ShaderRipperTest/VariantMonster"
 				// mad r2.yzw, r2.yyzw, cb0[8].zzzz, r1.xxyw
 				r2.yzw = float3(mad(r2.y, cb0[8].z, r1.x), mad(r2.z, cb0[8].z, r1.y), mad(r2.w, cb0[8].z, r1.w));
 				// lt r0.x, r0.x, l(0.400000)
-				r0.x = (r0.x < 0.4) ? 1.0 : 0.0;
+				r0.x = (r0.x < 0.4) ? -1.0 : 0.0;
 				// mul r3.yzw, r1.xxyw, l(0.000000, 0.920000, 0.920000, 0.920000)
 				r3.yzw = float3(r1.x * 0.92, r1.y * 0.92, r1.w * 0.92);
 				// movc r1.xyw, r0.xxxx, r3.yzyw, r1.xyxw
@@ -115215,7 +116615,7 @@ Shader "ShaderRipperTest/VariantMonster"
 				// mul r0.xzw, r0.xxzw, cb0[10].yyyy
 				r0.xzw = float3(r0.x * cb0[10].y, r0.z * cb0[10].y, r0.w * cb0[10].y);
 				// lt r1.x, l(0.500000), cb0[11].y
-				r1.x = (0.5 < cb0[11].y) ? 1.0 : 0.0;
+				r1.x = (0.5 < cb0[11].y) ? -1.0 : 0.0;
 				// mul r1.yz, v1.xxyx, cb1[6].xxyx
 				r1.yz = float2(v1.x * _ScreenParams.x, v1.y * _ScreenParams.y);
 				// mul r1.yz, r1.yyzy, l(0.000000, 127.099998, 311.700012, 0.000000)
@@ -115280,6 +116680,27 @@ Shader "ShaderRipperTest/VariantMonster"
 			//   unnamed single lanes are shared by the Float/Range prop(s): _Iterations, _Steps, _WarpDepth, _Threshold, _Contrast, _Emission, _Saturation, _ToggleDetail, _ToggleBands, _ToggleDither
 			// cb1 = UnityPerDraw  (declared by UnityCG.cginc)
 			// cb2 = UnityPerFrame  (declared by UnityCG.cginc)
+			float4 _MainTex_TexelSize;
+			float4 _NoiseTex_ST;
+			float4 _NoiseTex_TexelSize;
+			float4 _DetailTex_ST;
+			float4 _DetailTex_TexelSize;
+			float4 _MaskTex_ST;
+			float4 _MaskTex_TexelSize;
+			float4 _Color;
+			float4 _ColorC;
+			float4 _Params;
+			float4 _Params3;
+			float _Iterations;
+			float _Steps;
+			float _WarpDepth;
+			float _Threshold;
+			float _Contrast;
+			float _Emission;
+			float _Saturation;
+			float _ToggleDetail;
+			float _ToggleBands;
+			float _ToggleDither;
 			// cbuffer order confirmed by the asset's own register index
 			// $Globals cb0: 1 slot(s) named from the compiled constant-buffer member table
 			// $Globals cb0: 2 slot(s) named from the compiled constant-buffer member table
@@ -115318,7 +116739,7 @@ Shader "ShaderRipperTest/VariantMonster"
 				// sample r0.xyzw, v1.xyxx, t0.xyzw, s3
 				r0.xyzw = tex2D(_MaskTex, float2(v1.x, v1.y));
 				// lt r0.x, r0.w, cb0[9].w
-				r0.x = (r0.w < cb0[9].w) ? 1.0 : 0.0;
+				r0.x = (r0.w < cb0[9].w) ? -1.0 : 0.0;
 				// discard_nz r0.x
 				if (any(r0.x)) discard;
 				// mul r0.x, cb0[6].z, cb1[0].y
@@ -116212,7 +117633,7 @@ Shader "ShaderRipperTest/VariantMonster"
 					// loop
 				for (;;) {
 					// ige r4.x, r2.w, r2.y
-					r4.x = (((int)(r2.w) >= (int)(r2.y)) ? 1 : 0);
+					r4.x = (((int)(r2.w) >= (int)(r2.y)) ? -1 : 0);
 					// breakc_nz r4.x
 					if (any(r4.x)) break;
 					// itof r4.x, r2.w
@@ -116628,7 +118049,7 @@ Shader "ShaderRipperTest/VariantMonster"
 						// loop
 					for (;;) {
 						// ige r5.w, r5.z, r2.z
-						r5.w = (((int)(r5.z) >= (int)(r2.z)) ? 1 : 0);
+						r5.w = (((int)(r5.z) >= (int)(r2.z)) ? -1 : 0);
 						// breakc_nz r5.w
 						if (any(r5.w)) break;
 						// itof r5.w, r5.z
@@ -116719,7 +118140,7 @@ Shader "ShaderRipperTest/VariantMonster"
 						// mad r6.y, |r6.y|, l(2.000000), r4.w
 						r6.y = mad(abs(r6.y), 2.0, r4.w);
 						// lt r6.z, l(2.200000), r6.y
-						r6.z = (2.2 < r6.y) ? 1.0 : 0.0;
+						r6.z = (2.2 < r6.y) ? -1.0 : 0.0;
 							// if_nz r6.z
 						if (any(r6.z)) {
 							// iadd r6.z, r5.z, l(1)
@@ -116753,7 +118174,7 @@ Shader "ShaderRipperTest/VariantMonster"
 					// mul r4.xy, r5.xyxx, l(1.040000, 1.040000, 0.000000, 0.000000)
 					r4.xy = float2(r5.x * 1.04, r5.y * 1.04);
 					// lt r5.zw, r4.wwww, l(0.000000, 0.000000, 0.600000, 1.400000)
-					r5.zw = float2((r4.w < 0.6) ? 1.0 : 0.0, (r4.w < 1.4) ? 1.0 : 0.0);
+					r5.zw = float2((r4.w < 0.6) ? -1.0 : 0.0, (r4.w < 1.4) ? -1.0 : 0.0);
 					// add r6.xy, r5.xyxx, l(0.020000, 0.010000, 0.000000, 0.000000)
 					r6.xy = float2(r5.x + 0.02, r5.y + 0.01);
 					// mov_sat r5.xy, r5.xyxx
@@ -116765,7 +118186,7 @@ Shader "ShaderRipperTest/VariantMonster"
 					// movc r4.xy, r5.zzzz, r4.xyxx, r6.xyxx
 					r4.xy = float2(r5.z != 0.0 ? r4.x : r6.x, r5.z != 0.0 ? r4.y : r6.y);
 					// lt r4.z, l(1.500000), r4.x
-					r4.z = (1.5 < r4.x) ? 1.0 : 0.0;
+					r4.z = (1.5 < r4.x) ? -1.0 : 0.0;
 						// if_nz r4.z
 					if (any(r4.z)) {
 						// mov r3.z, r4.y
@@ -116781,7 +118202,7 @@ Shader "ShaderRipperTest/VariantMonster"
 				// endloop
 				}
 				// lt r2.y, l(0.500000), cb0[10].w
-				r2.y = (0.5 < cb0[10].w) ? 1.0 : 0.0;
+				r2.y = (0.5 < cb0[10].w) ? -1.0 : 0.0;
 					// if_nz r2.y
 				if (any(r2.y)) {
 					// mul r2.y, r0.x, l(0.250000)
@@ -116903,7 +118324,7 @@ Shader "ShaderRipperTest/VariantMonster"
 				// endif
 				}
 				// lt r2.y, l(0.500000), cb0[11].x
-				r2.y = (0.5 < cb0[11].x) ? 1.0 : 0.0;
+				r2.y = (0.5 < cb0[11].x) ? -1.0 : 0.0;
 					// if_nz r2.y
 				if (any(r2.y)) {
 					// mul r5.xyzw, cb0[8].wwww, l(0.300000, 0.520000, 0.740000, 0.960000)
@@ -116914,6 +118335,8 @@ Shader "ShaderRipperTest/VariantMonster"
 					r2.y = sin(r2.y);
 					// mad r2.z, r0.w, r5.x, -r0.x
 					r2.z = mad(r0.w, r5.x, -(r0.x));
+					// sincos null, r2.z, r2.z
+					r2.z = cos(r2.z);
 					// add r2.w, r0.w, r0.z
 					r2.w = r0.w + r0.z;
 					// mul r6.xyzw, r5.xyzw, r2.wwww
@@ -116925,27 +118348,31 @@ Shader "ShaderRipperTest/VariantMonster"
 					// mad r3.y, r0.z, r5.y, r7.x
 					r3.y = mad(r0.z, r5.y, r7.x);
 					// sincos r3.xy, null, r3.xyxx
-					r3.xy = sin(r3.xyxx);
+					r3.xy = float2(sin(r3.x), sin(r3.y));
 					// add r2.y, r2.y, r3.y
 					r2.y = r2.y + r3.y;
 					// mad r3.y, r0.w, r5.y, -r7.x
 					r3.y = mad(r0.w, r5.y, -(r7.x));
+					// sincos null, r3.y, r3.y
+					r3.y = cos(r3.y);
 					// add r2.z, r2.z, r3.y
 					r2.z = r2.z + r3.y;
 					// mad r6.xyz, r6.yzwy, l(0.600000, 0.600000, 0.600000, 0.000000), r7.xyzx
 					r6.xyz = float3(mad(r6.y, 0.6, r7.x), mad(r6.z, 0.6, r7.y), mad(r6.w, 0.6, r7.z));
 					// sincos r6.xyz, null, r6.xyzx
-					r6.xyz = sin(r6.xyzx);
+					r6.xyz = float3(sin(r6.x), sin(r6.y), sin(r6.z));
 					// add r3.x, r3.x, r6.x
 					r3.x = r3.x + r6.x;
 					// mad r3.yw, r0.zzzz, r5.zzzw, r7.yyyz
 					r3.yw = float2(mad(r0.z, r5.z, r7.y), mad(r0.z, r5.w, r7.z));
 					// sincos r3.yw, null, r3.yyyw
-					r3.yw = sin(r3.yyyw);
+					r3.yw = float2(sin(r3.y), sin(r3.w));
 					// add r2.y, r2.y, r3.y
 					r2.y = r2.y + r3.y;
 					// mad r5.xy, r0.wwww, r5.zwzz, -r7.yzyy
 					r5.xy = float2(mad(r0.w, r5.z, -(r7.y)), mad(r0.w, r5.w, -(r7.z)));
+					// sincos null, r5.xy, r5.xyxx
+					r5.xy = float2(cos(r5.x), cos(r5.y));
 					// add r2.z, r2.z, r5.x
 					r2.z = r2.z + r5.x;
 					// add r3.x, r6.y, r3.x
@@ -116966,6 +118393,8 @@ Shader "ShaderRipperTest/VariantMonster"
 					r2.y = r2.y + r4.w;
 					// mad r4.w, r0.w, r3.y, -r7.w
 					r4.w = mad(r0.w, r3.y, -(r7.w));
+					// sincos null, r4.w, r4.w
+					r4.w = cos(r4.w);
 					// add r2.z, r2.z, r4.w
 					r2.z = r2.z + r4.w;
 					// mul r5.xy, r2.wwww, r3.ywyy
@@ -116986,6 +118415,8 @@ Shader "ShaderRipperTest/VariantMonster"
 					r6.x = r2.y + r3.y;
 					// mad r2.y, r0.w, r3.w, -r3.x
 					r2.y = mad(r0.w, r3.w, -(r3.x));
+					// sincos null, r2.y, r2.y
+					r2.y = cos(r2.y);
 					// add r6.y, r2.y, r2.z
 					r6.y = r2.y + r2.z;
 					// mad r2.y, r5.y, l(0.600000), r3.x
@@ -117029,7 +118460,7 @@ Shader "ShaderRipperTest/VariantMonster"
 					// loop
 				for (;;) {
 					// ige r3.w, r3.y, r2.x
-					r3.w = (((int)(r3.y) >= (int)(r2.x)) ? 1 : 0);
+					r3.w = (((int)(r3.y) >= (int)(r2.x)) ? -1 : 0);
 					// breakc_nz r3.w
 					if (any(r3.w)) break;
 					// itof r3.w, r3.y
@@ -117474,7 +118905,7 @@ Shader "ShaderRipperTest/VariantMonster"
 					// mad r3.w, r3.w, r4.w, r3.x
 					r3.w = mad(r3.w, r4.w, r3.x);
 					// lt r4.w, l(1.100000), r3.w
-					r4.w = (1.1 < r3.w) ? 1.0 : 0.0;
+					r4.w = (1.1 < r3.w) ? -1.0 : 0.0;
 						// if_nz r4.w
 					if (any(r4.w)) {
 						// mov r3.x, r3.w
@@ -117498,7 +118929,7 @@ Shader "ShaderRipperTest/VariantMonster"
 				// mul r0.y, r0.y, r1.z
 				r0.y = r0.y * r1.z;
 				// lt r1.z, r0.y, cb0[9].w
-				r1.z = (r0.y < cb0[9].w) ? 1.0 : 0.0;
+				r1.z = (r0.y < cb0[9].w) ? -1.0 : 0.0;
 				// discard_nz r1.z
 				if (any(r1.z)) discard;
 				// mul_sat r1.x, r1.x, l(1.400000)
@@ -117567,7 +118998,7 @@ Shader "ShaderRipperTest/VariantMonster"
 				// mul r2.x, cb0[8].z, l(0.500000)
 				r2.x = cb0[8].z * 0.5;
 				// lt r2.x, r0.x, r2.x
-				r2.x = (r0.x < r2.x) ? 1.0 : 0.0;
+				r2.x = (r0.x < r2.x) ? -1.0 : 0.0;
 				// mad r2.y, -r0.x, l(3.000000), l(1.000000)
 				r2.y = mad(-(r0.x), 3.0, 1.0);
 				// max r2.y, r2.y, l(0.000000)
@@ -117579,7 +119010,7 @@ Shader "ShaderRipperTest/VariantMonster"
 				// mad r2.yzw, r2.yyzw, cb0[8].zzzz, r1.xxyz
 				r2.yzw = float3(mad(r2.y, cb0[8].z, r1.x), mad(r2.z, cb0[8].z, r1.y), mad(r2.w, cb0[8].z, r1.z));
 				// lt r0.x, r0.x, l(0.400000)
-				r0.x = (r0.x < 0.4) ? 1.0 : 0.0;
+				r0.x = (r0.x < 0.4) ? -1.0 : 0.0;
 				// mul r3.yzw, r1.xxyz, l(0.000000, 0.920000, 0.920000, 0.920000)
 				r3.yzw = float3(r1.x * 0.92, r1.y * 0.92, r1.z * 0.92);
 				// movc r1.xyz, r0.xxxx, r3.yzwy, r1.xyzx
@@ -118443,7 +119874,7 @@ Shader "ShaderRipperTest/VariantMonster"
 				// mul r0.xzw, r0.xxzw, cb0[10].yyyy
 				r0.xzw = float3(r0.x * cb0[10].y, r0.z * cb0[10].y, r0.w * cb0[10].y);
 				// lt r1.x, l(0.500000), cb0[11].y
-				r1.x = (0.5 < cb0[11].y) ? 1.0 : 0.0;
+				r1.x = (0.5 < cb0[11].y) ? -1.0 : 0.0;
 				// mul r1.yz, v1.xxyx, cb1[6].xxyx
 				r1.yz = float2(v1.x * _ScreenParams.x, v1.y * _ScreenParams.y);
 				// mul r1.yz, r1.yyzy, l(0.000000, 127.099998, 311.700012, 0.000000)
@@ -118508,6 +119939,27 @@ Shader "ShaderRipperTest/VariantMonster"
 			//   unnamed single lanes are shared by the Float/Range prop(s): _Iterations, _Steps, _WarpDepth, _Threshold, _Contrast, _Emission, _Saturation, _ToggleDetail, _ToggleBands, _ToggleDither
 			// cb1 = UnityPerDraw  (declared by UnityCG.cginc)
 			// cb2 = UnityPerFrame  (declared by UnityCG.cginc)
+			float4 _MainTex_TexelSize;
+			float4 _NoiseTex_ST;
+			float4 _NoiseTex_TexelSize;
+			float4 _DetailTex_ST;
+			float4 _DetailTex_TexelSize;
+			float4 _MaskTex_ST;
+			float4 _MaskTex_TexelSize;
+			float4 _Color;
+			float4 _ColorC;
+			float4 _Params;
+			float4 _Params3;
+			float _Iterations;
+			float _Steps;
+			float _WarpDepth;
+			float _Threshold;
+			float _Contrast;
+			float _Emission;
+			float _Saturation;
+			float _ToggleDetail;
+			float _ToggleBands;
+			float _ToggleDither;
 			// cbuffer order confirmed by the asset's own register index
 			// $Globals cb0: 1 slot(s) named from the compiled constant-buffer member table
 			// $Globals cb0: 2 slot(s) named from the compiled constant-buffer member table
@@ -118546,7 +119998,7 @@ Shader "ShaderRipperTest/VariantMonster"
 				// sample r0.xyzw, v1.xyxx, t0.xyzw, s3
 				r0.xyzw = tex2D(_MaskTex, float2(v1.x, v1.y));
 				// lt r0.x, r0.w, cb0[9].w
-				r0.x = (r0.w < cb0[9].w) ? 1.0 : 0.0;
+				r0.x = (r0.w < cb0[9].w) ? -1.0 : 0.0;
 				// discard_nz r0.x
 				if (any(r0.x)) discard;
 				// mul r0.x, cb0[6].z, cb1[0].y
@@ -119414,7 +120866,7 @@ Shader "ShaderRipperTest/VariantMonster"
 					// loop
 				for (;;) {
 					// ige r4.x, r2.w, r2.y
-					r4.x = (((int)(r2.w) >= (int)(r2.y)) ? 1 : 0);
+					r4.x = (((int)(r2.w) >= (int)(r2.y)) ? -1 : 0);
 					// breakc_nz r4.x
 					if (any(r4.x)) break;
 					// itof r4.x, r2.w
@@ -119830,7 +121282,7 @@ Shader "ShaderRipperTest/VariantMonster"
 						// loop
 					for (;;) {
 						// ige r5.w, r5.z, r2.z
-						r5.w = (((int)(r5.z) >= (int)(r2.z)) ? 1 : 0);
+						r5.w = (((int)(r5.z) >= (int)(r2.z)) ? -1 : 0);
 						// breakc_nz r5.w
 						if (any(r5.w)) break;
 						// itof r5.w, r5.z
@@ -119921,7 +121373,7 @@ Shader "ShaderRipperTest/VariantMonster"
 						// mad r6.y, |r6.y|, l(2.000000), r4.w
 						r6.y = mad(abs(r6.y), 2.0, r4.w);
 						// lt r6.z, l(2.200000), r6.y
-						r6.z = (2.2 < r6.y) ? 1.0 : 0.0;
+						r6.z = (2.2 < r6.y) ? -1.0 : 0.0;
 							// if_nz r6.z
 						if (any(r6.z)) {
 							// iadd r6.z, r5.z, l(1)
@@ -119955,7 +121407,7 @@ Shader "ShaderRipperTest/VariantMonster"
 					// mul r4.xy, r5.xyxx, l(1.040000, 1.040000, 0.000000, 0.000000)
 					r4.xy = float2(r5.x * 1.04, r5.y * 1.04);
 					// lt r5.zw, r4.wwww, l(0.000000, 0.000000, 0.600000, 1.400000)
-					r5.zw = float2((r4.w < 0.6) ? 1.0 : 0.0, (r4.w < 1.4) ? 1.0 : 0.0);
+					r5.zw = float2((r4.w < 0.6) ? -1.0 : 0.0, (r4.w < 1.4) ? -1.0 : 0.0);
 					// add r6.xy, r5.xyxx, l(0.020000, 0.010000, 0.000000, 0.000000)
 					r6.xy = float2(r5.x + 0.02, r5.y + 0.01);
 					// mov_sat r5.xy, r5.xyxx
@@ -119967,7 +121419,7 @@ Shader "ShaderRipperTest/VariantMonster"
 					// movc r4.xy, r5.zzzz, r4.xyxx, r6.xyxx
 					r4.xy = float2(r5.z != 0.0 ? r4.x : r6.x, r5.z != 0.0 ? r4.y : r6.y);
 					// lt r4.z, l(1.500000), r4.x
-					r4.z = (1.5 < r4.x) ? 1.0 : 0.0;
+					r4.z = (1.5 < r4.x) ? -1.0 : 0.0;
 						// if_nz r4.z
 					if (any(r4.z)) {
 						// mov r3.z, r4.y
@@ -119983,7 +121435,7 @@ Shader "ShaderRipperTest/VariantMonster"
 				// endloop
 				}
 				// lt r2.y, l(0.500000), cb0[10].w
-				r2.y = (0.5 < cb0[10].w) ? 1.0 : 0.0;
+				r2.y = (0.5 < cb0[10].w) ? -1.0 : 0.0;
 					// if_nz r2.y
 				if (any(r2.y)) {
 					// mul r2.y, r0.x, l(0.250000)
@@ -120105,7 +121557,7 @@ Shader "ShaderRipperTest/VariantMonster"
 				// endif
 				}
 				// lt r2.y, l(0.500000), cb0[11].x
-				r2.y = (0.5 < cb0[11].x) ? 1.0 : 0.0;
+				r2.y = (0.5 < cb0[11].x) ? -1.0 : 0.0;
 					// if_nz r2.y
 				if (any(r2.y)) {
 					// mul r5.xyzw, cb0[8].wwww, l(0.300000, 0.520000, 0.740000, 0.960000)
@@ -120116,6 +121568,8 @@ Shader "ShaderRipperTest/VariantMonster"
 					r2.y = sin(r2.y);
 					// mad r2.z, r0.w, r5.x, -r0.x
 					r2.z = mad(r0.w, r5.x, -(r0.x));
+					// sincos null, r2.z, r2.z
+					r2.z = cos(r2.z);
 					// add r2.w, r0.w, r0.z
 					r2.w = r0.w + r0.z;
 					// mul r6.xyzw, r5.xyzw, r2.wwww
@@ -120127,27 +121581,31 @@ Shader "ShaderRipperTest/VariantMonster"
 					// mad r3.y, r0.z, r5.y, r7.x
 					r3.y = mad(r0.z, r5.y, r7.x);
 					// sincos r3.xy, null, r3.xyxx
-					r3.xy = sin(r3.xyxx);
+					r3.xy = float2(sin(r3.x), sin(r3.y));
 					// add r2.y, r2.y, r3.y
 					r2.y = r2.y + r3.y;
 					// mad r3.y, r0.w, r5.y, -r7.x
 					r3.y = mad(r0.w, r5.y, -(r7.x));
+					// sincos null, r3.y, r3.y
+					r3.y = cos(r3.y);
 					// add r2.z, r2.z, r3.y
 					r2.z = r2.z + r3.y;
 					// mad r6.xyz, r6.yzwy, l(0.600000, 0.600000, 0.600000, 0.000000), r7.xyzx
 					r6.xyz = float3(mad(r6.y, 0.6, r7.x), mad(r6.z, 0.6, r7.y), mad(r6.w, 0.6, r7.z));
 					// sincos r6.xyz, null, r6.xyzx
-					r6.xyz = sin(r6.xyzx);
+					r6.xyz = float3(sin(r6.x), sin(r6.y), sin(r6.z));
 					// add r3.x, r3.x, r6.x
 					r3.x = r3.x + r6.x;
 					// mad r3.yw, r0.zzzz, r5.zzzw, r7.yyyz
 					r3.yw = float2(mad(r0.z, r5.z, r7.y), mad(r0.z, r5.w, r7.z));
 					// sincos r3.yw, null, r3.yyyw
-					r3.yw = sin(r3.yyyw);
+					r3.yw = float2(sin(r3.y), sin(r3.w));
 					// add r2.y, r2.y, r3.y
 					r2.y = r2.y + r3.y;
 					// mad r5.xy, r0.wwww, r5.zwzz, -r7.yzyy
 					r5.xy = float2(mad(r0.w, r5.z, -(r7.y)), mad(r0.w, r5.w, -(r7.z)));
+					// sincos null, r5.xy, r5.xyxx
+					r5.xy = float2(cos(r5.x), cos(r5.y));
 					// add r2.z, r2.z, r5.x
 					r2.z = r2.z + r5.x;
 					// add r3.x, r6.y, r3.x
@@ -120168,6 +121626,8 @@ Shader "ShaderRipperTest/VariantMonster"
 					r2.y = r2.y + r4.w;
 					// mad r4.w, r0.w, r3.y, -r7.w
 					r4.w = mad(r0.w, r3.y, -(r7.w));
+					// sincos null, r4.w, r4.w
+					r4.w = cos(r4.w);
 					// add r2.z, r2.z, r4.w
 					r2.z = r2.z + r4.w;
 					// mul r5.xy, r2.wwww, r3.ywyy
@@ -120188,6 +121648,8 @@ Shader "ShaderRipperTest/VariantMonster"
 					r6.x = r2.y + r3.y;
 					// mad r2.y, r0.w, r3.w, -r3.x
 					r2.y = mad(r0.w, r3.w, -(r3.x));
+					// sincos null, r2.y, r2.y
+					r2.y = cos(r2.y);
 					// add r6.y, r2.y, r2.z
 					r6.y = r2.y + r2.z;
 					// mad r2.y, r5.y, l(0.600000), r3.x
@@ -120231,7 +121693,7 @@ Shader "ShaderRipperTest/VariantMonster"
 					// loop
 				for (;;) {
 					// ige r3.w, r3.y, r2.x
-					r3.w = (((int)(r3.y) >= (int)(r2.x)) ? 1 : 0);
+					r3.w = (((int)(r3.y) >= (int)(r2.x)) ? -1 : 0);
 					// breakc_nz r3.w
 					if (any(r3.w)) break;
 					// itof r3.w, r3.y
@@ -120676,7 +122138,7 @@ Shader "ShaderRipperTest/VariantMonster"
 					// mad r3.w, r3.w, r4.w, r3.x
 					r3.w = mad(r3.w, r4.w, r3.x);
 					// lt r4.w, l(1.100000), r3.w
-					r4.w = (1.1 < r3.w) ? 1.0 : 0.0;
+					r4.w = (1.1 < r3.w) ? -1.0 : 0.0;
 						// if_nz r4.w
 					if (any(r4.w)) {
 						// mov r3.x, r3.w
@@ -120700,7 +122162,7 @@ Shader "ShaderRipperTest/VariantMonster"
 				// mul r0.y, r0.y, r1.w
 				r0.y = r0.y * r1.w;
 				// lt r1.w, r0.y, cb0[9].w
-				r1.w = (r0.y < cb0[9].w) ? 1.0 : 0.0;
+				r1.w = (r0.y < cb0[9].w) ? -1.0 : 0.0;
 				// discard_nz r1.w
 				if (any(r1.w)) discard;
 				// mul_sat r1.x, r1.x, l(1.400000)
@@ -120745,7 +122207,7 @@ Shader "ShaderRipperTest/VariantMonster"
 				// mad r2.xyz, -r8.xyzx, r2.xyzx, l(1.000000, 1.000000, 1.000000, 0.000000)
 				r2.xyz = float3(mad(-(r8.x), r2.x, 1.0), mad(-(r8.y), r2.y, 1.0), mad(-(r8.z), r2.z, 1.0));
 				// ge r1.xyw, r1.xyxw, l(0.500000, 0.500000, 0.000000, 0.500000)
-				r1.xyw = float3((r1.x >= 0.5) ? 1.0 : 0.0, (r1.y >= 0.5) ? 1.0 : 0.0, (r1.w >= 0.5) ? 1.0 : 0.0);
+				r1.xyw = float3((r1.x >= 0.5) ? -1.0 : 0.0, (r1.y >= 0.5) ? -1.0 : 0.0, (r1.w >= 0.5) ? -1.0 : 0.0);
 				// and r1.xyw, r1.xyxw, l(0x3f800000, 0x3f800000, 0, 0x3f800000)
 				r1.xyw = float3((((r1.x) != 0.0) ? 1.0 : 0.0), (((r1.y) != 0.0) ? 1.0 : 0.0), (((r1.w) != 0.0) ? 1.0 : 0.0));
 				// mad r2.xyz, -r5.xyzx, l(2.000000, 2.000000, 2.000000, 0.000000), r2.xyzx
@@ -120787,7 +122249,7 @@ Shader "ShaderRipperTest/VariantMonster"
 				// mul r2.x, cb0[8].z, l(0.500000)
 				r2.x = cb0[8].z * 0.5;
 				// lt r2.x, r0.x, r2.x
-				r2.x = (r0.x < r2.x) ? 1.0 : 0.0;
+				r2.x = (r0.x < r2.x) ? -1.0 : 0.0;
 				// mad r2.y, -r0.x, l(3.000000), l(1.000000)
 				r2.y = mad(-(r0.x), 3.0, 1.0);
 				// max r2.y, r2.y, l(0.000000)
@@ -120799,7 +122261,7 @@ Shader "ShaderRipperTest/VariantMonster"
 				// mad r2.yzw, r2.yyzw, cb0[8].zzzz, r1.xxyw
 				r2.yzw = float3(mad(r2.y, cb0[8].z, r1.x), mad(r2.z, cb0[8].z, r1.y), mad(r2.w, cb0[8].z, r1.w));
 				// lt r0.x, r0.x, l(0.400000)
-				r0.x = (r0.x < 0.4) ? 1.0 : 0.0;
+				r0.x = (r0.x < 0.4) ? -1.0 : 0.0;
 				// mul r3.yzw, r1.xxyw, l(0.000000, 0.920000, 0.920000, 0.920000)
 				r3.yzw = float3(r1.x * 0.92, r1.y * 0.92, r1.w * 0.92);
 				// movc r1.xyw, r0.xxxx, r3.yzyw, r1.xyxw
@@ -121663,7 +123125,7 @@ Shader "ShaderRipperTest/VariantMonster"
 				// mul r0.xzw, r0.xxzw, cb0[10].yyyy
 				r0.xzw = float3(r0.x * cb0[10].y, r0.z * cb0[10].y, r0.w * cb0[10].y);
 				// lt r1.x, l(0.500000), cb0[11].y
-				r1.x = (0.5 < cb0[11].y) ? 1.0 : 0.0;
+				r1.x = (0.5 < cb0[11].y) ? -1.0 : 0.0;
 				// mul r1.yz, v1.xxyx, cb1[6].xxyx
 				r1.yz = float2(v1.x * _ScreenParams.x, v1.y * _ScreenParams.y);
 				// mul r1.yz, r1.yyzy, l(0.000000, 127.099998, 311.700012, 0.000000)
@@ -121728,6 +123190,27 @@ Shader "ShaderRipperTest/VariantMonster"
 			//   unnamed single lanes are shared by the Float/Range prop(s): _Iterations, _Steps, _WarpDepth, _Threshold, _Contrast, _Emission, _Saturation, _ToggleDetail, _ToggleBands, _ToggleDither
 			// cb1 = UnityPerDraw  (declared by UnityCG.cginc)
 			// cb2 = UnityPerFrame  (declared by UnityCG.cginc)
+			float4 _MainTex_TexelSize;
+			float4 _NoiseTex_ST;
+			float4 _NoiseTex_TexelSize;
+			float4 _DetailTex_ST;
+			float4 _DetailTex_TexelSize;
+			float4 _MaskTex_ST;
+			float4 _MaskTex_TexelSize;
+			float4 _Color;
+			float4 _ColorC;
+			float4 _Params;
+			float4 _Params3;
+			float _Iterations;
+			float _Steps;
+			float _WarpDepth;
+			float _Threshold;
+			float _Contrast;
+			float _Emission;
+			float _Saturation;
+			float _ToggleDetail;
+			float _ToggleBands;
+			float _ToggleDither;
 			// cbuffer order confirmed by the asset's own register index
 			// $Globals cb0: 1 slot(s) named from the compiled constant-buffer member table
 			// $Globals cb0: 2 slot(s) named from the compiled constant-buffer member table
@@ -121766,7 +123249,7 @@ Shader "ShaderRipperTest/VariantMonster"
 				// sample r0.xyzw, v1.xyxx, t0.xyzw, s3
 				r0.xyzw = tex2D(_MaskTex, float2(v1.x, v1.y));
 				// lt r0.x, r0.w, cb0[9].w
-				r0.x = (r0.w < cb0[9].w) ? 1.0 : 0.0;
+				r0.x = (r0.w < cb0[9].w) ? -1.0 : 0.0;
 				// discard_nz r0.x
 				if (any(r0.x)) discard;
 				// mul r0.x, cb0[6].z, cb1[0].y
@@ -122660,7 +124143,7 @@ Shader "ShaderRipperTest/VariantMonster"
 					// loop
 				for (;;) {
 					// ige r4.x, r2.w, r2.y
-					r4.x = (((int)(r2.w) >= (int)(r2.y)) ? 1 : 0);
+					r4.x = (((int)(r2.w) >= (int)(r2.y)) ? -1 : 0);
 					// breakc_nz r4.x
 					if (any(r4.x)) break;
 					// itof r4.x, r2.w
@@ -123076,7 +124559,7 @@ Shader "ShaderRipperTest/VariantMonster"
 						// loop
 					for (;;) {
 						// ige r5.w, r5.z, r2.z
-						r5.w = (((int)(r5.z) >= (int)(r2.z)) ? 1 : 0);
+						r5.w = (((int)(r5.z) >= (int)(r2.z)) ? -1 : 0);
 						// breakc_nz r5.w
 						if (any(r5.w)) break;
 						// itof r5.w, r5.z
@@ -123167,7 +124650,7 @@ Shader "ShaderRipperTest/VariantMonster"
 						// mad r6.y, |r6.y|, l(2.000000), r4.w
 						r6.y = mad(abs(r6.y), 2.0, r4.w);
 						// lt r6.z, l(2.200000), r6.y
-						r6.z = (2.2 < r6.y) ? 1.0 : 0.0;
+						r6.z = (2.2 < r6.y) ? -1.0 : 0.0;
 							// if_nz r6.z
 						if (any(r6.z)) {
 							// iadd r6.z, r5.z, l(1)
@@ -123201,7 +124684,7 @@ Shader "ShaderRipperTest/VariantMonster"
 					// mul r4.xy, r5.xyxx, l(1.040000, 1.040000, 0.000000, 0.000000)
 					r4.xy = float2(r5.x * 1.04, r5.y * 1.04);
 					// lt r5.zw, r4.wwww, l(0.000000, 0.000000, 0.600000, 1.400000)
-					r5.zw = float2((r4.w < 0.6) ? 1.0 : 0.0, (r4.w < 1.4) ? 1.0 : 0.0);
+					r5.zw = float2((r4.w < 0.6) ? -1.0 : 0.0, (r4.w < 1.4) ? -1.0 : 0.0);
 					// add r6.xy, r5.xyxx, l(0.020000, 0.010000, 0.000000, 0.000000)
 					r6.xy = float2(r5.x + 0.02, r5.y + 0.01);
 					// mov_sat r5.xy, r5.xyxx
@@ -123213,7 +124696,7 @@ Shader "ShaderRipperTest/VariantMonster"
 					// movc r4.xy, r5.zzzz, r4.xyxx, r6.xyxx
 					r4.xy = float2(r5.z != 0.0 ? r4.x : r6.x, r5.z != 0.0 ? r4.y : r6.y);
 					// lt r4.z, l(1.500000), r4.x
-					r4.z = (1.5 < r4.x) ? 1.0 : 0.0;
+					r4.z = (1.5 < r4.x) ? -1.0 : 0.0;
 						// if_nz r4.z
 					if (any(r4.z)) {
 						// mov r3.z, r4.y
@@ -123229,7 +124712,7 @@ Shader "ShaderRipperTest/VariantMonster"
 				// endloop
 				}
 				// lt r2.y, l(0.500000), cb0[10].w
-				r2.y = (0.5 < cb0[10].w) ? 1.0 : 0.0;
+				r2.y = (0.5 < cb0[10].w) ? -1.0 : 0.0;
 					// if_nz r2.y
 				if (any(r2.y)) {
 					// mul r2.y, r0.x, l(0.250000)
@@ -123351,7 +124834,7 @@ Shader "ShaderRipperTest/VariantMonster"
 				// endif
 				}
 				// lt r2.y, l(0.500000), cb0[11].x
-				r2.y = (0.5 < cb0[11].x) ? 1.0 : 0.0;
+				r2.y = (0.5 < cb0[11].x) ? -1.0 : 0.0;
 					// if_nz r2.y
 				if (any(r2.y)) {
 					// mul r5.xyzw, cb0[8].wwww, l(0.300000, 0.520000, 0.740000, 0.960000)
@@ -123362,6 +124845,8 @@ Shader "ShaderRipperTest/VariantMonster"
 					r2.y = sin(r2.y);
 					// mad r2.z, r0.w, r5.x, -r0.x
 					r2.z = mad(r0.w, r5.x, -(r0.x));
+					// sincos null, r2.z, r2.z
+					r2.z = cos(r2.z);
 					// add r2.w, r0.w, r0.z
 					r2.w = r0.w + r0.z;
 					// mul r6.xyzw, r5.xyzw, r2.wwww
@@ -123373,27 +124858,31 @@ Shader "ShaderRipperTest/VariantMonster"
 					// mad r3.y, r0.z, r5.y, r7.x
 					r3.y = mad(r0.z, r5.y, r7.x);
 					// sincos r3.xy, null, r3.xyxx
-					r3.xy = sin(r3.xyxx);
+					r3.xy = float2(sin(r3.x), sin(r3.y));
 					// add r2.y, r2.y, r3.y
 					r2.y = r2.y + r3.y;
 					// mad r3.y, r0.w, r5.y, -r7.x
 					r3.y = mad(r0.w, r5.y, -(r7.x));
+					// sincos null, r3.y, r3.y
+					r3.y = cos(r3.y);
 					// add r2.z, r2.z, r3.y
 					r2.z = r2.z + r3.y;
 					// mad r6.xyz, r6.yzwy, l(0.600000, 0.600000, 0.600000, 0.000000), r7.xyzx
 					r6.xyz = float3(mad(r6.y, 0.6, r7.x), mad(r6.z, 0.6, r7.y), mad(r6.w, 0.6, r7.z));
 					// sincos r6.xyz, null, r6.xyzx
-					r6.xyz = sin(r6.xyzx);
+					r6.xyz = float3(sin(r6.x), sin(r6.y), sin(r6.z));
 					// add r3.x, r3.x, r6.x
 					r3.x = r3.x + r6.x;
 					// mad r3.yw, r0.zzzz, r5.zzzw, r7.yyyz
 					r3.yw = float2(mad(r0.z, r5.z, r7.y), mad(r0.z, r5.w, r7.z));
 					// sincos r3.yw, null, r3.yyyw
-					r3.yw = sin(r3.yyyw);
+					r3.yw = float2(sin(r3.y), sin(r3.w));
 					// add r2.y, r2.y, r3.y
 					r2.y = r2.y + r3.y;
 					// mad r5.xy, r0.wwww, r5.zwzz, -r7.yzyy
 					r5.xy = float2(mad(r0.w, r5.z, -(r7.y)), mad(r0.w, r5.w, -(r7.z)));
+					// sincos null, r5.xy, r5.xyxx
+					r5.xy = float2(cos(r5.x), cos(r5.y));
 					// add r2.z, r2.z, r5.x
 					r2.z = r2.z + r5.x;
 					// add r3.x, r6.y, r3.x
@@ -123414,6 +124903,8 @@ Shader "ShaderRipperTest/VariantMonster"
 					r2.y = r2.y + r4.w;
 					// mad r4.w, r0.w, r3.y, -r7.w
 					r4.w = mad(r0.w, r3.y, -(r7.w));
+					// sincos null, r4.w, r4.w
+					r4.w = cos(r4.w);
 					// add r2.z, r2.z, r4.w
 					r2.z = r2.z + r4.w;
 					// mul r5.xy, r2.wwww, r3.ywyy
@@ -123434,6 +124925,8 @@ Shader "ShaderRipperTest/VariantMonster"
 					r6.x = r2.y + r3.y;
 					// mad r2.y, r0.w, r3.w, -r3.x
 					r2.y = mad(r0.w, r3.w, -(r3.x));
+					// sincos null, r2.y, r2.y
+					r2.y = cos(r2.y);
 					// add r6.y, r2.y, r2.z
 					r6.y = r2.y + r2.z;
 					// mad r2.y, r5.y, l(0.600000), r3.x
@@ -123477,7 +124970,7 @@ Shader "ShaderRipperTest/VariantMonster"
 					// loop
 				for (;;) {
 					// ige r3.w, r3.y, r2.x
-					r3.w = (((int)(r3.y) >= (int)(r2.x)) ? 1 : 0);
+					r3.w = (((int)(r3.y) >= (int)(r2.x)) ? -1 : 0);
 					// breakc_nz r3.w
 					if (any(r3.w)) break;
 					// itof r3.w, r3.y
@@ -123922,7 +125415,7 @@ Shader "ShaderRipperTest/VariantMonster"
 					// mad r3.w, r3.w, r4.w, r3.x
 					r3.w = mad(r3.w, r4.w, r3.x);
 					// lt r4.w, l(1.100000), r3.w
-					r4.w = (1.1 < r3.w) ? 1.0 : 0.0;
+					r4.w = (1.1 < r3.w) ? -1.0 : 0.0;
 						// if_nz r4.w
 					if (any(r4.w)) {
 						// mov r3.x, r3.w
@@ -123946,7 +125439,7 @@ Shader "ShaderRipperTest/VariantMonster"
 				// mul r0.y, r0.y, r1.z
 				r0.y = r0.y * r1.z;
 				// lt r1.z, r0.y, cb0[9].w
-				r1.z = (r0.y < cb0[9].w) ? 1.0 : 0.0;
+				r1.z = (r0.y < cb0[9].w) ? -1.0 : 0.0;
 				// discard_nz r1.z
 				if (any(r1.z)) discard;
 				// mul_sat r1.x, r1.x, l(1.400000)
@@ -123991,7 +125484,7 @@ Shader "ShaderRipperTest/VariantMonster"
 				// mad r2.xyz, -r8.xyzx, r2.xyzx, l(1.000000, 1.000000, 1.000000, 0.000000)
 				r2.xyz = float3(mad(-(r8.x), r2.x, 1.0), mad(-(r8.y), r2.y, 1.0), mad(-(r8.z), r2.z, 1.0));
 				// ge r1.xyz, r1.xyzx, l(0.500000, 0.500000, 0.500000, 0.000000)
-				r1.xyz = float3((r1.x >= 0.5) ? 1.0 : 0.0, (r1.y >= 0.5) ? 1.0 : 0.0, (r1.z >= 0.5) ? 1.0 : 0.0);
+				r1.xyz = float3((r1.x >= 0.5) ? -1.0 : 0.0, (r1.y >= 0.5) ? -1.0 : 0.0, (r1.z >= 0.5) ? -1.0 : 0.0);
 				// and r1.xyz, r1.xyzx, l(0x3f800000, 0x3f800000, 0x3f800000, 0)
 				r1.xyz = float3((((r1.x) != 0.0) ? 1.0 : 0.0), (((r1.y) != 0.0) ? 1.0 : 0.0), (((r1.z) != 0.0) ? 1.0 : 0.0));
 				// mad r2.xyz, -r5.xyzx, l(2.000000, 2.000000, 2.000000, 0.000000), r2.xyzx
@@ -124033,7 +125526,7 @@ Shader "ShaderRipperTest/VariantMonster"
 				// mul r2.x, cb0[8].z, l(0.500000)
 				r2.x = cb0[8].z * 0.5;
 				// lt r2.x, r0.x, r2.x
-				r2.x = (r0.x < r2.x) ? 1.0 : 0.0;
+				r2.x = (r0.x < r2.x) ? -1.0 : 0.0;
 				// mad r2.y, -r0.x, l(3.000000), l(1.000000)
 				r2.y = mad(-(r0.x), 3.0, 1.0);
 				// max r2.y, r2.y, l(0.000000)
@@ -124045,7 +125538,7 @@ Shader "ShaderRipperTest/VariantMonster"
 				// mad r2.yzw, r2.yyzw, cb0[8].zzzz, r1.xxyz
 				r2.yzw = float3(mad(r2.y, cb0[8].z, r1.x), mad(r2.z, cb0[8].z, r1.y), mad(r2.w, cb0[8].z, r1.z));
 				// lt r0.x, r0.x, l(0.400000)
-				r0.x = (r0.x < 0.4) ? 1.0 : 0.0;
+				r0.x = (r0.x < 0.4) ? -1.0 : 0.0;
 				// mul r3.yzw, r1.xxyz, l(0.000000, 0.920000, 0.920000, 0.920000)
 				r3.yzw = float3(r1.x * 0.92, r1.y * 0.92, r1.z * 0.92);
 				// movc r1.xyz, r0.xxxx, r3.yzwy, r1.xyzx
@@ -124909,7 +126402,7 @@ Shader "ShaderRipperTest/VariantMonster"
 				// mul r0.xzw, r0.xxzw, cb0[10].yyyy
 				r0.xzw = float3(r0.x * cb0[10].y, r0.z * cb0[10].y, r0.w * cb0[10].y);
 				// lt r1.x, l(0.500000), cb0[11].y
-				r1.x = (0.5 < cb0[11].y) ? 1.0 : 0.0;
+				r1.x = (0.5 < cb0[11].y) ? -1.0 : 0.0;
 				// mul r1.yz, v1.xxyx, cb1[6].xxyx
 				r1.yz = float2(v1.x * _ScreenParams.x, v1.y * _ScreenParams.y);
 				// mul r1.yz, r1.yyzy, l(0.000000, 127.099998, 311.700012, 0.000000)
@@ -124974,6 +126467,27 @@ Shader "ShaderRipperTest/VariantMonster"
 			//   unnamed single lanes are shared by the Float/Range prop(s): _Iterations, _Steps, _WarpDepth, _Threshold, _Contrast, _Emission, _Saturation, _ToggleDetail, _ToggleBands, _ToggleDither
 			// cb1 = UnityPerDraw  (declared by UnityCG.cginc)
 			// cb2 = UnityPerFrame  (declared by UnityCG.cginc)
+			float4 _MainTex_TexelSize;
+			float4 _NoiseTex_ST;
+			float4 _NoiseTex_TexelSize;
+			float4 _DetailTex_ST;
+			float4 _DetailTex_TexelSize;
+			float4 _MaskTex_ST;
+			float4 _MaskTex_TexelSize;
+			float4 _Color;
+			float4 _ColorC;
+			float4 _Params;
+			float4 _Params3;
+			float _Iterations;
+			float _Steps;
+			float _WarpDepth;
+			float _Threshold;
+			float _Contrast;
+			float _Emission;
+			float _Saturation;
+			float _ToggleDetail;
+			float _ToggleBands;
+			float _ToggleDither;
 			// cbuffer order confirmed by the asset's own register index
 			// $Globals cb0: 1 slot(s) named from the compiled constant-buffer member table
 			// $Globals cb0: 2 slot(s) named from the compiled constant-buffer member table
@@ -125012,7 +126526,7 @@ Shader "ShaderRipperTest/VariantMonster"
 				// sample r0.xyzw, v1.xyxx, t0.xyzw, s3
 				r0.xyzw = tex2D(_MaskTex, float2(v1.x, v1.y));
 				// lt r0.x, r0.w, cb0[9].w
-				r0.x = (r0.w < cb0[9].w) ? 1.0 : 0.0;
+				r0.x = (r0.w < cb0[9].w) ? -1.0 : 0.0;
 				// discard_nz r0.x
 				if (any(r0.x)) discard;
 				// mul r0.x, cb0[6].z, cb1[0].y
@@ -125880,7 +127394,7 @@ Shader "ShaderRipperTest/VariantMonster"
 					// loop
 				for (;;) {
 					// ige r4.x, r2.w, r2.y
-					r4.x = (((int)(r2.w) >= (int)(r2.y)) ? 1 : 0);
+					r4.x = (((int)(r2.w) >= (int)(r2.y)) ? -1 : 0);
 					// breakc_nz r4.x
 					if (any(r4.x)) break;
 					// itof r4.x, r2.w
@@ -126296,7 +127810,7 @@ Shader "ShaderRipperTest/VariantMonster"
 						// loop
 					for (;;) {
 						// ige r5.w, r5.z, r2.z
-						r5.w = (((int)(r5.z) >= (int)(r2.z)) ? 1 : 0);
+						r5.w = (((int)(r5.z) >= (int)(r2.z)) ? -1 : 0);
 						// breakc_nz r5.w
 						if (any(r5.w)) break;
 						// itof r5.w, r5.z
@@ -126387,7 +127901,7 @@ Shader "ShaderRipperTest/VariantMonster"
 						// mad r6.y, |r6.y|, l(2.000000), r4.w
 						r6.y = mad(abs(r6.y), 2.0, r4.w);
 						// lt r6.z, l(2.200000), r6.y
-						r6.z = (2.2 < r6.y) ? 1.0 : 0.0;
+						r6.z = (2.2 < r6.y) ? -1.0 : 0.0;
 							// if_nz r6.z
 						if (any(r6.z)) {
 							// iadd r6.z, r5.z, l(1)
@@ -126421,7 +127935,7 @@ Shader "ShaderRipperTest/VariantMonster"
 					// mul r4.xy, r5.xyxx, l(1.040000, 1.040000, 0.000000, 0.000000)
 					r4.xy = float2(r5.x * 1.04, r5.y * 1.04);
 					// lt r5.zw, r4.wwww, l(0.000000, 0.000000, 0.600000, 1.400000)
-					r5.zw = float2((r4.w < 0.6) ? 1.0 : 0.0, (r4.w < 1.4) ? 1.0 : 0.0);
+					r5.zw = float2((r4.w < 0.6) ? -1.0 : 0.0, (r4.w < 1.4) ? -1.0 : 0.0);
 					// add r6.xy, r5.xyxx, l(0.020000, 0.010000, 0.000000, 0.000000)
 					r6.xy = float2(r5.x + 0.02, r5.y + 0.01);
 					// mov_sat r5.xy, r5.xyxx
@@ -126433,7 +127947,7 @@ Shader "ShaderRipperTest/VariantMonster"
 					// movc r4.xy, r5.zzzz, r4.xyxx, r6.xyxx
 					r4.xy = float2(r5.z != 0.0 ? r4.x : r6.x, r5.z != 0.0 ? r4.y : r6.y);
 					// lt r4.z, l(1.500000), r4.x
-					r4.z = (1.5 < r4.x) ? 1.0 : 0.0;
+					r4.z = (1.5 < r4.x) ? -1.0 : 0.0;
 						// if_nz r4.z
 					if (any(r4.z)) {
 						// mov r3.z, r4.y
@@ -126449,7 +127963,7 @@ Shader "ShaderRipperTest/VariantMonster"
 				// endloop
 				}
 				// lt r2.y, l(0.500000), cb0[10].w
-				r2.y = (0.5 < cb0[10].w) ? 1.0 : 0.0;
+				r2.y = (0.5 < cb0[10].w) ? -1.0 : 0.0;
 					// if_nz r2.y
 				if (any(r2.y)) {
 					// mul r2.y, r0.x, l(0.250000)
@@ -126571,7 +128085,7 @@ Shader "ShaderRipperTest/VariantMonster"
 				// endif
 				}
 				// lt r2.y, l(0.500000), cb0[11].x
-				r2.y = (0.5 < cb0[11].x) ? 1.0 : 0.0;
+				r2.y = (0.5 < cb0[11].x) ? -1.0 : 0.0;
 					// if_nz r2.y
 				if (any(r2.y)) {
 					// mul r5.xyzw, cb0[8].wwww, l(0.300000, 0.520000, 0.740000, 0.960000)
@@ -126582,6 +128096,8 @@ Shader "ShaderRipperTest/VariantMonster"
 					r2.y = sin(r2.y);
 					// mad r2.z, r0.w, r5.x, -r0.x
 					r2.z = mad(r0.w, r5.x, -(r0.x));
+					// sincos null, r2.z, r2.z
+					r2.z = cos(r2.z);
 					// add r2.w, r0.w, r0.z
 					r2.w = r0.w + r0.z;
 					// mul r6.xyzw, r5.xyzw, r2.wwww
@@ -126593,27 +128109,31 @@ Shader "ShaderRipperTest/VariantMonster"
 					// mad r3.y, r0.z, r5.y, r7.x
 					r3.y = mad(r0.z, r5.y, r7.x);
 					// sincos r3.xy, null, r3.xyxx
-					r3.xy = sin(r3.xyxx);
+					r3.xy = float2(sin(r3.x), sin(r3.y));
 					// add r2.y, r2.y, r3.y
 					r2.y = r2.y + r3.y;
 					// mad r3.y, r0.w, r5.y, -r7.x
 					r3.y = mad(r0.w, r5.y, -(r7.x));
+					// sincos null, r3.y, r3.y
+					r3.y = cos(r3.y);
 					// add r2.z, r2.z, r3.y
 					r2.z = r2.z + r3.y;
 					// mad r6.xyz, r6.yzwy, l(0.600000, 0.600000, 0.600000, 0.000000), r7.xyzx
 					r6.xyz = float3(mad(r6.y, 0.6, r7.x), mad(r6.z, 0.6, r7.y), mad(r6.w, 0.6, r7.z));
 					// sincos r6.xyz, null, r6.xyzx
-					r6.xyz = sin(r6.xyzx);
+					r6.xyz = float3(sin(r6.x), sin(r6.y), sin(r6.z));
 					// add r3.x, r3.x, r6.x
 					r3.x = r3.x + r6.x;
 					// mad r3.yw, r0.zzzz, r5.zzzw, r7.yyyz
 					r3.yw = float2(mad(r0.z, r5.z, r7.y), mad(r0.z, r5.w, r7.z));
 					// sincos r3.yw, null, r3.yyyw
-					r3.yw = sin(r3.yyyw);
+					r3.yw = float2(sin(r3.y), sin(r3.w));
 					// add r2.y, r2.y, r3.y
 					r2.y = r2.y + r3.y;
 					// mad r5.xy, r0.wwww, r5.zwzz, -r7.yzyy
 					r5.xy = float2(mad(r0.w, r5.z, -(r7.y)), mad(r0.w, r5.w, -(r7.z)));
+					// sincos null, r5.xy, r5.xyxx
+					r5.xy = float2(cos(r5.x), cos(r5.y));
 					// add r2.z, r2.z, r5.x
 					r2.z = r2.z + r5.x;
 					// add r3.x, r6.y, r3.x
@@ -126634,6 +128154,8 @@ Shader "ShaderRipperTest/VariantMonster"
 					r2.y = r2.y + r4.w;
 					// mad r4.w, r0.w, r3.y, -r7.w
 					r4.w = mad(r0.w, r3.y, -(r7.w));
+					// sincos null, r4.w, r4.w
+					r4.w = cos(r4.w);
 					// add r2.z, r2.z, r4.w
 					r2.z = r2.z + r4.w;
 					// mul r5.xy, r2.wwww, r3.ywyy
@@ -126654,6 +128176,8 @@ Shader "ShaderRipperTest/VariantMonster"
 					r6.x = r2.y + r3.y;
 					// mad r2.y, r0.w, r3.w, -r3.x
 					r2.y = mad(r0.w, r3.w, -(r3.x));
+					// sincos null, r2.y, r2.y
+					r2.y = cos(r2.y);
 					// add r6.y, r2.y, r2.z
 					r6.y = r2.y + r2.z;
 					// mad r2.y, r5.y, l(0.600000), r3.x
@@ -126697,7 +128221,7 @@ Shader "ShaderRipperTest/VariantMonster"
 					// loop
 				for (;;) {
 					// ige r3.w, r3.y, r2.x
-					r3.w = (((int)(r3.y) >= (int)(r2.x)) ? 1 : 0);
+					r3.w = (((int)(r3.y) >= (int)(r2.x)) ? -1 : 0);
 					// breakc_nz r3.w
 					if (any(r3.w)) break;
 					// itof r3.w, r3.y
@@ -127142,7 +128666,7 @@ Shader "ShaderRipperTest/VariantMonster"
 					// mad r3.w, r3.w, r4.w, r3.x
 					r3.w = mad(r3.w, r4.w, r3.x);
 					// lt r4.w, l(1.100000), r3.w
-					r4.w = (1.1 < r3.w) ? 1.0 : 0.0;
+					r4.w = (1.1 < r3.w) ? -1.0 : 0.0;
 						// if_nz r4.w
 					if (any(r4.w)) {
 						// mov r3.x, r3.w
@@ -127166,7 +128690,7 @@ Shader "ShaderRipperTest/VariantMonster"
 				// mul r0.y, r0.y, r1.w
 				r0.y = r0.y * r1.w;
 				// lt r1.w, r0.y, cb0[9].w
-				r1.w = (r0.y < cb0[9].w) ? 1.0 : 0.0;
+				r1.w = (r0.y < cb0[9].w) ? -1.0 : 0.0;
 				// discard_nz r1.w
 				if (any(r1.w)) discard;
 				// mul_sat r1.x, r1.x, l(1.400000)
@@ -127239,7 +128763,7 @@ Shader "ShaderRipperTest/VariantMonster"
 				// mul r2.x, cb0[8].z, l(0.500000)
 				r2.x = cb0[8].z * 0.5;
 				// lt r2.x, r0.x, r2.x
-				r2.x = (r0.x < r2.x) ? 1.0 : 0.0;
+				r2.x = (r0.x < r2.x) ? -1.0 : 0.0;
 				// mad r2.y, -r0.x, l(3.000000), l(1.000000)
 				r2.y = mad(-(r0.x), 3.0, 1.0);
 				// max r2.y, r2.y, l(0.000000)
@@ -127251,7 +128775,7 @@ Shader "ShaderRipperTest/VariantMonster"
 				// mad r2.yzw, r2.yyzw, cb0[8].zzzz, r1.xxyw
 				r2.yzw = float3(mad(r2.y, cb0[8].z, r1.x), mad(r2.z, cb0[8].z, r1.y), mad(r2.w, cb0[8].z, r1.w));
 				// lt r0.x, r0.x, l(0.400000)
-				r0.x = (r0.x < 0.4) ? 1.0 : 0.0;
+				r0.x = (r0.x < 0.4) ? -1.0 : 0.0;
 				// mul r3.yzw, r1.xxyw, l(0.000000, 0.920000, 0.920000, 0.920000)
 				r3.yzw = float3(r1.x * 0.92, r1.y * 0.92, r1.w * 0.92);
 				// movc r1.xyw, r0.xxxx, r3.yzyw, r1.xyxw
@@ -128115,7 +129639,7 @@ Shader "ShaderRipperTest/VariantMonster"
 				// mul r0.xzw, r0.xxzw, cb0[10].yyyy
 				r0.xzw = float3(r0.x * cb0[10].y, r0.z * cb0[10].y, r0.w * cb0[10].y);
 				// lt r1.x, l(0.500000), cb0[11].y
-				r1.x = (0.5 < cb0[11].y) ? 1.0 : 0.0;
+				r1.x = (0.5 < cb0[11].y) ? -1.0 : 0.0;
 				// mul r1.yz, v1.xxyx, cb1[6].xxyx
 				r1.yz = float2(v1.x * _ScreenParams.x, v1.y * _ScreenParams.y);
 				// mul r1.yz, r1.yyzy, l(0.000000, 127.099998, 311.700012, 0.000000)
@@ -128180,6 +129704,27 @@ Shader "ShaderRipperTest/VariantMonster"
 			//   unnamed single lanes are shared by the Float/Range prop(s): _Iterations, _Steps, _WarpDepth, _Threshold, _Contrast, _Emission, _Saturation, _ToggleDetail, _ToggleBands, _ToggleDither
 			// cb1 = UnityPerDraw  (declared by UnityCG.cginc)
 			// cb2 = UnityPerFrame  (declared by UnityCG.cginc)
+			float4 _MainTex_TexelSize;
+			float4 _NoiseTex_ST;
+			float4 _NoiseTex_TexelSize;
+			float4 _DetailTex_ST;
+			float4 _DetailTex_TexelSize;
+			float4 _MaskTex_ST;
+			float4 _MaskTex_TexelSize;
+			float4 _Color;
+			float4 _ColorC;
+			float4 _Params;
+			float4 _Params3;
+			float _Iterations;
+			float _Steps;
+			float _WarpDepth;
+			float _Threshold;
+			float _Contrast;
+			float _Emission;
+			float _Saturation;
+			float _ToggleDetail;
+			float _ToggleBands;
+			float _ToggleDither;
 			// cbuffer order confirmed by the asset's own register index
 			// $Globals cb0: 1 slot(s) named from the compiled constant-buffer member table
 			// $Globals cb0: 2 slot(s) named from the compiled constant-buffer member table
@@ -128218,7 +129763,7 @@ Shader "ShaderRipperTest/VariantMonster"
 				// sample r0.xyzw, v1.xyxx, t0.xyzw, s3
 				r0.xyzw = tex2D(_MaskTex, float2(v1.x, v1.y));
 				// lt r0.x, r0.w, cb0[9].w
-				r0.x = (r0.w < cb0[9].w) ? 1.0 : 0.0;
+				r0.x = (r0.w < cb0[9].w) ? -1.0 : 0.0;
 				// discard_nz r0.x
 				if (any(r0.x)) discard;
 				// mul r0.x, cb0[6].z, cb1[0].y
@@ -129112,7 +130657,7 @@ Shader "ShaderRipperTest/VariantMonster"
 					// loop
 				for (;;) {
 					// ige r4.x, r2.w, r2.y
-					r4.x = (((int)(r2.w) >= (int)(r2.y)) ? 1 : 0);
+					r4.x = (((int)(r2.w) >= (int)(r2.y)) ? -1 : 0);
 					// breakc_nz r4.x
 					if (any(r4.x)) break;
 					// itof r4.x, r2.w
@@ -129528,7 +131073,7 @@ Shader "ShaderRipperTest/VariantMonster"
 						// loop
 					for (;;) {
 						// ige r5.w, r5.z, r2.z
-						r5.w = (((int)(r5.z) >= (int)(r2.z)) ? 1 : 0);
+						r5.w = (((int)(r5.z) >= (int)(r2.z)) ? -1 : 0);
 						// breakc_nz r5.w
 						if (any(r5.w)) break;
 						// itof r5.w, r5.z
@@ -129619,7 +131164,7 @@ Shader "ShaderRipperTest/VariantMonster"
 						// mad r6.y, |r6.y|, l(2.000000), r4.w
 						r6.y = mad(abs(r6.y), 2.0, r4.w);
 						// lt r6.z, l(2.200000), r6.y
-						r6.z = (2.2 < r6.y) ? 1.0 : 0.0;
+						r6.z = (2.2 < r6.y) ? -1.0 : 0.0;
 							// if_nz r6.z
 						if (any(r6.z)) {
 							// iadd r6.z, r5.z, l(1)
@@ -129653,7 +131198,7 @@ Shader "ShaderRipperTest/VariantMonster"
 					// mul r4.xy, r5.xyxx, l(1.040000, 1.040000, 0.000000, 0.000000)
 					r4.xy = float2(r5.x * 1.04, r5.y * 1.04);
 					// lt r5.zw, r4.wwww, l(0.000000, 0.000000, 0.600000, 1.400000)
-					r5.zw = float2((r4.w < 0.6) ? 1.0 : 0.0, (r4.w < 1.4) ? 1.0 : 0.0);
+					r5.zw = float2((r4.w < 0.6) ? -1.0 : 0.0, (r4.w < 1.4) ? -1.0 : 0.0);
 					// add r6.xy, r5.xyxx, l(0.020000, 0.010000, 0.000000, 0.000000)
 					r6.xy = float2(r5.x + 0.02, r5.y + 0.01);
 					// mov_sat r5.xy, r5.xyxx
@@ -129665,7 +131210,7 @@ Shader "ShaderRipperTest/VariantMonster"
 					// movc r4.xy, r5.zzzz, r4.xyxx, r6.xyxx
 					r4.xy = float2(r5.z != 0.0 ? r4.x : r6.x, r5.z != 0.0 ? r4.y : r6.y);
 					// lt r4.z, l(1.500000), r4.x
-					r4.z = (1.5 < r4.x) ? 1.0 : 0.0;
+					r4.z = (1.5 < r4.x) ? -1.0 : 0.0;
 						// if_nz r4.z
 					if (any(r4.z)) {
 						// mov r3.z, r4.y
@@ -129681,7 +131226,7 @@ Shader "ShaderRipperTest/VariantMonster"
 				// endloop
 				}
 				// lt r2.y, l(0.500000), cb0[10].w
-				r2.y = (0.5 < cb0[10].w) ? 1.0 : 0.0;
+				r2.y = (0.5 < cb0[10].w) ? -1.0 : 0.0;
 					// if_nz r2.y
 				if (any(r2.y)) {
 					// mul r2.y, r0.x, l(0.250000)
@@ -129803,7 +131348,7 @@ Shader "ShaderRipperTest/VariantMonster"
 				// endif
 				}
 				// lt r2.y, l(0.500000), cb0[11].x
-				r2.y = (0.5 < cb0[11].x) ? 1.0 : 0.0;
+				r2.y = (0.5 < cb0[11].x) ? -1.0 : 0.0;
 					// if_nz r2.y
 				if (any(r2.y)) {
 					// mul r5.xyzw, cb0[8].wwww, l(0.300000, 0.520000, 0.740000, 0.960000)
@@ -129814,6 +131359,8 @@ Shader "ShaderRipperTest/VariantMonster"
 					r2.y = sin(r2.y);
 					// mad r2.z, r0.w, r5.x, -r0.x
 					r2.z = mad(r0.w, r5.x, -(r0.x));
+					// sincos null, r2.z, r2.z
+					r2.z = cos(r2.z);
 					// add r2.w, r0.w, r0.z
 					r2.w = r0.w + r0.z;
 					// mul r6.xyzw, r5.xyzw, r2.wwww
@@ -129825,27 +131372,31 @@ Shader "ShaderRipperTest/VariantMonster"
 					// mad r3.y, r0.z, r5.y, r7.x
 					r3.y = mad(r0.z, r5.y, r7.x);
 					// sincos r3.xy, null, r3.xyxx
-					r3.xy = sin(r3.xyxx);
+					r3.xy = float2(sin(r3.x), sin(r3.y));
 					// add r2.y, r2.y, r3.y
 					r2.y = r2.y + r3.y;
 					// mad r3.y, r0.w, r5.y, -r7.x
 					r3.y = mad(r0.w, r5.y, -(r7.x));
+					// sincos null, r3.y, r3.y
+					r3.y = cos(r3.y);
 					// add r2.z, r2.z, r3.y
 					r2.z = r2.z + r3.y;
 					// mad r6.xyz, r6.yzwy, l(0.600000, 0.600000, 0.600000, 0.000000), r7.xyzx
 					r6.xyz = float3(mad(r6.y, 0.6, r7.x), mad(r6.z, 0.6, r7.y), mad(r6.w, 0.6, r7.z));
 					// sincos r6.xyz, null, r6.xyzx
-					r6.xyz = sin(r6.xyzx);
+					r6.xyz = float3(sin(r6.x), sin(r6.y), sin(r6.z));
 					// add r3.x, r3.x, r6.x
 					r3.x = r3.x + r6.x;
 					// mad r3.yw, r0.zzzz, r5.zzzw, r7.yyyz
 					r3.yw = float2(mad(r0.z, r5.z, r7.y), mad(r0.z, r5.w, r7.z));
 					// sincos r3.yw, null, r3.yyyw
-					r3.yw = sin(r3.yyyw);
+					r3.yw = float2(sin(r3.y), sin(r3.w));
 					// add r2.y, r2.y, r3.y
 					r2.y = r2.y + r3.y;
 					// mad r5.xy, r0.wwww, r5.zwzz, -r7.yzyy
 					r5.xy = float2(mad(r0.w, r5.z, -(r7.y)), mad(r0.w, r5.w, -(r7.z)));
+					// sincos null, r5.xy, r5.xyxx
+					r5.xy = float2(cos(r5.x), cos(r5.y));
 					// add r2.z, r2.z, r5.x
 					r2.z = r2.z + r5.x;
 					// add r3.x, r6.y, r3.x
@@ -129866,6 +131417,8 @@ Shader "ShaderRipperTest/VariantMonster"
 					r2.y = r2.y + r4.w;
 					// mad r4.w, r0.w, r3.y, -r7.w
 					r4.w = mad(r0.w, r3.y, -(r7.w));
+					// sincos null, r4.w, r4.w
+					r4.w = cos(r4.w);
 					// add r2.z, r2.z, r4.w
 					r2.z = r2.z + r4.w;
 					// mul r5.xy, r2.wwww, r3.ywyy
@@ -129886,6 +131439,8 @@ Shader "ShaderRipperTest/VariantMonster"
 					r6.x = r2.y + r3.y;
 					// mad r2.y, r0.w, r3.w, -r3.x
 					r2.y = mad(r0.w, r3.w, -(r3.x));
+					// sincos null, r2.y, r2.y
+					r2.y = cos(r2.y);
 					// add r6.y, r2.y, r2.z
 					r6.y = r2.y + r2.z;
 					// mad r2.y, r5.y, l(0.600000), r3.x
@@ -129929,7 +131484,7 @@ Shader "ShaderRipperTest/VariantMonster"
 					// loop
 				for (;;) {
 					// ige r3.w, r3.y, r2.x
-					r3.w = (((int)(r3.y) >= (int)(r2.x)) ? 1 : 0);
+					r3.w = (((int)(r3.y) >= (int)(r2.x)) ? -1 : 0);
 					// breakc_nz r3.w
 					if (any(r3.w)) break;
 					// itof r3.w, r3.y
@@ -130374,7 +131929,7 @@ Shader "ShaderRipperTest/VariantMonster"
 					// mad r3.w, r3.w, r4.w, r3.x
 					r3.w = mad(r3.w, r4.w, r3.x);
 					// lt r4.w, l(1.100000), r3.w
-					r4.w = (1.1 < r3.w) ? 1.0 : 0.0;
+					r4.w = (1.1 < r3.w) ? -1.0 : 0.0;
 						// if_nz r4.w
 					if (any(r4.w)) {
 						// mov r3.x, r3.w
@@ -130398,7 +131953,7 @@ Shader "ShaderRipperTest/VariantMonster"
 				// mul r0.y, r0.y, r1.z
 				r0.y = r0.y * r1.z;
 				// lt r1.z, r0.y, cb0[9].w
-				r1.z = (r0.y < cb0[9].w) ? 1.0 : 0.0;
+				r1.z = (r0.y < cb0[9].w) ? -1.0 : 0.0;
 				// discard_nz r1.z
 				if (any(r1.z)) discard;
 				// mul_sat r1.x, r1.x, l(1.400000)
@@ -130471,7 +132026,7 @@ Shader "ShaderRipperTest/VariantMonster"
 				// mul r2.x, cb0[8].z, l(0.500000)
 				r2.x = cb0[8].z * 0.5;
 				// lt r2.x, r0.x, r2.x
-				r2.x = (r0.x < r2.x) ? 1.0 : 0.0;
+				r2.x = (r0.x < r2.x) ? -1.0 : 0.0;
 				// mad r2.y, -r0.x, l(3.000000), l(1.000000)
 				r2.y = mad(-(r0.x), 3.0, 1.0);
 				// max r2.y, r2.y, l(0.000000)
@@ -130483,7 +132038,7 @@ Shader "ShaderRipperTest/VariantMonster"
 				// mad r2.yzw, r2.yyzw, cb0[8].zzzz, r1.xxyz
 				r2.yzw = float3(mad(r2.y, cb0[8].z, r1.x), mad(r2.z, cb0[8].z, r1.y), mad(r2.w, cb0[8].z, r1.z));
 				// lt r0.x, r0.x, l(0.400000)
-				r0.x = (r0.x < 0.4) ? 1.0 : 0.0;
+				r0.x = (r0.x < 0.4) ? -1.0 : 0.0;
 				// mul r3.yzw, r1.xxyz, l(0.000000, 0.920000, 0.920000, 0.920000)
 				r3.yzw = float3(r1.x * 0.92, r1.y * 0.92, r1.z * 0.92);
 				// movc r1.xyz, r0.xxxx, r3.yzwy, r1.xyzx
@@ -131347,7 +132902,7 @@ Shader "ShaderRipperTest/VariantMonster"
 				// mul r0.xzw, r0.xxzw, cb0[10].yyyy
 				r0.xzw = float3(r0.x * cb0[10].y, r0.z * cb0[10].y, r0.w * cb0[10].y);
 				// lt r1.x, l(0.500000), cb0[11].y
-				r1.x = (0.5 < cb0[11].y) ? 1.0 : 0.0;
+				r1.x = (0.5 < cb0[11].y) ? -1.0 : 0.0;
 				// mul r1.yz, v1.xxyx, cb1[6].xxyx
 				r1.yz = float2(v1.x * _ScreenParams.x, v1.y * _ScreenParams.y);
 				// mul r1.yz, r1.yyzy, l(0.000000, 127.099998, 311.700012, 0.000000)
@@ -131412,6 +132967,27 @@ Shader "ShaderRipperTest/VariantMonster"
 			//   unnamed single lanes are shared by the Float/Range prop(s): _Iterations, _Steps, _WarpDepth, _Threshold, _Contrast, _Emission, _Saturation, _ToggleDetail, _ToggleBands, _ToggleDither
 			// cb1 = UnityPerDraw  (declared by UnityCG.cginc)
 			// cb2 = UnityPerFrame  (declared by UnityCG.cginc)
+			float4 _MainTex_TexelSize;
+			float4 _NoiseTex_ST;
+			float4 _NoiseTex_TexelSize;
+			float4 _DetailTex_ST;
+			float4 _DetailTex_TexelSize;
+			float4 _MaskTex_ST;
+			float4 _MaskTex_TexelSize;
+			float4 _Color;
+			float4 _ColorC;
+			float4 _Params;
+			float4 _Params3;
+			float _Iterations;
+			float _Steps;
+			float _WarpDepth;
+			float _Threshold;
+			float _Contrast;
+			float _Emission;
+			float _Saturation;
+			float _ToggleDetail;
+			float _ToggleBands;
+			float _ToggleDither;
 			// cbuffer order confirmed by the asset's own register index
 			// $Globals cb0: 1 slot(s) named from the compiled constant-buffer member table
 			// $Globals cb0: 2 slot(s) named from the compiled constant-buffer member table
@@ -131450,7 +133026,7 @@ Shader "ShaderRipperTest/VariantMonster"
 				// sample r0.xyzw, v1.xyxx, t0.xyzw, s3
 				r0.xyzw = tex2D(_MaskTex, float2(v1.x, v1.y));
 				// lt r0.x, r0.w, cb0[9].w
-				r0.x = (r0.w < cb0[9].w) ? 1.0 : 0.0;
+				r0.x = (r0.w < cb0[9].w) ? -1.0 : 0.0;
 				// discard_nz r0.x
 				if (any(r0.x)) discard;
 				// mul r0.x, cb0[6].z, cb1[0].y
@@ -132342,7 +133918,7 @@ Shader "ShaderRipperTest/VariantMonster"
 					// loop
 				for (;;) {
 					// ige r3.w, r3.z, r2.x
-					r3.w = (((int)(r3.z) >= (int)(r2.x)) ? 1 : 0);
+					r3.w = (((int)(r3.z) >= (int)(r2.x)) ? -1 : 0);
 					// breakc_nz r3.w
 					if (any(r3.w)) break;
 					// itof r3.w, r3.z
@@ -132756,7 +134332,7 @@ Shader "ShaderRipperTest/VariantMonster"
 						// loop
 					for (;;) {
 						// ige r5.z, r5.y, r2.y
-						r5.z = (((int)(r5.y) >= (int)(r2.y)) ? 1 : 0);
+						r5.z = (((int)(r5.y) >= (int)(r2.y)) ? -1 : 0);
 						// breakc_nz r5.z
 						if (any(r5.z)) break;
 						// itof r5.z, r5.y
@@ -132849,7 +134425,7 @@ Shader "ShaderRipperTest/VariantMonster"
 						// mad r6.x, |r6.x|, l(2.000000), r5.x
 						r6.x = mad(abs(r6.x), 2.0, r5.x);
 						// lt r6.y, l(2.200000), r6.x
-						r6.y = (2.2 < r6.x) ? 1.0 : 0.0;
+						r6.y = (2.2 < r6.x) ? -1.0 : 0.0;
 							// if_nz r6.y
 						if (any(r6.y)) {
 							// iadd r6.y, r5.y, l(1)
@@ -132883,7 +134459,7 @@ Shader "ShaderRipperTest/VariantMonster"
 					// mul r4.xy, r4.zwzz, l(1.040000, 1.040000, 0.000000, 0.000000)
 					r4.xy = float2(r4.z * 1.04, r4.w * 1.04);
 					// lt r5.yz, r5.xxxx, l(0.000000, 0.600000, 1.400000, 0.000000)
-					r5.yz = float2((r5.x < 0.6) ? 1.0 : 0.0, (r5.x < 1.4) ? 1.0 : 0.0);
+					r5.yz = float2((r5.x < 0.6) ? -1.0 : 0.0, (r5.x < 1.4) ? -1.0 : 0.0);
 					// add r6.xy, r4.zwzz, l(0.020000, 0.010000, 0.000000, 0.000000)
 					r6.xy = float2(r4.z + 0.02, r4.w + 0.01);
 					// mov_sat r4.zw, r4.zzzw
@@ -132895,7 +134471,7 @@ Shader "ShaderRipperTest/VariantMonster"
 					// movc r4.xy, r5.yyyy, r4.xyxx, r5.zwzz
 					r4.xy = float2(r5.y != 0.0 ? r4.x : r5.z, r5.y != 0.0 ? r4.y : r5.w);
 					// lt r3.w, l(1.500000), r4.x
-					r3.w = (1.5 < r4.x) ? 1.0 : 0.0;
+					r3.w = (1.5 < r4.x) ? -1.0 : 0.0;
 						// if_nz r3.w
 					if (any(r3.w)) {
 						// mov r3.x, r4.y
@@ -132911,7 +134487,7 @@ Shader "ShaderRipperTest/VariantMonster"
 				// endloop
 				}
 				// lt r2.x, l(0.500000), cb0[10].w
-				r2.x = (0.5 < cb0[10].w) ? 1.0 : 0.0;
+				r2.x = (0.5 < cb0[10].w) ? -1.0 : 0.0;
 					// if_nz r2.x
 				if (any(r2.x)) {
 					// mul r2.x, r0.x, l(0.250000)
@@ -133033,7 +134609,7 @@ Shader "ShaderRipperTest/VariantMonster"
 				// endif
 				}
 				// lt r2.w, l(0.500000), cb0[11].x
-				r2.w = (0.5 < cb0[11].x) ? 1.0 : 0.0;
+				r2.w = (0.5 < cb0[11].x) ? -1.0 : 0.0;
 					// if_nz r2.w
 				if (any(r2.w)) {
 					// mul r4.xyzw, cb0[8].wwww, l(0.300000, 0.520000, 0.740000, 0.960000)
@@ -133044,6 +134620,8 @@ Shader "ShaderRipperTest/VariantMonster"
 					r2.w = sin(r2.w);
 					// mad r3.y, r0.w, r4.x, -r0.x
 					r3.y = mad(r0.w, r4.x, -(r0.x));
+					// sincos null, r3.y, r3.y
+					r3.y = cos(r3.y);
 					// add r3.z, r0.w, r0.z
 					r3.z = r0.w + r0.z;
 					// mul r5.xyzw, r4.xyzw, r3.zzzz
@@ -133062,22 +134640,26 @@ Shader "ShaderRipperTest/VariantMonster"
 					r2.w = r2.w + r4.x;
 					// mad r4.x, r0.w, r4.y, -r6.x
 					r4.x = mad(r0.w, r4.y, -(r6.x));
+					// sincos null, r4.x, r4.x
+					r4.x = cos(r4.x);
 					// add r3.y, r3.y, r4.x
 					r3.y = r3.y + r4.x;
 					// mad r5.xyz, r5.yzwy, l(0.600000, 0.600000, 0.600000, 0.000000), r6.xyzx
 					r5.xyz = float3(mad(r5.y, 0.6, r6.x), mad(r5.z, 0.6, r6.y), mad(r5.w, 0.6, r6.z));
 					// sincos r5.xyz, null, r5.xyzx
-					r5.xyz = sin(r5.xyzx);
+					r5.xyz = float3(sin(r5.x), sin(r5.y), sin(r5.z));
 					// add r3.w, r3.w, r5.x
 					r3.w = r3.w + r5.x;
 					// mad r4.xy, r0.zzzz, r4.zwzz, r6.yzyy
 					r4.xy = float2(mad(r0.z, r4.z, r6.y), mad(r0.z, r4.w, r6.z));
 					// sincos r4.xy, null, r4.xyxx
-					r4.xy = sin(r4.xyxx);
+					r4.xy = float2(sin(r4.x), sin(r4.y));
 					// add r2.w, r2.w, r4.x
 					r2.w = r2.w + r4.x;
 					// mad r4.xz, r0.wwww, r4.zzwz, -r6.yyzy
 					r4.xz = float2(mad(r0.w, r4.z, -(r6.y)), mad(r0.w, r4.w, -(r6.z)));
+					// sincos null, r4.xz, r4.xxzx
+					r4.xz = float2(cos(r4.x), cos(r4.z));
 					// add r3.y, r3.y, r4.x
 					r3.y = r3.y + r4.x;
 					// add r3.w, r5.y, r3.w
@@ -133098,6 +134680,8 @@ Shader "ShaderRipperTest/VariantMonster"
 					r2.w = r2.w + r4.z;
 					// mad r4.z, r0.w, r4.x, -r6.w
 					r4.z = mad(r0.w, r4.x, -(r6.w));
+					// sincos null, r4.z, r4.z
+					r4.z = cos(r4.z);
 					// add r3.y, r3.y, r4.z
 					r3.y = r3.y + r4.z;
 					// mul r4.xz, r3.zzzz, r4.xxyx
@@ -133118,6 +134702,8 @@ Shader "ShaderRipperTest/VariantMonster"
 					r5.x = r2.w + r4.x;
 					// mad r2.w, r0.w, r4.y, -r3.w
 					r2.w = mad(r0.w, r4.y, -(r3.w));
+					// sincos null, r2.w, r2.w
+					r2.w = cos(r2.w);
 					// add r5.y, r2.w, r3.y
 					r5.y = r2.w + r3.y;
 					// mad r2.w, r4.z, l(0.600000), r3.w
@@ -133161,7 +134747,7 @@ Shader "ShaderRipperTest/VariantMonster"
 					// loop
 				for (;;) {
 					// ige r4.y, r4.x, r1.w
-					r4.y = (((int)(r4.x) >= (int)(r1.w)) ? 1 : 0);
+					r4.y = (((int)(r4.x) >= (int)(r1.w)) ? -1 : 0);
 					// breakc_nz r4.y
 					if (any(r4.y)) break;
 					// itof r4.y, r4.x
@@ -133588,7 +135174,7 @@ Shader "ShaderRipperTest/VariantMonster"
 					// mad r4.y, r4.y, r4.z, r2.w
 					r4.y = mad(r4.y, r4.z, r2.w);
 					// lt r4.z, l(1.100000), r4.y
-					r4.z = (1.1 < r4.y) ? 1.0 : 0.0;
+					r4.z = (1.1 < r4.y) ? -1.0 : 0.0;
 						// if_nz r4.z
 					if (any(r4.z)) {
 						// mov r2.w, r4.y
@@ -133612,7 +135198,7 @@ Shader "ShaderRipperTest/VariantMonster"
 				// mul r0.y, r0.y, r1.x
 				r0.y = r0.y * r1.x;
 				// lt r1.x, r0.y, cb0[9].w
-				r1.x = (r0.y < cb0[9].w) ? 1.0 : 0.0;
+				r1.x = (r0.y < cb0[9].w) ? -1.0 : 0.0;
 				// discard_nz r1.x
 				if (any(r1.x)) discard;
 				// mad r1.xzw, r2.xxyz, l(0.900000, 0.000000, 0.900000, 0.900000), l(0.600000, 0.000000, 0.600000, 0.600000)
@@ -133650,7 +135236,7 @@ Shader "ShaderRipperTest/VariantMonster"
 				// mul r2.y, cb0[8].z, l(0.500000)
 				r2.y = cb0[8].z * 0.5;
 				// lt r2.y, r2.x, r2.y
-				r2.y = (r2.x < r2.y) ? 1.0 : 0.0;
+				r2.y = (r2.x < r2.y) ? -1.0 : 0.0;
 				// mad r2.z, -r2.x, l(3.000000), l(1.000000)
 				r2.z = mad(-(r2.x), 3.0, 1.0);
 				// max r2.z, r2.z, l(0.000000)
@@ -133662,7 +135248,7 @@ Shader "ShaderRipperTest/VariantMonster"
 				// mad r3.xyz, r3.xyzx, cb0[8].zzzz, r1.xzwx
 				r3.xyz = float3(mad(r3.x, cb0[8].z, r1.x), mad(r3.y, cb0[8].z, r1.z), mad(r3.z, cb0[8].z, r1.w));
 				// lt r2.x, r2.x, l(0.400000)
-				r2.x = (r2.x < 0.4) ? 1.0 : 0.0;
+				r2.x = (r2.x < 0.4) ? -1.0 : 0.0;
 				// mul r4.xyz, r1.xzwx, l(0.920000, 0.920000, 0.920000, 0.000000)
 				r4.xyz = float3(r1.x * 0.92, r1.z * 0.92, r1.w * 0.92);
 				// movc r1.xzw, r2.xxxx, r4.xxyz, r1.xxzw
@@ -134520,7 +136106,7 @@ Shader "ShaderRipperTest/VariantMonster"
 				// mul r0.xzw, r0.xxzw, cb0[10].yyyy
 				r0.xzw = float3(r0.x * cb0[10].y, r0.z * cb0[10].y, r0.w * cb0[10].y);
 				// lt r1.x, l(0.500000), cb0[11].y
-				r1.x = (0.5 < cb0[11].y) ? 1.0 : 0.0;
+				r1.x = (0.5 < cb0[11].y) ? -1.0 : 0.0;
 				// mul r1.yz, v1.xxyx, cb1[6].xxyx
 				r1.yz = float2(v1.x * _ScreenParams.x, v1.y * _ScreenParams.y);
 				// mul r1.yz, r1.yyzy, l(0.000000, 127.099998, 311.700012, 0.000000)
@@ -134584,6 +136170,28 @@ Shader "ShaderRipperTest/VariantMonster"
 			//   unnamed single lanes are shared by the Float/Range prop(s): _Iterations, _Steps, _WarpDepth, _Threshold, _Contrast, _Emission, _Saturation, _ToggleDetail, _ToggleBands, _ToggleDither
 			// cb1 = UnityPerDraw  (declared by UnityCG.cginc)
 			// cb2 = UnityPerFrame  (declared by UnityCG.cginc)
+			float4 _MainTex_TexelSize;
+			float4 _NoiseTex_ST;
+			float4 _NoiseTex_TexelSize;
+			float4 _DetailTex_ST;
+			float4 _DetailTex_TexelSize;
+			float4 _MaskTex_ST;
+			float4 _MaskTex_TexelSize;
+			float4 _Color;
+			float4 _ColorC;
+			float4 _Params;
+			float4 _Params2;
+			float4 _Params3;
+			float _Iterations;
+			float _Steps;
+			float _WarpDepth;
+			float _Threshold;
+			float _Contrast;
+			float _Emission;
+			float _Saturation;
+			float _ToggleDetail;
+			float _ToggleBands;
+			float _ToggleDither;
 			// cbuffer order confirmed by the asset's own register index
 			// $Globals cb0: 1 slot(s) named from the compiled constant-buffer member table
 
@@ -134621,7 +136229,7 @@ Shader "ShaderRipperTest/VariantMonster"
 				// sample r0.xyzw, v1.xyxx, t0.xyzw, s3
 				r0.xyzw = tex2D(_MaskTex, float2(v1.x, v1.y));
 				// lt r0.x, r0.w, cb0[9].w
-				r0.x = (r0.w < cb0[9].w) ? 1.0 : 0.0;
+				r0.x = (r0.w < cb0[9].w) ? -1.0 : 0.0;
 				// discard_nz r0.x
 				if (any(r0.x)) discard;
 				// mul r0.x, cb0[6].z, cb1[0].y
@@ -135491,7 +137099,7 @@ Shader "ShaderRipperTest/VariantMonster"
 					// loop
 				for (;;) {
 					// ige r3.z, r1.w, r2.x
-					r3.z = (((int)(r1.w) >= (int)(r2.x)) ? 1 : 0);
+					r3.z = (((int)(r1.w) >= (int)(r2.x)) ? -1 : 0);
 					// breakc_nz r3.z
 					if (any(r3.z)) break;
 					// itof r3.z, r1.w
@@ -135913,7 +137521,7 @@ Shader "ShaderRipperTest/VariantMonster"
 						// loop
 					for (;;) {
 						// ige r5.y, r5.x, r2.y
-						r5.y = (((int)(r5.x) >= (int)(r2.y)) ? 1 : 0);
+						r5.y = (((int)(r5.x) >= (int)(r2.y)) ? -1 : 0);
 						// breakc_nz r5.y
 						if (any(r5.y)) break;
 						// itof r5.y, r5.x
@@ -136004,7 +137612,7 @@ Shader "ShaderRipperTest/VariantMonster"
 						// mad r5.w, |r5.w|, l(2.000000), r3.w
 						r5.w = mad(abs(r5.w), 2.0, r3.w);
 						// lt r6.x, l(2.200000), r5.w
-						r6.x = (2.2 < r5.w) ? 1.0 : 0.0;
+						r6.x = (2.2 < r5.w) ? -1.0 : 0.0;
 							// if_nz r6.x
 						if (any(r6.x)) {
 							// iadd r6.x, r5.x, l(1)
@@ -136038,7 +137646,7 @@ Shader "ShaderRipperTest/VariantMonster"
 					// mul r4.xy, r4.zwzz, l(1.040000, 1.040000, 0.000000, 0.000000)
 					r4.xy = float2(r4.z * 1.04, r4.w * 1.04);
 					// lt r5.xy, r3.wwww, l(0.600000, 1.400000, 0.000000, 0.000000)
-					r5.xy = float2((r3.w < 0.6) ? 1.0 : 0.0, (r3.w < 1.4) ? 1.0 : 0.0);
+					r5.xy = float2((r3.w < 0.6) ? -1.0 : 0.0, (r3.w < 1.4) ? -1.0 : 0.0);
 					// add r5.zw, r4.zzzw, l(0.000000, 0.000000, 0.020000, 0.010000)
 					r5.zw = float2(r4.z + 0.02, r4.w + 0.01);
 					// mov_sat r4.zw, r4.zzzw
@@ -136050,7 +137658,7 @@ Shader "ShaderRipperTest/VariantMonster"
 					// movc r4.xy, r5.xxxx, r4.xyxx, r5.yzyy
 					r4.xy = float2(r5.x != 0.0 ? r4.x : r5.y, r5.x != 0.0 ? r4.y : r5.z);
 					// lt r3.z, l(1.500000), r4.x
-					r3.z = (1.5 < r4.x) ? 1.0 : 0.0;
+					r3.z = (1.5 < r4.x) ? -1.0 : 0.0;
 						// if_nz r3.z
 					if (any(r3.z)) {
 						// mov r3.x, r4.y
@@ -136066,7 +137674,7 @@ Shader "ShaderRipperTest/VariantMonster"
 				// endloop
 				}
 				// lt r1.w, l(0.500000), cb0[10].w
-				r1.w = (0.5 < cb0[10].w) ? 1.0 : 0.0;
+				r1.w = (0.5 < cb0[10].w) ? -1.0 : 0.0;
 					// if_nz r1.w
 				if (any(r1.w)) {
 					// mul r1.w, r0.x, l(0.250000)
@@ -136188,7 +137796,7 @@ Shader "ShaderRipperTest/VariantMonster"
 				// endif
 				}
 				// lt r1.w, l(0.500000), cb0[11].x
-				r1.w = (0.5 < cb0[11].x) ? 1.0 : 0.0;
+				r1.w = (0.5 < cb0[11].x) ? -1.0 : 0.0;
 					// if_nz r1.w
 				if (any(r1.w)) {
 					// mul r4.xyzw, cb0[8].wwww, l(0.300000, 0.520000, 0.740000, 0.960000)
@@ -136199,6 +137807,8 @@ Shader "ShaderRipperTest/VariantMonster"
 					r1.w = sin(r1.w);
 					// mad r2.w, r0.w, r4.x, -r0.x
 					r2.w = mad(r0.w, r4.x, -(r0.x));
+					// sincos null, r2.w, r2.w
+					r2.w = cos(r2.w);
 					// add r3.y, r0.w, r0.z
 					r3.y = r0.w + r0.z;
 					// mul r5.xyzw, r4.xyzw, r3.yyyy
@@ -136210,27 +137820,31 @@ Shader "ShaderRipperTest/VariantMonster"
 					// mad r3.w, r0.z, r4.y, r6.x
 					r3.w = mad(r0.z, r4.y, r6.x);
 					// sincos r3.zw, null, r3.zzzw
-					r3.zw = sin(r3.zzzw);
+					r3.zw = float2(sin(r3.z), sin(r3.w));
 					// add r1.w, r1.w, r3.w
 					r1.w = r1.w + r3.w;
 					// mad r3.w, r0.w, r4.y, -r6.x
 					r3.w = mad(r0.w, r4.y, -(r6.x));
+					// sincos null, r3.w, r3.w
+					r3.w = cos(r3.w);
 					// add r2.w, r2.w, r3.w
 					r2.w = r2.w + r3.w;
 					// mad r5.xyz, r5.yzwy, l(0.600000, 0.600000, 0.600000, 0.000000), r6.xyzx
 					r5.xyz = float3(mad(r5.y, 0.6, r6.x), mad(r5.z, 0.6, r6.y), mad(r5.w, 0.6, r6.z));
 					// sincos r5.xyz, null, r5.xyzx
-					r5.xyz = sin(r5.xyzx);
+					r5.xyz = float3(sin(r5.x), sin(r5.y), sin(r5.z));
 					// add r3.z, r3.z, r5.x
 					r3.z = r3.z + r5.x;
 					// mad r4.xy, r0.zzzz, r4.zwzz, r6.yzyy
 					r4.xy = float2(mad(r0.z, r4.z, r6.y), mad(r0.z, r4.w, r6.z));
 					// sincos r4.xy, null, r4.xyxx
-					r4.xy = sin(r4.xyxx);
+					r4.xy = float2(sin(r4.x), sin(r4.y));
 					// add r1.w, r1.w, r4.x
 					r1.w = r1.w + r4.x;
 					// mad r4.xz, r0.wwww, r4.zzwz, -r6.yyzy
 					r4.xz = float2(mad(r0.w, r4.z, -(r6.y)), mad(r0.w, r4.w, -(r6.z)));
+					// sincos null, r4.xz, r4.xxzx
+					r4.xz = float2(cos(r4.x), cos(r4.z));
 					// add r2.w, r2.w, r4.x
 					r2.w = r2.w + r4.x;
 					// add r3.z, r5.y, r3.z
@@ -136251,6 +137865,8 @@ Shader "ShaderRipperTest/VariantMonster"
 					r1.w = r1.w + r3.w;
 					// mad r3.w, r0.w, r4.x, -r6.w
 					r3.w = mad(r0.w, r4.x, -(r6.w));
+					// sincos null, r3.w, r3.w
+					r3.w = cos(r3.w);
 					// add r2.w, r2.w, r3.w
 					r2.w = r2.w + r3.w;
 					// mul r3.yw, r3.yyyy, r4.xxxy
@@ -136271,6 +137887,8 @@ Shader "ShaderRipperTest/VariantMonster"
 					r5.x = r1.w + r4.x;
 					// mad r1.w, r0.w, r4.y, -r3.z
 					r1.w = mad(r0.w, r4.y, -(r3.z));
+					// sincos null, r1.w, r1.w
+					r1.w = cos(r1.w);
 					// add r5.y, r1.w, r2.w
 					r5.y = r1.w + r2.w;
 					// mad r1.w, r3.w, l(0.600000), r3.z
@@ -136298,7 +137916,7 @@ Shader "ShaderRipperTest/VariantMonster"
 				// mul r0.y, r0.y, r1.z
 				r0.y = r0.y * r1.z;
 				// lt r1.z, r0.y, cb0[9].w
-				r1.z = (r0.y < cb0[9].w) ? 1.0 : 0.0;
+				r1.z = (r0.y < cb0[9].w) ? -1.0 : 0.0;
 				// discard_nz r1.z
 				if (any(r1.z)) discard;
 				// mul_sat r1.x, r1.x, l(1.400000)
@@ -136367,7 +137985,7 @@ Shader "ShaderRipperTest/VariantMonster"
 				// mul r0.z, cb0[8].z, l(0.500000)
 				r0.z = cb0[8].z * 0.5;
 				// lt r0.z, r0.x, r0.z
-				r0.z = (r0.x < r0.z) ? 1.0 : 0.0;
+				r0.z = (r0.x < r0.z) ? -1.0 : 0.0;
 				// mad r0.w, -r0.x, l(3.000000), l(1.000000)
 				r0.w = mad(-(r0.x), 3.0, 1.0);
 				// max r0.w, r0.w, l(0.000000)
@@ -136379,7 +137997,7 @@ Shader "ShaderRipperTest/VariantMonster"
 				// mad r2.xyz, r2.xyzx, cb0[8].zzzz, r1.xyzx
 				r2.xyz = float3(mad(r2.x, cb0[8].z, r1.x), mad(r2.y, cb0[8].z, r1.y), mad(r2.z, cb0[8].z, r1.z));
 				// lt r0.x, r0.x, l(0.400000)
-				r0.x = (r0.x < 0.4) ? 1.0 : 0.0;
+				r0.x = (r0.x < 0.4) ? -1.0 : 0.0;
 				// mul r3.xyz, r1.xyzx, l(0.920000, 0.920000, 0.920000, 0.000000)
 				r3.xyz = float3(r1.x * 0.92, r1.y * 0.92, r1.z * 0.92);
 				// movc r1.xyz, r0.xxxx, r3.xyzx, r1.xyzx
@@ -136401,7 +138019,7 @@ Shader "ShaderRipperTest/VariantMonster"
 				// mul r0.xzw, r0.xxzw, cb0[10].yyyy
 				r0.xzw = float3(r0.x * cb0[10].y, r0.z * cb0[10].y, r0.w * cb0[10].y);
 				// lt r1.x, l(0.500000), cb0[11].y
-				r1.x = (0.5 < cb0[11].y) ? 1.0 : 0.0;
+				r1.x = (0.5 < cb0[11].y) ? -1.0 : 0.0;
 				// mul r1.yz, v1.xxyx, cb1[6].xxyx
 				r1.yz = float2(v1.x * _ScreenParams.x, v1.y * _ScreenParams.y);
 				// mul r1.yz, r1.yyzy, l(0.000000, 127.099998, 311.700012, 0.000000)
@@ -136466,6 +138084,27 @@ Shader "ShaderRipperTest/VariantMonster"
 			//   unnamed single lanes are shared by the Float/Range prop(s): _Iterations, _Steps, _WarpDepth, _Threshold, _Contrast, _Emission, _Saturation, _ToggleDetail, _ToggleBands, _ToggleDither
 			// cb1 = UnityPerDraw  (declared by UnityCG.cginc)
 			// cb2 = UnityPerFrame  (declared by UnityCG.cginc)
+			float4 _MainTex_TexelSize;
+			float4 _NoiseTex_ST;
+			float4 _NoiseTex_TexelSize;
+			float4 _DetailTex_ST;
+			float4 _DetailTex_TexelSize;
+			float4 _MaskTex_ST;
+			float4 _MaskTex_TexelSize;
+			float4 _Color;
+			float4 _ColorC;
+			float4 _Params;
+			float4 _Params3;
+			float _Iterations;
+			float _Steps;
+			float _WarpDepth;
+			float _Threshold;
+			float _Contrast;
+			float _Emission;
+			float _Saturation;
+			float _ToggleDetail;
+			float _ToggleBands;
+			float _ToggleDither;
 			// cbuffer order confirmed by the asset's own register index
 			// $Globals cb0: 1 slot(s) named from the compiled constant-buffer member table
 			// $Globals cb0: 2 slot(s) named from the compiled constant-buffer member table
@@ -136504,7 +138143,7 @@ Shader "ShaderRipperTest/VariantMonster"
 				// sample r0.xyzw, v1.xyxx, t0.xyzw, s3
 				r0.xyzw = tex2D(_MaskTex, float2(v1.x, v1.y));
 				// lt r0.x, r0.w, cb0[9].w
-				r0.x = (r0.w < cb0[9].w) ? 1.0 : 0.0;
+				r0.x = (r0.w < cb0[9].w) ? -1.0 : 0.0;
 				// discard_nz r0.x
 				if (any(r0.x)) discard;
 				// mul r0.x, cb0[6].z, cb1[0].y
@@ -137400,7 +139039,7 @@ Shader "ShaderRipperTest/VariantMonster"
 					// loop
 				for (;;) {
 					// ige r3.z, r1.w, r2.x
-					r3.z = (((int)(r1.w) >= (int)(r2.x)) ? 1 : 0);
+					r3.z = (((int)(r1.w) >= (int)(r2.x)) ? -1 : 0);
 					// breakc_nz r3.z
 					if (any(r3.z)) break;
 					// itof r3.z, r1.w
@@ -137822,7 +139461,7 @@ Shader "ShaderRipperTest/VariantMonster"
 						// loop
 					for (;;) {
 						// ige r5.y, r5.x, r2.y
-						r5.y = (((int)(r5.x) >= (int)(r2.y)) ? 1 : 0);
+						r5.y = (((int)(r5.x) >= (int)(r2.y)) ? -1 : 0);
 						// breakc_nz r5.y
 						if (any(r5.y)) break;
 						// itof r5.y, r5.x
@@ -137913,7 +139552,7 @@ Shader "ShaderRipperTest/VariantMonster"
 						// mad r5.w, |r5.w|, l(2.000000), r3.w
 						r5.w = mad(abs(r5.w), 2.0, r3.w);
 						// lt r6.x, l(2.200000), r5.w
-						r6.x = (2.2 < r5.w) ? 1.0 : 0.0;
+						r6.x = (2.2 < r5.w) ? -1.0 : 0.0;
 							// if_nz r6.x
 						if (any(r6.x)) {
 							// iadd r6.x, r5.x, l(1)
@@ -137947,7 +139586,7 @@ Shader "ShaderRipperTest/VariantMonster"
 					// mul r4.xy, r4.zwzz, l(1.040000, 1.040000, 0.000000, 0.000000)
 					r4.xy = float2(r4.z * 1.04, r4.w * 1.04);
 					// lt r5.xy, r3.wwww, l(0.600000, 1.400000, 0.000000, 0.000000)
-					r5.xy = float2((r3.w < 0.6) ? 1.0 : 0.0, (r3.w < 1.4) ? 1.0 : 0.0);
+					r5.xy = float2((r3.w < 0.6) ? -1.0 : 0.0, (r3.w < 1.4) ? -1.0 : 0.0);
 					// add r5.zw, r4.zzzw, l(0.000000, 0.000000, 0.020000, 0.010000)
 					r5.zw = float2(r4.z + 0.02, r4.w + 0.01);
 					// mov_sat r4.zw, r4.zzzw
@@ -137959,7 +139598,7 @@ Shader "ShaderRipperTest/VariantMonster"
 					// movc r4.xy, r5.xxxx, r4.xyxx, r5.yzyy
 					r4.xy = float2(r5.x != 0.0 ? r4.x : r5.y, r5.x != 0.0 ? r4.y : r5.z);
 					// lt r3.z, l(1.500000), r4.x
-					r3.z = (1.5 < r4.x) ? 1.0 : 0.0;
+					r3.z = (1.5 < r4.x) ? -1.0 : 0.0;
 						// if_nz r3.z
 					if (any(r3.z)) {
 						// mov r3.x, r4.y
@@ -137975,7 +139614,7 @@ Shader "ShaderRipperTest/VariantMonster"
 				// endloop
 				}
 				// lt r1.w, l(0.500000), cb0[10].w
-				r1.w = (0.5 < cb0[10].w) ? 1.0 : 0.0;
+				r1.w = (0.5 < cb0[10].w) ? -1.0 : 0.0;
 					// if_nz r1.w
 				if (any(r1.w)) {
 					// mul r1.w, r0.x, l(0.250000)
@@ -138097,7 +139736,7 @@ Shader "ShaderRipperTest/VariantMonster"
 				// endif
 				}
 				// lt r1.w, l(0.500000), cb0[11].x
-				r1.w = (0.5 < cb0[11].x) ? 1.0 : 0.0;
+				r1.w = (0.5 < cb0[11].x) ? -1.0 : 0.0;
 					// if_nz r1.w
 				if (any(r1.w)) {
 					// mul r4.xyzw, cb0[8].wwww, l(0.300000, 0.520000, 0.740000, 0.960000)
@@ -138108,6 +139747,8 @@ Shader "ShaderRipperTest/VariantMonster"
 					r1.w = sin(r1.w);
 					// mad r2.w, r0.w, r4.x, -r0.x
 					r2.w = mad(r0.w, r4.x, -(r0.x));
+					// sincos null, r2.w, r2.w
+					r2.w = cos(r2.w);
 					// add r3.y, r0.w, r0.z
 					r3.y = r0.w + r0.z;
 					// mul r5.xyzw, r4.xyzw, r3.yyyy
@@ -138119,27 +139760,31 @@ Shader "ShaderRipperTest/VariantMonster"
 					// mad r3.w, r0.z, r4.y, r6.x
 					r3.w = mad(r0.z, r4.y, r6.x);
 					// sincos r3.zw, null, r3.zzzw
-					r3.zw = sin(r3.zzzw);
+					r3.zw = float2(sin(r3.z), sin(r3.w));
 					// add r1.w, r1.w, r3.w
 					r1.w = r1.w + r3.w;
 					// mad r3.w, r0.w, r4.y, -r6.x
 					r3.w = mad(r0.w, r4.y, -(r6.x));
+					// sincos null, r3.w, r3.w
+					r3.w = cos(r3.w);
 					// add r2.w, r2.w, r3.w
 					r2.w = r2.w + r3.w;
 					// mad r5.xyz, r5.yzwy, l(0.600000, 0.600000, 0.600000, 0.000000), r6.xyzx
 					r5.xyz = float3(mad(r5.y, 0.6, r6.x), mad(r5.z, 0.6, r6.y), mad(r5.w, 0.6, r6.z));
 					// sincos r5.xyz, null, r5.xyzx
-					r5.xyz = sin(r5.xyzx);
+					r5.xyz = float3(sin(r5.x), sin(r5.y), sin(r5.z));
 					// add r3.z, r3.z, r5.x
 					r3.z = r3.z + r5.x;
 					// mad r4.xy, r0.zzzz, r4.zwzz, r6.yzyy
 					r4.xy = float2(mad(r0.z, r4.z, r6.y), mad(r0.z, r4.w, r6.z));
 					// sincos r4.xy, null, r4.xyxx
-					r4.xy = sin(r4.xyxx);
+					r4.xy = float2(sin(r4.x), sin(r4.y));
 					// add r1.w, r1.w, r4.x
 					r1.w = r1.w + r4.x;
 					// mad r4.xz, r0.wwww, r4.zzwz, -r6.yyzy
 					r4.xz = float2(mad(r0.w, r4.z, -(r6.y)), mad(r0.w, r4.w, -(r6.z)));
+					// sincos null, r4.xz, r4.xxzx
+					r4.xz = float2(cos(r4.x), cos(r4.z));
 					// add r2.w, r2.w, r4.x
 					r2.w = r2.w + r4.x;
 					// add r3.z, r5.y, r3.z
@@ -138160,6 +139805,8 @@ Shader "ShaderRipperTest/VariantMonster"
 					r1.w = r1.w + r3.w;
 					// mad r3.w, r0.w, r4.x, -r6.w
 					r3.w = mad(r0.w, r4.x, -(r6.w));
+					// sincos null, r3.w, r3.w
+					r3.w = cos(r3.w);
 					// add r2.w, r2.w, r3.w
 					r2.w = r2.w + r3.w;
 					// mul r3.yw, r3.yyyy, r4.xxxy
@@ -138180,6 +139827,8 @@ Shader "ShaderRipperTest/VariantMonster"
 					r5.x = r1.w + r4.x;
 					// mad r1.w, r0.w, r4.y, -r3.z
 					r1.w = mad(r0.w, r4.y, -(r3.z));
+					// sincos null, r1.w, r1.w
+					r1.w = cos(r1.w);
 					// add r5.y, r1.w, r2.w
 					r5.y = r1.w + r2.w;
 					// mad r1.w, r3.w, l(0.600000), r3.z
@@ -138207,7 +139856,7 @@ Shader "ShaderRipperTest/VariantMonster"
 				// mul r0.y, r0.y, r1.z
 				r0.y = r0.y * r1.z;
 				// lt r1.z, r0.y, cb0[9].w
-				r1.z = (r0.y < cb0[9].w) ? 1.0 : 0.0;
+				r1.z = (r0.y < cb0[9].w) ? -1.0 : 0.0;
 				// discard_nz r1.z
 				if (any(r1.z)) discard;
 				// mul_sat r1.x, r1.x, l(1.400000)
@@ -138276,7 +139925,7 @@ Shader "ShaderRipperTest/VariantMonster"
 				// mul r0.z, cb0[8].z, l(0.500000)
 				r0.z = cb0[8].z * 0.5;
 				// lt r0.z, r0.x, r0.z
-				r0.z = (r0.x < r0.z) ? 1.0 : 0.0;
+				r0.z = (r0.x < r0.z) ? -1.0 : 0.0;
 				// mad r0.w, -r0.x, l(3.000000), l(1.000000)
 				r0.w = mad(-(r0.x), 3.0, 1.0);
 				// max r0.w, r0.w, l(0.000000)
@@ -138288,7 +139937,7 @@ Shader "ShaderRipperTest/VariantMonster"
 				// mad r2.xyz, r2.xyzx, cb0[8].zzzz, r1.xyzx
 				r2.xyz = float3(mad(r2.x, cb0[8].z, r1.x), mad(r2.y, cb0[8].z, r1.y), mad(r2.z, cb0[8].z, r1.z));
 				// lt r0.x, r0.x, l(0.400000)
-				r0.x = (r0.x < 0.4) ? 1.0 : 0.0;
+				r0.x = (r0.x < 0.4) ? -1.0 : 0.0;
 				// mul r3.xyz, r1.xyzx, l(0.920000, 0.920000, 0.920000, 0.000000)
 				r3.xyz = float3(r1.x * 0.92, r1.y * 0.92, r1.z * 0.92);
 				// movc r1.xyz, r0.xxxx, r3.xyzx, r1.xyzx
@@ -138310,7 +139959,7 @@ Shader "ShaderRipperTest/VariantMonster"
 				// mul r0.xzw, r0.xxzw, cb0[10].yyyy
 				r0.xzw = float3(r0.x * cb0[10].y, r0.z * cb0[10].y, r0.w * cb0[10].y);
 				// lt r1.x, l(0.500000), cb0[11].y
-				r1.x = (0.5 < cb0[11].y) ? 1.0 : 0.0;
+				r1.x = (0.5 < cb0[11].y) ? -1.0 : 0.0;
 				// mul r1.yz, v1.xxyx, cb1[6].xxyx
 				r1.yz = float2(v1.x * _ScreenParams.x, v1.y * _ScreenParams.y);
 				// mul r1.yz, r1.yyzy, l(0.000000, 127.099998, 311.700012, 0.000000)
@@ -138374,6 +140023,28 @@ Shader "ShaderRipperTest/VariantMonster"
 			//   unnamed single lanes are shared by the Float/Range prop(s): _Iterations, _Steps, _WarpDepth, _Threshold, _Contrast, _Emission, _Saturation, _ToggleDetail, _ToggleBands, _ToggleDither
 			// cb1 = UnityPerDraw  (declared by UnityCG.cginc)
 			// cb2 = UnityPerFrame  (declared by UnityCG.cginc)
+			float4 _MainTex_TexelSize;
+			float4 _NoiseTex_ST;
+			float4 _NoiseTex_TexelSize;
+			float4 _DetailTex_ST;
+			float4 _DetailTex_TexelSize;
+			float4 _MaskTex_ST;
+			float4 _MaskTex_TexelSize;
+			float4 _Color;
+			float4 _ColorC;
+			float4 _Params;
+			float4 _Params2;
+			float4 _Params3;
+			float _Iterations;
+			float _Steps;
+			float _WarpDepth;
+			float _Threshold;
+			float _Contrast;
+			float _Emission;
+			float _Saturation;
+			float _ToggleDetail;
+			float _ToggleBands;
+			float _ToggleDither;
 			// cbuffer order confirmed by the asset's own register index
 			// $Globals cb0: 1 slot(s) named from the compiled constant-buffer member table
 
@@ -138411,7 +140082,7 @@ Shader "ShaderRipperTest/VariantMonster"
 				// sample r0.xyzw, v1.xyxx, t0.xyzw, s3
 				r0.xyzw = tex2D(_MaskTex, float2(v1.x, v1.y));
 				// lt r0.x, r0.w, cb0[9].w
-				r0.x = (r0.w < cb0[9].w) ? 1.0 : 0.0;
+				r0.x = (r0.w < cb0[9].w) ? -1.0 : 0.0;
 				// discard_nz r0.x
 				if (any(r0.x)) discard;
 				// mul r0.x, cb0[6].z, cb1[0].y
@@ -139281,7 +140952,7 @@ Shader "ShaderRipperTest/VariantMonster"
 					// loop
 				for (;;) {
 					// ige r3.z, r1.w, r2.x
-					r3.z = (((int)(r1.w) >= (int)(r2.x)) ? 1 : 0);
+					r3.z = (((int)(r1.w) >= (int)(r2.x)) ? -1 : 0);
 					// breakc_nz r3.z
 					if (any(r3.z)) break;
 					// itof r3.z, r1.w
@@ -139703,7 +141374,7 @@ Shader "ShaderRipperTest/VariantMonster"
 						// loop
 					for (;;) {
 						// ige r5.y, r5.x, r2.y
-						r5.y = (((int)(r5.x) >= (int)(r2.y)) ? 1 : 0);
+						r5.y = (((int)(r5.x) >= (int)(r2.y)) ? -1 : 0);
 						// breakc_nz r5.y
 						if (any(r5.y)) break;
 						// itof r5.y, r5.x
@@ -139794,7 +141465,7 @@ Shader "ShaderRipperTest/VariantMonster"
 						// mad r5.w, |r5.w|, l(2.000000), r3.w
 						r5.w = mad(abs(r5.w), 2.0, r3.w);
 						// lt r6.x, l(2.200000), r5.w
-						r6.x = (2.2 < r5.w) ? 1.0 : 0.0;
+						r6.x = (2.2 < r5.w) ? -1.0 : 0.0;
 							// if_nz r6.x
 						if (any(r6.x)) {
 							// iadd r6.x, r5.x, l(1)
@@ -139828,7 +141499,7 @@ Shader "ShaderRipperTest/VariantMonster"
 					// mul r4.xy, r4.zwzz, l(1.040000, 1.040000, 0.000000, 0.000000)
 					r4.xy = float2(r4.z * 1.04, r4.w * 1.04);
 					// lt r5.xy, r3.wwww, l(0.600000, 1.400000, 0.000000, 0.000000)
-					r5.xy = float2((r3.w < 0.6) ? 1.0 : 0.0, (r3.w < 1.4) ? 1.0 : 0.0);
+					r5.xy = float2((r3.w < 0.6) ? -1.0 : 0.0, (r3.w < 1.4) ? -1.0 : 0.0);
 					// add r5.zw, r4.zzzw, l(0.000000, 0.000000, 0.020000, 0.010000)
 					r5.zw = float2(r4.z + 0.02, r4.w + 0.01);
 					// mov_sat r4.zw, r4.zzzw
@@ -139840,7 +141511,7 @@ Shader "ShaderRipperTest/VariantMonster"
 					// movc r4.xy, r5.xxxx, r4.xyxx, r5.yzyy
 					r4.xy = float2(r5.x != 0.0 ? r4.x : r5.y, r5.x != 0.0 ? r4.y : r5.z);
 					// lt r3.z, l(1.500000), r4.x
-					r3.z = (1.5 < r4.x) ? 1.0 : 0.0;
+					r3.z = (1.5 < r4.x) ? -1.0 : 0.0;
 						// if_nz r3.z
 					if (any(r3.z)) {
 						// mov r3.x, r4.y
@@ -139856,7 +141527,7 @@ Shader "ShaderRipperTest/VariantMonster"
 				// endloop
 				}
 				// lt r1.w, l(0.500000), cb0[10].w
-				r1.w = (0.5 < cb0[10].w) ? 1.0 : 0.0;
+				r1.w = (0.5 < cb0[10].w) ? -1.0 : 0.0;
 					// if_nz r1.w
 				if (any(r1.w)) {
 					// mul r1.w, r0.x, l(0.250000)
@@ -139978,7 +141649,7 @@ Shader "ShaderRipperTest/VariantMonster"
 				// endif
 				}
 				// lt r1.w, l(0.500000), cb0[11].x
-				r1.w = (0.5 < cb0[11].x) ? 1.0 : 0.0;
+				r1.w = (0.5 < cb0[11].x) ? -1.0 : 0.0;
 					// if_nz r1.w
 				if (any(r1.w)) {
 					// mul r4.xyzw, cb0[8].wwww, l(0.300000, 0.520000, 0.740000, 0.960000)
@@ -139989,6 +141660,8 @@ Shader "ShaderRipperTest/VariantMonster"
 					r1.w = sin(r1.w);
 					// mad r2.w, r0.w, r4.x, -r0.x
 					r2.w = mad(r0.w, r4.x, -(r0.x));
+					// sincos null, r2.w, r2.w
+					r2.w = cos(r2.w);
 					// add r3.y, r0.w, r0.z
 					r3.y = r0.w + r0.z;
 					// mul r5.xyzw, r4.xyzw, r3.yyyy
@@ -140000,27 +141673,31 @@ Shader "ShaderRipperTest/VariantMonster"
 					// mad r3.w, r0.z, r4.y, r6.x
 					r3.w = mad(r0.z, r4.y, r6.x);
 					// sincos r3.zw, null, r3.zzzw
-					r3.zw = sin(r3.zzzw);
+					r3.zw = float2(sin(r3.z), sin(r3.w));
 					// add r1.w, r1.w, r3.w
 					r1.w = r1.w + r3.w;
 					// mad r3.w, r0.w, r4.y, -r6.x
 					r3.w = mad(r0.w, r4.y, -(r6.x));
+					// sincos null, r3.w, r3.w
+					r3.w = cos(r3.w);
 					// add r2.w, r2.w, r3.w
 					r2.w = r2.w + r3.w;
 					// mad r5.xyz, r5.yzwy, l(0.600000, 0.600000, 0.600000, 0.000000), r6.xyzx
 					r5.xyz = float3(mad(r5.y, 0.6, r6.x), mad(r5.z, 0.6, r6.y), mad(r5.w, 0.6, r6.z));
 					// sincos r5.xyz, null, r5.xyzx
-					r5.xyz = sin(r5.xyzx);
+					r5.xyz = float3(sin(r5.x), sin(r5.y), sin(r5.z));
 					// add r3.z, r3.z, r5.x
 					r3.z = r3.z + r5.x;
 					// mad r4.xy, r0.zzzz, r4.zwzz, r6.yzyy
 					r4.xy = float2(mad(r0.z, r4.z, r6.y), mad(r0.z, r4.w, r6.z));
 					// sincos r4.xy, null, r4.xyxx
-					r4.xy = sin(r4.xyxx);
+					r4.xy = float2(sin(r4.x), sin(r4.y));
 					// add r1.w, r1.w, r4.x
 					r1.w = r1.w + r4.x;
 					// mad r4.xz, r0.wwww, r4.zzwz, -r6.yyzy
 					r4.xz = float2(mad(r0.w, r4.z, -(r6.y)), mad(r0.w, r4.w, -(r6.z)));
+					// sincos null, r4.xz, r4.xxzx
+					r4.xz = float2(cos(r4.x), cos(r4.z));
 					// add r2.w, r2.w, r4.x
 					r2.w = r2.w + r4.x;
 					// add r3.z, r5.y, r3.z
@@ -140041,6 +141718,8 @@ Shader "ShaderRipperTest/VariantMonster"
 					r1.w = r1.w + r3.w;
 					// mad r3.w, r0.w, r4.x, -r6.w
 					r3.w = mad(r0.w, r4.x, -(r6.w));
+					// sincos null, r3.w, r3.w
+					r3.w = cos(r3.w);
 					// add r2.w, r2.w, r3.w
 					r2.w = r2.w + r3.w;
 					// mul r3.yw, r3.yyyy, r4.xxxy
@@ -140061,6 +141740,8 @@ Shader "ShaderRipperTest/VariantMonster"
 					r5.x = r1.w + r4.x;
 					// mad r1.w, r0.w, r4.y, -r3.z
 					r1.w = mad(r0.w, r4.y, -(r3.z));
+					// sincos null, r1.w, r1.w
+					r1.w = cos(r1.w);
 					// add r5.y, r1.w, r2.w
 					r5.y = r1.w + r2.w;
 					// mad r1.w, r3.w, l(0.600000), r3.z
@@ -140088,7 +141769,7 @@ Shader "ShaderRipperTest/VariantMonster"
 				// mul r0.y, r0.y, r1.z
 				r0.y = r0.y * r1.z;
 				// lt r1.z, r0.y, cb0[9].w
-				r1.z = (r0.y < cb0[9].w) ? 1.0 : 0.0;
+				r1.z = (r0.y < cb0[9].w) ? -1.0 : 0.0;
 				// discard_nz r1.z
 				if (any(r1.z)) discard;
 				// mul_sat r1.x, r1.x, l(1.400000)
@@ -140157,7 +141838,7 @@ Shader "ShaderRipperTest/VariantMonster"
 				// mul r0.z, cb0[8].z, l(0.500000)
 				r0.z = cb0[8].z * 0.5;
 				// lt r0.z, r0.x, r0.z
-				r0.z = (r0.x < r0.z) ? 1.0 : 0.0;
+				r0.z = (r0.x < r0.z) ? -1.0 : 0.0;
 				// mad r0.w, -r0.x, l(3.000000), l(1.000000)
 				r0.w = mad(-(r0.x), 3.0, 1.0);
 				// max r0.w, r0.w, l(0.000000)
@@ -140169,7 +141850,7 @@ Shader "ShaderRipperTest/VariantMonster"
 				// mad r2.xyz, r2.xyzx, cb0[8].zzzz, r1.xyzx
 				r2.xyz = float3(mad(r2.x, cb0[8].z, r1.x), mad(r2.y, cb0[8].z, r1.y), mad(r2.z, cb0[8].z, r1.z));
 				// lt r0.x, r0.x, l(0.400000)
-				r0.x = (r0.x < 0.4) ? 1.0 : 0.0;
+				r0.x = (r0.x < 0.4) ? -1.0 : 0.0;
 				// mul r3.xyz, r1.xyzx, l(0.920000, 0.920000, 0.920000, 0.000000)
 				r3.xyz = float3(r1.x * 0.92, r1.y * 0.92, r1.z * 0.92);
 				// movc r1.xyz, r0.xxxx, r3.xyzx, r1.xyzx
@@ -140191,7 +141872,7 @@ Shader "ShaderRipperTest/VariantMonster"
 				// mul r0.xzw, r0.xxzw, cb0[10].yyyy
 				r0.xzw = float3(r0.x * cb0[10].y, r0.z * cb0[10].y, r0.w * cb0[10].y);
 				// lt r1.x, l(0.500000), cb0[11].y
-				r1.x = (0.5 < cb0[11].y) ? 1.0 : 0.0;
+				r1.x = (0.5 < cb0[11].y) ? -1.0 : 0.0;
 				// mul r1.yz, v1.xxyx, cb1[6].xxyx
 				r1.yz = float2(v1.x * _ScreenParams.x, v1.y * _ScreenParams.y);
 				// mul r1.yz, r1.yyzy, l(0.000000, 127.099998, 311.700012, 0.000000)
@@ -140256,6 +141937,27 @@ Shader "ShaderRipperTest/VariantMonster"
 			//   unnamed single lanes are shared by the Float/Range prop(s): _Iterations, _Steps, _WarpDepth, _Threshold, _Contrast, _Emission, _Saturation, _ToggleDetail, _ToggleBands, _ToggleDither
 			// cb1 = UnityPerDraw  (declared by UnityCG.cginc)
 			// cb2 = UnityPerFrame  (declared by UnityCG.cginc)
+			float4 _MainTex_TexelSize;
+			float4 _NoiseTex_ST;
+			float4 _NoiseTex_TexelSize;
+			float4 _DetailTex_ST;
+			float4 _DetailTex_TexelSize;
+			float4 _MaskTex_ST;
+			float4 _MaskTex_TexelSize;
+			float4 _Color;
+			float4 _ColorC;
+			float4 _Params;
+			float4 _Params3;
+			float _Iterations;
+			float _Steps;
+			float _WarpDepth;
+			float _Threshold;
+			float _Contrast;
+			float _Emission;
+			float _Saturation;
+			float _ToggleDetail;
+			float _ToggleBands;
+			float _ToggleDither;
 			// cbuffer order confirmed by the asset's own register index
 			// $Globals cb0: 1 slot(s) named from the compiled constant-buffer member table
 			// $Globals cb0: 2 slot(s) named from the compiled constant-buffer member table
@@ -140294,7 +141996,7 @@ Shader "ShaderRipperTest/VariantMonster"
 				// sample r0.xyzw, v1.xyxx, t0.xyzw, s3
 				r0.xyzw = tex2D(_MaskTex, float2(v1.x, v1.y));
 				// lt r0.x, r0.w, cb0[9].w
-				r0.x = (r0.w < cb0[9].w) ? 1.0 : 0.0;
+				r0.x = (r0.w < cb0[9].w) ? -1.0 : 0.0;
 				// discard_nz r0.x
 				if (any(r0.x)) discard;
 				// mul r0.x, cb0[6].z, cb1[0].y
@@ -141190,7 +142892,7 @@ Shader "ShaderRipperTest/VariantMonster"
 					// loop
 				for (;;) {
 					// ige r3.z, r1.w, r2.x
-					r3.z = (((int)(r1.w) >= (int)(r2.x)) ? 1 : 0);
+					r3.z = (((int)(r1.w) >= (int)(r2.x)) ? -1 : 0);
 					// breakc_nz r3.z
 					if (any(r3.z)) break;
 					// itof r3.z, r1.w
@@ -141612,7 +143314,7 @@ Shader "ShaderRipperTest/VariantMonster"
 						// loop
 					for (;;) {
 						// ige r5.y, r5.x, r2.y
-						r5.y = (((int)(r5.x) >= (int)(r2.y)) ? 1 : 0);
+						r5.y = (((int)(r5.x) >= (int)(r2.y)) ? -1 : 0);
 						// breakc_nz r5.y
 						if (any(r5.y)) break;
 						// itof r5.y, r5.x
@@ -141703,7 +143405,7 @@ Shader "ShaderRipperTest/VariantMonster"
 						// mad r5.w, |r5.w|, l(2.000000), r3.w
 						r5.w = mad(abs(r5.w), 2.0, r3.w);
 						// lt r6.x, l(2.200000), r5.w
-						r6.x = (2.2 < r5.w) ? 1.0 : 0.0;
+						r6.x = (2.2 < r5.w) ? -1.0 : 0.0;
 							// if_nz r6.x
 						if (any(r6.x)) {
 							// iadd r6.x, r5.x, l(1)
@@ -141737,7 +143439,7 @@ Shader "ShaderRipperTest/VariantMonster"
 					// mul r4.xy, r4.zwzz, l(1.040000, 1.040000, 0.000000, 0.000000)
 					r4.xy = float2(r4.z * 1.04, r4.w * 1.04);
 					// lt r5.xy, r3.wwww, l(0.600000, 1.400000, 0.000000, 0.000000)
-					r5.xy = float2((r3.w < 0.6) ? 1.0 : 0.0, (r3.w < 1.4) ? 1.0 : 0.0);
+					r5.xy = float2((r3.w < 0.6) ? -1.0 : 0.0, (r3.w < 1.4) ? -1.0 : 0.0);
 					// add r5.zw, r4.zzzw, l(0.000000, 0.000000, 0.020000, 0.010000)
 					r5.zw = float2(r4.z + 0.02, r4.w + 0.01);
 					// mov_sat r4.zw, r4.zzzw
@@ -141749,7 +143451,7 @@ Shader "ShaderRipperTest/VariantMonster"
 					// movc r4.xy, r5.xxxx, r4.xyxx, r5.yzyy
 					r4.xy = float2(r5.x != 0.0 ? r4.x : r5.y, r5.x != 0.0 ? r4.y : r5.z);
 					// lt r3.z, l(1.500000), r4.x
-					r3.z = (1.5 < r4.x) ? 1.0 : 0.0;
+					r3.z = (1.5 < r4.x) ? -1.0 : 0.0;
 						// if_nz r3.z
 					if (any(r3.z)) {
 						// mov r3.x, r4.y
@@ -141765,7 +143467,7 @@ Shader "ShaderRipperTest/VariantMonster"
 				// endloop
 				}
 				// lt r1.w, l(0.500000), cb0[10].w
-				r1.w = (0.5 < cb0[10].w) ? 1.0 : 0.0;
+				r1.w = (0.5 < cb0[10].w) ? -1.0 : 0.0;
 					// if_nz r1.w
 				if (any(r1.w)) {
 					// mul r1.w, r0.x, l(0.250000)
@@ -141887,7 +143589,7 @@ Shader "ShaderRipperTest/VariantMonster"
 				// endif
 				}
 				// lt r1.w, l(0.500000), cb0[11].x
-				r1.w = (0.5 < cb0[11].x) ? 1.0 : 0.0;
+				r1.w = (0.5 < cb0[11].x) ? -1.0 : 0.0;
 					// if_nz r1.w
 				if (any(r1.w)) {
 					// mul r4.xyzw, cb0[8].wwww, l(0.300000, 0.520000, 0.740000, 0.960000)
@@ -141898,6 +143600,8 @@ Shader "ShaderRipperTest/VariantMonster"
 					r1.w = sin(r1.w);
 					// mad r2.w, r0.w, r4.x, -r0.x
 					r2.w = mad(r0.w, r4.x, -(r0.x));
+					// sincos null, r2.w, r2.w
+					r2.w = cos(r2.w);
 					// add r3.y, r0.w, r0.z
 					r3.y = r0.w + r0.z;
 					// mul r5.xyzw, r4.xyzw, r3.yyyy
@@ -141909,27 +143613,31 @@ Shader "ShaderRipperTest/VariantMonster"
 					// mad r3.w, r0.z, r4.y, r6.x
 					r3.w = mad(r0.z, r4.y, r6.x);
 					// sincos r3.zw, null, r3.zzzw
-					r3.zw = sin(r3.zzzw);
+					r3.zw = float2(sin(r3.z), sin(r3.w));
 					// add r1.w, r1.w, r3.w
 					r1.w = r1.w + r3.w;
 					// mad r3.w, r0.w, r4.y, -r6.x
 					r3.w = mad(r0.w, r4.y, -(r6.x));
+					// sincos null, r3.w, r3.w
+					r3.w = cos(r3.w);
 					// add r2.w, r2.w, r3.w
 					r2.w = r2.w + r3.w;
 					// mad r5.xyz, r5.yzwy, l(0.600000, 0.600000, 0.600000, 0.000000), r6.xyzx
 					r5.xyz = float3(mad(r5.y, 0.6, r6.x), mad(r5.z, 0.6, r6.y), mad(r5.w, 0.6, r6.z));
 					// sincos r5.xyz, null, r5.xyzx
-					r5.xyz = sin(r5.xyzx);
+					r5.xyz = float3(sin(r5.x), sin(r5.y), sin(r5.z));
 					// add r3.z, r3.z, r5.x
 					r3.z = r3.z + r5.x;
 					// mad r4.xy, r0.zzzz, r4.zwzz, r6.yzyy
 					r4.xy = float2(mad(r0.z, r4.z, r6.y), mad(r0.z, r4.w, r6.z));
 					// sincos r4.xy, null, r4.xyxx
-					r4.xy = sin(r4.xyxx);
+					r4.xy = float2(sin(r4.x), sin(r4.y));
 					// add r1.w, r1.w, r4.x
 					r1.w = r1.w + r4.x;
 					// mad r4.xz, r0.wwww, r4.zzwz, -r6.yyzy
 					r4.xz = float2(mad(r0.w, r4.z, -(r6.y)), mad(r0.w, r4.w, -(r6.z)));
+					// sincos null, r4.xz, r4.xxzx
+					r4.xz = float2(cos(r4.x), cos(r4.z));
 					// add r2.w, r2.w, r4.x
 					r2.w = r2.w + r4.x;
 					// add r3.z, r5.y, r3.z
@@ -141950,6 +143658,8 @@ Shader "ShaderRipperTest/VariantMonster"
 					r1.w = r1.w + r3.w;
 					// mad r3.w, r0.w, r4.x, -r6.w
 					r3.w = mad(r0.w, r4.x, -(r6.w));
+					// sincos null, r3.w, r3.w
+					r3.w = cos(r3.w);
 					// add r2.w, r2.w, r3.w
 					r2.w = r2.w + r3.w;
 					// mul r3.yw, r3.yyyy, r4.xxxy
@@ -141970,6 +143680,8 @@ Shader "ShaderRipperTest/VariantMonster"
 					r5.x = r1.w + r4.x;
 					// mad r1.w, r0.w, r4.y, -r3.z
 					r1.w = mad(r0.w, r4.y, -(r3.z));
+					// sincos null, r1.w, r1.w
+					r1.w = cos(r1.w);
 					// add r5.y, r1.w, r2.w
 					r5.y = r1.w + r2.w;
 					// mad r1.w, r3.w, l(0.600000), r3.z
@@ -141997,7 +143709,7 @@ Shader "ShaderRipperTest/VariantMonster"
 				// mul r0.y, r0.y, r1.z
 				r0.y = r0.y * r1.z;
 				// lt r1.z, r0.y, cb0[9].w
-				r1.z = (r0.y < cb0[9].w) ? 1.0 : 0.0;
+				r1.z = (r0.y < cb0[9].w) ? -1.0 : 0.0;
 				// discard_nz r1.z
 				if (any(r1.z)) discard;
 				// mul_sat r1.x, r1.x, l(1.400000)
@@ -142066,7 +143778,7 @@ Shader "ShaderRipperTest/VariantMonster"
 				// mul r0.z, cb0[8].z, l(0.500000)
 				r0.z = cb0[8].z * 0.5;
 				// lt r0.z, r0.x, r0.z
-				r0.z = (r0.x < r0.z) ? 1.0 : 0.0;
+				r0.z = (r0.x < r0.z) ? -1.0 : 0.0;
 				// mad r0.w, -r0.x, l(3.000000), l(1.000000)
 				r0.w = mad(-(r0.x), 3.0, 1.0);
 				// max r0.w, r0.w, l(0.000000)
@@ -142078,7 +143790,7 @@ Shader "ShaderRipperTest/VariantMonster"
 				// mad r2.xyz, r2.xyzx, cb0[8].zzzz, r1.xyzx
 				r2.xyz = float3(mad(r2.x, cb0[8].z, r1.x), mad(r2.y, cb0[8].z, r1.y), mad(r2.z, cb0[8].z, r1.z));
 				// lt r0.x, r0.x, l(0.400000)
-				r0.x = (r0.x < 0.4) ? 1.0 : 0.0;
+				r0.x = (r0.x < 0.4) ? -1.0 : 0.0;
 				// mul r3.xyz, r1.xyzx, l(0.920000, 0.920000, 0.920000, 0.000000)
 				r3.xyz = float3(r1.x * 0.92, r1.y * 0.92, r1.z * 0.92);
 				// movc r1.xyz, r0.xxxx, r3.xyzx, r1.xyzx
@@ -142100,7 +143812,7 @@ Shader "ShaderRipperTest/VariantMonster"
 				// mul r0.xzw, r0.xxzw, cb0[10].yyyy
 				r0.xzw = float3(r0.x * cb0[10].y, r0.z * cb0[10].y, r0.w * cb0[10].y);
 				// lt r1.x, l(0.500000), cb0[11].y
-				r1.x = (0.5 < cb0[11].y) ? 1.0 : 0.0;
+				r1.x = (0.5 < cb0[11].y) ? -1.0 : 0.0;
 				// mul r1.yz, v1.xxyx, cb1[6].xxyx
 				r1.yz = float2(v1.x * _ScreenParams.x, v1.y * _ScreenParams.y);
 				// mul r1.yz, r1.yyzy, l(0.000000, 127.099998, 311.700012, 0.000000)
@@ -142164,6 +143876,28 @@ Shader "ShaderRipperTest/VariantMonster"
 			//   unnamed single lanes are shared by the Float/Range prop(s): _Iterations, _Steps, _WarpDepth, _Threshold, _Contrast, _Emission, _Saturation, _ToggleDetail, _ToggleBands, _ToggleDither
 			// cb1 = UnityPerDraw  (declared by UnityCG.cginc)
 			// cb2 = UnityPerFrame  (declared by UnityCG.cginc)
+			float4 _MainTex_TexelSize;
+			float4 _NoiseTex_ST;
+			float4 _NoiseTex_TexelSize;
+			float4 _DetailTex_ST;
+			float4 _DetailTex_TexelSize;
+			float4 _MaskTex_ST;
+			float4 _MaskTex_TexelSize;
+			float4 _Color;
+			float4 _ColorC;
+			float4 _Params;
+			float4 _Params2;
+			float4 _Params3;
+			float _Iterations;
+			float _Steps;
+			float _WarpDepth;
+			float _Threshold;
+			float _Contrast;
+			float _Emission;
+			float _Saturation;
+			float _ToggleDetail;
+			float _ToggleBands;
+			float _ToggleDither;
 			// cbuffer order confirmed by the asset's own register index
 			// $Globals cb0: 1 slot(s) named from the compiled constant-buffer member table
 
@@ -142201,7 +143935,7 @@ Shader "ShaderRipperTest/VariantMonster"
 				// sample r0.xyzw, v1.xyxx, t0.xyzw, s3
 				r0.xyzw = tex2D(_MaskTex, float2(v1.x, v1.y));
 				// lt r0.x, r0.w, cb0[9].w
-				r0.x = (r0.w < cb0[9].w) ? 1.0 : 0.0;
+				r0.x = (r0.w < cb0[9].w) ? -1.0 : 0.0;
 				// discard_nz r0.x
 				if (any(r0.x)) discard;
 				// mul r0.x, cb0[6].z, cb1[0].y
@@ -143071,7 +144805,7 @@ Shader "ShaderRipperTest/VariantMonster"
 					// loop
 				for (;;) {
 					// ige r3.z, r1.w, r2.x
-					r3.z = (((int)(r1.w) >= (int)(r2.x)) ? 1 : 0);
+					r3.z = (((int)(r1.w) >= (int)(r2.x)) ? -1 : 0);
 					// breakc_nz r3.z
 					if (any(r3.z)) break;
 					// itof r3.z, r1.w
@@ -143493,7 +145227,7 @@ Shader "ShaderRipperTest/VariantMonster"
 						// loop
 					for (;;) {
 						// ige r5.y, r5.x, r2.y
-						r5.y = (((int)(r5.x) >= (int)(r2.y)) ? 1 : 0);
+						r5.y = (((int)(r5.x) >= (int)(r2.y)) ? -1 : 0);
 						// breakc_nz r5.y
 						if (any(r5.y)) break;
 						// itof r5.y, r5.x
@@ -143584,7 +145318,7 @@ Shader "ShaderRipperTest/VariantMonster"
 						// mad r5.w, |r5.w|, l(2.000000), r3.w
 						r5.w = mad(abs(r5.w), 2.0, r3.w);
 						// lt r6.x, l(2.200000), r5.w
-						r6.x = (2.2 < r5.w) ? 1.0 : 0.0;
+						r6.x = (2.2 < r5.w) ? -1.0 : 0.0;
 							// if_nz r6.x
 						if (any(r6.x)) {
 							// iadd r6.x, r5.x, l(1)
@@ -143618,7 +145352,7 @@ Shader "ShaderRipperTest/VariantMonster"
 					// mul r4.xy, r4.zwzz, l(1.040000, 1.040000, 0.000000, 0.000000)
 					r4.xy = float2(r4.z * 1.04, r4.w * 1.04);
 					// lt r5.xy, r3.wwww, l(0.600000, 1.400000, 0.000000, 0.000000)
-					r5.xy = float2((r3.w < 0.6) ? 1.0 : 0.0, (r3.w < 1.4) ? 1.0 : 0.0);
+					r5.xy = float2((r3.w < 0.6) ? -1.0 : 0.0, (r3.w < 1.4) ? -1.0 : 0.0);
 					// add r5.zw, r4.zzzw, l(0.000000, 0.000000, 0.020000, 0.010000)
 					r5.zw = float2(r4.z + 0.02, r4.w + 0.01);
 					// mov_sat r4.zw, r4.zzzw
@@ -143630,7 +145364,7 @@ Shader "ShaderRipperTest/VariantMonster"
 					// movc r4.xy, r5.xxxx, r4.xyxx, r5.yzyy
 					r4.xy = float2(r5.x != 0.0 ? r4.x : r5.y, r5.x != 0.0 ? r4.y : r5.z);
 					// lt r3.z, l(1.500000), r4.x
-					r3.z = (1.5 < r4.x) ? 1.0 : 0.0;
+					r3.z = (1.5 < r4.x) ? -1.0 : 0.0;
 						// if_nz r3.z
 					if (any(r3.z)) {
 						// mov r3.x, r4.y
@@ -143646,7 +145380,7 @@ Shader "ShaderRipperTest/VariantMonster"
 				// endloop
 				}
 				// lt r1.w, l(0.500000), cb0[10].w
-				r1.w = (0.5 < cb0[10].w) ? 1.0 : 0.0;
+				r1.w = (0.5 < cb0[10].w) ? -1.0 : 0.0;
 					// if_nz r1.w
 				if (any(r1.w)) {
 					// mul r1.w, r0.x, l(0.250000)
@@ -143768,7 +145502,7 @@ Shader "ShaderRipperTest/VariantMonster"
 				// endif
 				}
 				// lt r1.w, l(0.500000), cb0[11].x
-				r1.w = (0.5 < cb0[11].x) ? 1.0 : 0.0;
+				r1.w = (0.5 < cb0[11].x) ? -1.0 : 0.0;
 					// if_nz r1.w
 				if (any(r1.w)) {
 					// mul r4.xyzw, cb0[8].wwww, l(0.300000, 0.520000, 0.740000, 0.960000)
@@ -143779,6 +145513,8 @@ Shader "ShaderRipperTest/VariantMonster"
 					r1.w = sin(r1.w);
 					// mad r2.w, r0.w, r4.x, -r0.x
 					r2.w = mad(r0.w, r4.x, -(r0.x));
+					// sincos null, r2.w, r2.w
+					r2.w = cos(r2.w);
 					// add r3.y, r0.w, r0.z
 					r3.y = r0.w + r0.z;
 					// mul r5.xyzw, r4.xyzw, r3.yyyy
@@ -143790,27 +145526,31 @@ Shader "ShaderRipperTest/VariantMonster"
 					// mad r3.w, r0.z, r4.y, r6.x
 					r3.w = mad(r0.z, r4.y, r6.x);
 					// sincos r3.zw, null, r3.zzzw
-					r3.zw = sin(r3.zzzw);
+					r3.zw = float2(sin(r3.z), sin(r3.w));
 					// add r1.w, r1.w, r3.w
 					r1.w = r1.w + r3.w;
 					// mad r3.w, r0.w, r4.y, -r6.x
 					r3.w = mad(r0.w, r4.y, -(r6.x));
+					// sincos null, r3.w, r3.w
+					r3.w = cos(r3.w);
 					// add r2.w, r2.w, r3.w
 					r2.w = r2.w + r3.w;
 					// mad r5.xyz, r5.yzwy, l(0.600000, 0.600000, 0.600000, 0.000000), r6.xyzx
 					r5.xyz = float3(mad(r5.y, 0.6, r6.x), mad(r5.z, 0.6, r6.y), mad(r5.w, 0.6, r6.z));
 					// sincos r5.xyz, null, r5.xyzx
-					r5.xyz = sin(r5.xyzx);
+					r5.xyz = float3(sin(r5.x), sin(r5.y), sin(r5.z));
 					// add r3.z, r3.z, r5.x
 					r3.z = r3.z + r5.x;
 					// mad r4.xy, r0.zzzz, r4.zwzz, r6.yzyy
 					r4.xy = float2(mad(r0.z, r4.z, r6.y), mad(r0.z, r4.w, r6.z));
 					// sincos r4.xy, null, r4.xyxx
-					r4.xy = sin(r4.xyxx);
+					r4.xy = float2(sin(r4.x), sin(r4.y));
 					// add r1.w, r1.w, r4.x
 					r1.w = r1.w + r4.x;
 					// mad r4.xz, r0.wwww, r4.zzwz, -r6.yyzy
 					r4.xz = float2(mad(r0.w, r4.z, -(r6.y)), mad(r0.w, r4.w, -(r6.z)));
+					// sincos null, r4.xz, r4.xxzx
+					r4.xz = float2(cos(r4.x), cos(r4.z));
 					// add r2.w, r2.w, r4.x
 					r2.w = r2.w + r4.x;
 					// add r3.z, r5.y, r3.z
@@ -143831,6 +145571,8 @@ Shader "ShaderRipperTest/VariantMonster"
 					r1.w = r1.w + r3.w;
 					// mad r3.w, r0.w, r4.x, -r6.w
 					r3.w = mad(r0.w, r4.x, -(r6.w));
+					// sincos null, r3.w, r3.w
+					r3.w = cos(r3.w);
 					// add r2.w, r2.w, r3.w
 					r2.w = r2.w + r3.w;
 					// mul r3.yw, r3.yyyy, r4.xxxy
@@ -143851,6 +145593,8 @@ Shader "ShaderRipperTest/VariantMonster"
 					r5.x = r1.w + r4.x;
 					// mad r1.w, r0.w, r4.y, -r3.z
 					r1.w = mad(r0.w, r4.y, -(r3.z));
+					// sincos null, r1.w, r1.w
+					r1.w = cos(r1.w);
 					// add r5.y, r1.w, r2.w
 					r5.y = r1.w + r2.w;
 					// mad r1.w, r3.w, l(0.600000), r3.z
@@ -143878,7 +145622,7 @@ Shader "ShaderRipperTest/VariantMonster"
 				// mul r0.y, r0.y, r1.z
 				r0.y = r0.y * r1.z;
 				// lt r1.z, r0.y, cb0[9].w
-				r1.z = (r0.y < cb0[9].w) ? 1.0 : 0.0;
+				r1.z = (r0.y < cb0[9].w) ? -1.0 : 0.0;
 				// discard_nz r1.z
 				if (any(r1.z)) discard;
 				// mul_sat r1.x, r1.x, l(1.400000)
@@ -143923,7 +145667,7 @@ Shader "ShaderRipperTest/VariantMonster"
 				// mad r3.yzw, -r6.xxyz, r3.yyzw, l(0.000000, 1.000000, 1.000000, 1.000000)
 				r3.yzw = float3(mad(-(r6.x), r3.y, 1.0), mad(-(r6.y), r3.z, 1.0), mad(-(r6.z), r3.w, 1.0));
 				// ge r1.xyz, r1.xyzx, l(0.500000, 0.500000, 0.500000, 0.000000)
-				r1.xyz = float3((r1.x >= 0.5) ? 1.0 : 0.0, (r1.y >= 0.5) ? 1.0 : 0.0, (r1.z >= 0.5) ? 1.0 : 0.0);
+				r1.xyz = float3((r1.x >= 0.5) ? -1.0 : 0.0, (r1.y >= 0.5) ? -1.0 : 0.0, (r1.z >= 0.5) ? -1.0 : 0.0);
 				// and r1.xyz, r1.xyzx, l(0x3f800000, 0x3f800000, 0x3f800000, 0)
 				r1.xyz = float3((((r1.x) != 0.0) ? 1.0 : 0.0), (((r1.y) != 0.0) ? 1.0 : 0.0), (((r1.z) != 0.0) ? 1.0 : 0.0));
 				// mad r3.yzw, -r4.xxyz, l(0.000000, 2.000000, 2.000000, 2.000000), r3.yyzw
@@ -143965,7 +145709,7 @@ Shader "ShaderRipperTest/VariantMonster"
 				// mul r0.z, cb0[8].z, l(0.500000)
 				r0.z = cb0[8].z * 0.5;
 				// lt r0.z, r0.x, r0.z
-				r0.z = (r0.x < r0.z) ? 1.0 : 0.0;
+				r0.z = (r0.x < r0.z) ? -1.0 : 0.0;
 				// mad r0.w, -r0.x, l(3.000000), l(1.000000)
 				r0.w = mad(-(r0.x), 3.0, 1.0);
 				// max r0.w, r0.w, l(0.000000)
@@ -143977,7 +145721,7 @@ Shader "ShaderRipperTest/VariantMonster"
 				// mad r2.xyz, r2.xyzx, cb0[8].zzzz, r1.xyzx
 				r2.xyz = float3(mad(r2.x, cb0[8].z, r1.x), mad(r2.y, cb0[8].z, r1.y), mad(r2.z, cb0[8].z, r1.z));
 				// lt r0.x, r0.x, l(0.400000)
-				r0.x = (r0.x < 0.4) ? 1.0 : 0.0;
+				r0.x = (r0.x < 0.4) ? -1.0 : 0.0;
 				// mul r3.xyz, r1.xyzx, l(0.920000, 0.920000, 0.920000, 0.000000)
 				r3.xyz = float3(r1.x * 0.92, r1.y * 0.92, r1.z * 0.92);
 				// movc r1.xyz, r0.xxxx, r3.xyzx, r1.xyzx
@@ -143999,7 +145743,7 @@ Shader "ShaderRipperTest/VariantMonster"
 				// mul r0.xzw, r0.xxzw, cb0[10].yyyy
 				r0.xzw = float3(r0.x * cb0[10].y, r0.z * cb0[10].y, r0.w * cb0[10].y);
 				// lt r1.x, l(0.500000), cb0[11].y
-				r1.x = (0.5 < cb0[11].y) ? 1.0 : 0.0;
+				r1.x = (0.5 < cb0[11].y) ? -1.0 : 0.0;
 				// mul r1.yz, v1.xxyx, cb1[6].xxyx
 				r1.yz = float2(v1.x * _ScreenParams.x, v1.y * _ScreenParams.y);
 				// mul r1.yz, r1.yyzy, l(0.000000, 127.099998, 311.700012, 0.000000)
@@ -144064,6 +145808,27 @@ Shader "ShaderRipperTest/VariantMonster"
 			//   unnamed single lanes are shared by the Float/Range prop(s): _Iterations, _Steps, _WarpDepth, _Threshold, _Contrast, _Emission, _Saturation, _ToggleDetail, _ToggleBands, _ToggleDither
 			// cb1 = UnityPerDraw  (declared by UnityCG.cginc)
 			// cb2 = UnityPerFrame  (declared by UnityCG.cginc)
+			float4 _MainTex_TexelSize;
+			float4 _NoiseTex_ST;
+			float4 _NoiseTex_TexelSize;
+			float4 _DetailTex_ST;
+			float4 _DetailTex_TexelSize;
+			float4 _MaskTex_ST;
+			float4 _MaskTex_TexelSize;
+			float4 _Color;
+			float4 _ColorC;
+			float4 _Params;
+			float4 _Params3;
+			float _Iterations;
+			float _Steps;
+			float _WarpDepth;
+			float _Threshold;
+			float _Contrast;
+			float _Emission;
+			float _Saturation;
+			float _ToggleDetail;
+			float _ToggleBands;
+			float _ToggleDither;
 			// cbuffer order confirmed by the asset's own register index
 			// $Globals cb0: 1 slot(s) named from the compiled constant-buffer member table
 			// $Globals cb0: 2 slot(s) named from the compiled constant-buffer member table
@@ -144102,7 +145867,7 @@ Shader "ShaderRipperTest/VariantMonster"
 				// sample r0.xyzw, v1.xyxx, t0.xyzw, s3
 				r0.xyzw = tex2D(_MaskTex, float2(v1.x, v1.y));
 				// lt r0.x, r0.w, cb0[9].w
-				r0.x = (r0.w < cb0[9].w) ? 1.0 : 0.0;
+				r0.x = (r0.w < cb0[9].w) ? -1.0 : 0.0;
 				// discard_nz r0.x
 				if (any(r0.x)) discard;
 				// mul r0.x, cb0[6].z, cb1[0].y
@@ -144998,7 +146763,7 @@ Shader "ShaderRipperTest/VariantMonster"
 					// loop
 				for (;;) {
 					// ige r3.z, r1.w, r2.x
-					r3.z = (((int)(r1.w) >= (int)(r2.x)) ? 1 : 0);
+					r3.z = (((int)(r1.w) >= (int)(r2.x)) ? -1 : 0);
 					// breakc_nz r3.z
 					if (any(r3.z)) break;
 					// itof r3.z, r1.w
@@ -145420,7 +147185,7 @@ Shader "ShaderRipperTest/VariantMonster"
 						// loop
 					for (;;) {
 						// ige r5.y, r5.x, r2.y
-						r5.y = (((int)(r5.x) >= (int)(r2.y)) ? 1 : 0);
+						r5.y = (((int)(r5.x) >= (int)(r2.y)) ? -1 : 0);
 						// breakc_nz r5.y
 						if (any(r5.y)) break;
 						// itof r5.y, r5.x
@@ -145511,7 +147276,7 @@ Shader "ShaderRipperTest/VariantMonster"
 						// mad r5.w, |r5.w|, l(2.000000), r3.w
 						r5.w = mad(abs(r5.w), 2.0, r3.w);
 						// lt r6.x, l(2.200000), r5.w
-						r6.x = (2.2 < r5.w) ? 1.0 : 0.0;
+						r6.x = (2.2 < r5.w) ? -1.0 : 0.0;
 							// if_nz r6.x
 						if (any(r6.x)) {
 							// iadd r6.x, r5.x, l(1)
@@ -145545,7 +147310,7 @@ Shader "ShaderRipperTest/VariantMonster"
 					// mul r4.xy, r4.zwzz, l(1.040000, 1.040000, 0.000000, 0.000000)
 					r4.xy = float2(r4.z * 1.04, r4.w * 1.04);
 					// lt r5.xy, r3.wwww, l(0.600000, 1.400000, 0.000000, 0.000000)
-					r5.xy = float2((r3.w < 0.6) ? 1.0 : 0.0, (r3.w < 1.4) ? 1.0 : 0.0);
+					r5.xy = float2((r3.w < 0.6) ? -1.0 : 0.0, (r3.w < 1.4) ? -1.0 : 0.0);
 					// add r5.zw, r4.zzzw, l(0.000000, 0.000000, 0.020000, 0.010000)
 					r5.zw = float2(r4.z + 0.02, r4.w + 0.01);
 					// mov_sat r4.zw, r4.zzzw
@@ -145557,7 +147322,7 @@ Shader "ShaderRipperTest/VariantMonster"
 					// movc r4.xy, r5.xxxx, r4.xyxx, r5.yzyy
 					r4.xy = float2(r5.x != 0.0 ? r4.x : r5.y, r5.x != 0.0 ? r4.y : r5.z);
 					// lt r3.z, l(1.500000), r4.x
-					r3.z = (1.5 < r4.x) ? 1.0 : 0.0;
+					r3.z = (1.5 < r4.x) ? -1.0 : 0.0;
 						// if_nz r3.z
 					if (any(r3.z)) {
 						// mov r3.x, r4.y
@@ -145573,7 +147338,7 @@ Shader "ShaderRipperTest/VariantMonster"
 				// endloop
 				}
 				// lt r1.w, l(0.500000), cb0[10].w
-				r1.w = (0.5 < cb0[10].w) ? 1.0 : 0.0;
+				r1.w = (0.5 < cb0[10].w) ? -1.0 : 0.0;
 					// if_nz r1.w
 				if (any(r1.w)) {
 					// mul r1.w, r0.x, l(0.250000)
@@ -145695,7 +147460,7 @@ Shader "ShaderRipperTest/VariantMonster"
 				// endif
 				}
 				// lt r1.w, l(0.500000), cb0[11].x
-				r1.w = (0.5 < cb0[11].x) ? 1.0 : 0.0;
+				r1.w = (0.5 < cb0[11].x) ? -1.0 : 0.0;
 					// if_nz r1.w
 				if (any(r1.w)) {
 					// mul r4.xyzw, cb0[8].wwww, l(0.300000, 0.520000, 0.740000, 0.960000)
@@ -145706,6 +147471,8 @@ Shader "ShaderRipperTest/VariantMonster"
 					r1.w = sin(r1.w);
 					// mad r2.w, r0.w, r4.x, -r0.x
 					r2.w = mad(r0.w, r4.x, -(r0.x));
+					// sincos null, r2.w, r2.w
+					r2.w = cos(r2.w);
 					// add r3.y, r0.w, r0.z
 					r3.y = r0.w + r0.z;
 					// mul r5.xyzw, r4.xyzw, r3.yyyy
@@ -145717,27 +147484,31 @@ Shader "ShaderRipperTest/VariantMonster"
 					// mad r3.w, r0.z, r4.y, r6.x
 					r3.w = mad(r0.z, r4.y, r6.x);
 					// sincos r3.zw, null, r3.zzzw
-					r3.zw = sin(r3.zzzw);
+					r3.zw = float2(sin(r3.z), sin(r3.w));
 					// add r1.w, r1.w, r3.w
 					r1.w = r1.w + r3.w;
 					// mad r3.w, r0.w, r4.y, -r6.x
 					r3.w = mad(r0.w, r4.y, -(r6.x));
+					// sincos null, r3.w, r3.w
+					r3.w = cos(r3.w);
 					// add r2.w, r2.w, r3.w
 					r2.w = r2.w + r3.w;
 					// mad r5.xyz, r5.yzwy, l(0.600000, 0.600000, 0.600000, 0.000000), r6.xyzx
 					r5.xyz = float3(mad(r5.y, 0.6, r6.x), mad(r5.z, 0.6, r6.y), mad(r5.w, 0.6, r6.z));
 					// sincos r5.xyz, null, r5.xyzx
-					r5.xyz = sin(r5.xyzx);
+					r5.xyz = float3(sin(r5.x), sin(r5.y), sin(r5.z));
 					// add r3.z, r3.z, r5.x
 					r3.z = r3.z + r5.x;
 					// mad r4.xy, r0.zzzz, r4.zwzz, r6.yzyy
 					r4.xy = float2(mad(r0.z, r4.z, r6.y), mad(r0.z, r4.w, r6.z));
 					// sincos r4.xy, null, r4.xyxx
-					r4.xy = sin(r4.xyxx);
+					r4.xy = float2(sin(r4.x), sin(r4.y));
 					// add r1.w, r1.w, r4.x
 					r1.w = r1.w + r4.x;
 					// mad r4.xz, r0.wwww, r4.zzwz, -r6.yyzy
 					r4.xz = float2(mad(r0.w, r4.z, -(r6.y)), mad(r0.w, r4.w, -(r6.z)));
+					// sincos null, r4.xz, r4.xxzx
+					r4.xz = float2(cos(r4.x), cos(r4.z));
 					// add r2.w, r2.w, r4.x
 					r2.w = r2.w + r4.x;
 					// add r3.z, r5.y, r3.z
@@ -145758,6 +147529,8 @@ Shader "ShaderRipperTest/VariantMonster"
 					r1.w = r1.w + r3.w;
 					// mad r3.w, r0.w, r4.x, -r6.w
 					r3.w = mad(r0.w, r4.x, -(r6.w));
+					// sincos null, r3.w, r3.w
+					r3.w = cos(r3.w);
 					// add r2.w, r2.w, r3.w
 					r2.w = r2.w + r3.w;
 					// mul r3.yw, r3.yyyy, r4.xxxy
@@ -145778,6 +147551,8 @@ Shader "ShaderRipperTest/VariantMonster"
 					r5.x = r1.w + r4.x;
 					// mad r1.w, r0.w, r4.y, -r3.z
 					r1.w = mad(r0.w, r4.y, -(r3.z));
+					// sincos null, r1.w, r1.w
+					r1.w = cos(r1.w);
 					// add r5.y, r1.w, r2.w
 					r5.y = r1.w + r2.w;
 					// mad r1.w, r3.w, l(0.600000), r3.z
@@ -145805,7 +147580,7 @@ Shader "ShaderRipperTest/VariantMonster"
 				// mul r0.y, r0.y, r1.z
 				r0.y = r0.y * r1.z;
 				// lt r1.z, r0.y, cb0[9].w
-				r1.z = (r0.y < cb0[9].w) ? 1.0 : 0.0;
+				r1.z = (r0.y < cb0[9].w) ? -1.0 : 0.0;
 				// discard_nz r1.z
 				if (any(r1.z)) discard;
 				// mul_sat r1.x, r1.x, l(1.400000)
@@ -145850,7 +147625,7 @@ Shader "ShaderRipperTest/VariantMonster"
 				// mad r3.yzw, -r6.xxyz, r3.yyzw, l(0.000000, 1.000000, 1.000000, 1.000000)
 				r3.yzw = float3(mad(-(r6.x), r3.y, 1.0), mad(-(r6.y), r3.z, 1.0), mad(-(r6.z), r3.w, 1.0));
 				// ge r1.xyz, r1.xyzx, l(0.500000, 0.500000, 0.500000, 0.000000)
-				r1.xyz = float3((r1.x >= 0.5) ? 1.0 : 0.0, (r1.y >= 0.5) ? 1.0 : 0.0, (r1.z >= 0.5) ? 1.0 : 0.0);
+				r1.xyz = float3((r1.x >= 0.5) ? -1.0 : 0.0, (r1.y >= 0.5) ? -1.0 : 0.0, (r1.z >= 0.5) ? -1.0 : 0.0);
 				// and r1.xyz, r1.xyzx, l(0x3f800000, 0x3f800000, 0x3f800000, 0)
 				r1.xyz = float3((((r1.x) != 0.0) ? 1.0 : 0.0), (((r1.y) != 0.0) ? 1.0 : 0.0), (((r1.z) != 0.0) ? 1.0 : 0.0));
 				// mad r3.yzw, -r4.xxyz, l(0.000000, 2.000000, 2.000000, 2.000000), r3.yyzw
@@ -145892,7 +147667,7 @@ Shader "ShaderRipperTest/VariantMonster"
 				// mul r0.z, cb0[8].z, l(0.500000)
 				r0.z = cb0[8].z * 0.5;
 				// lt r0.z, r0.x, r0.z
-				r0.z = (r0.x < r0.z) ? 1.0 : 0.0;
+				r0.z = (r0.x < r0.z) ? -1.0 : 0.0;
 				// mad r0.w, -r0.x, l(3.000000), l(1.000000)
 				r0.w = mad(-(r0.x), 3.0, 1.0);
 				// max r0.w, r0.w, l(0.000000)
@@ -145904,7 +147679,7 @@ Shader "ShaderRipperTest/VariantMonster"
 				// mad r2.xyz, r2.xyzx, cb0[8].zzzz, r1.xyzx
 				r2.xyz = float3(mad(r2.x, cb0[8].z, r1.x), mad(r2.y, cb0[8].z, r1.y), mad(r2.z, cb0[8].z, r1.z));
 				// lt r0.x, r0.x, l(0.400000)
-				r0.x = (r0.x < 0.4) ? 1.0 : 0.0;
+				r0.x = (r0.x < 0.4) ? -1.0 : 0.0;
 				// mul r3.xyz, r1.xyzx, l(0.920000, 0.920000, 0.920000, 0.000000)
 				r3.xyz = float3(r1.x * 0.92, r1.y * 0.92, r1.z * 0.92);
 				// movc r1.xyz, r0.xxxx, r3.xyzx, r1.xyzx
@@ -145926,7 +147701,7 @@ Shader "ShaderRipperTest/VariantMonster"
 				// mul r0.xzw, r0.xxzw, cb0[10].yyyy
 				r0.xzw = float3(r0.x * cb0[10].y, r0.z * cb0[10].y, r0.w * cb0[10].y);
 				// lt r1.x, l(0.500000), cb0[11].y
-				r1.x = (0.5 < cb0[11].y) ? 1.0 : 0.0;
+				r1.x = (0.5 < cb0[11].y) ? -1.0 : 0.0;
 				// mul r1.yz, v1.xxyx, cb1[6].xxyx
 				r1.yz = float2(v1.x * _ScreenParams.x, v1.y * _ScreenParams.y);
 				// mul r1.yz, r1.yyzy, l(0.000000, 127.099998, 311.700012, 0.000000)
@@ -145990,6 +147765,28 @@ Shader "ShaderRipperTest/VariantMonster"
 			//   unnamed single lanes are shared by the Float/Range prop(s): _Iterations, _Steps, _WarpDepth, _Threshold, _Contrast, _Emission, _Saturation, _ToggleDetail, _ToggleBands, _ToggleDither
 			// cb1 = UnityPerDraw  (declared by UnityCG.cginc)
 			// cb2 = UnityPerFrame  (declared by UnityCG.cginc)
+			float4 _MainTex_TexelSize;
+			float4 _NoiseTex_ST;
+			float4 _NoiseTex_TexelSize;
+			float4 _DetailTex_ST;
+			float4 _DetailTex_TexelSize;
+			float4 _MaskTex_ST;
+			float4 _MaskTex_TexelSize;
+			float4 _Color;
+			float4 _ColorC;
+			float4 _Params;
+			float4 _Params2;
+			float4 _Params3;
+			float _Iterations;
+			float _Steps;
+			float _WarpDepth;
+			float _Threshold;
+			float _Contrast;
+			float _Emission;
+			float _Saturation;
+			float _ToggleDetail;
+			float _ToggleBands;
+			float _ToggleDither;
 			// cbuffer order confirmed by the asset's own register index
 			// $Globals cb0: 1 slot(s) named from the compiled constant-buffer member table
 
@@ -146027,7 +147824,7 @@ Shader "ShaderRipperTest/VariantMonster"
 				// sample r0.xyzw, v1.xyxx, t0.xyzw, s3
 				r0.xyzw = tex2D(_MaskTex, float2(v1.x, v1.y));
 				// lt r0.x, r0.w, cb0[9].w
-				r0.x = (r0.w < cb0[9].w) ? 1.0 : 0.0;
+				r0.x = (r0.w < cb0[9].w) ? -1.0 : 0.0;
 				// discard_nz r0.x
 				if (any(r0.x)) discard;
 				// mul r0.x, cb0[6].z, cb1[0].y
@@ -146897,7 +148694,7 @@ Shader "ShaderRipperTest/VariantMonster"
 					// loop
 				for (;;) {
 					// ige r3.z, r1.w, r2.x
-					r3.z = (((int)(r1.w) >= (int)(r2.x)) ? 1 : 0);
+					r3.z = (((int)(r1.w) >= (int)(r2.x)) ? -1 : 0);
 					// breakc_nz r3.z
 					if (any(r3.z)) break;
 					// itof r3.z, r1.w
@@ -147319,7 +149116,7 @@ Shader "ShaderRipperTest/VariantMonster"
 						// loop
 					for (;;) {
 						// ige r5.y, r5.x, r2.y
-						r5.y = (((int)(r5.x) >= (int)(r2.y)) ? 1 : 0);
+						r5.y = (((int)(r5.x) >= (int)(r2.y)) ? -1 : 0);
 						// breakc_nz r5.y
 						if (any(r5.y)) break;
 						// itof r5.y, r5.x
@@ -147410,7 +149207,7 @@ Shader "ShaderRipperTest/VariantMonster"
 						// mad r5.w, |r5.w|, l(2.000000), r3.w
 						r5.w = mad(abs(r5.w), 2.0, r3.w);
 						// lt r6.x, l(2.200000), r5.w
-						r6.x = (2.2 < r5.w) ? 1.0 : 0.0;
+						r6.x = (2.2 < r5.w) ? -1.0 : 0.0;
 							// if_nz r6.x
 						if (any(r6.x)) {
 							// iadd r6.x, r5.x, l(1)
@@ -147444,7 +149241,7 @@ Shader "ShaderRipperTest/VariantMonster"
 					// mul r4.xy, r4.zwzz, l(1.040000, 1.040000, 0.000000, 0.000000)
 					r4.xy = float2(r4.z * 1.04, r4.w * 1.04);
 					// lt r5.xy, r3.wwww, l(0.600000, 1.400000, 0.000000, 0.000000)
-					r5.xy = float2((r3.w < 0.6) ? 1.0 : 0.0, (r3.w < 1.4) ? 1.0 : 0.0);
+					r5.xy = float2((r3.w < 0.6) ? -1.0 : 0.0, (r3.w < 1.4) ? -1.0 : 0.0);
 					// add r5.zw, r4.zzzw, l(0.000000, 0.000000, 0.020000, 0.010000)
 					r5.zw = float2(r4.z + 0.02, r4.w + 0.01);
 					// mov_sat r4.zw, r4.zzzw
@@ -147456,7 +149253,7 @@ Shader "ShaderRipperTest/VariantMonster"
 					// movc r4.xy, r5.xxxx, r4.xyxx, r5.yzyy
 					r4.xy = float2(r5.x != 0.0 ? r4.x : r5.y, r5.x != 0.0 ? r4.y : r5.z);
 					// lt r3.z, l(1.500000), r4.x
-					r3.z = (1.5 < r4.x) ? 1.0 : 0.0;
+					r3.z = (1.5 < r4.x) ? -1.0 : 0.0;
 						// if_nz r3.z
 					if (any(r3.z)) {
 						// mov r3.x, r4.y
@@ -147472,7 +149269,7 @@ Shader "ShaderRipperTest/VariantMonster"
 				// endloop
 				}
 				// lt r1.w, l(0.500000), cb0[10].w
-				r1.w = (0.5 < cb0[10].w) ? 1.0 : 0.0;
+				r1.w = (0.5 < cb0[10].w) ? -1.0 : 0.0;
 					// if_nz r1.w
 				if (any(r1.w)) {
 					// mul r1.w, r0.x, l(0.250000)
@@ -147594,7 +149391,7 @@ Shader "ShaderRipperTest/VariantMonster"
 				// endif
 				}
 				// lt r1.w, l(0.500000), cb0[11].x
-				r1.w = (0.5 < cb0[11].x) ? 1.0 : 0.0;
+				r1.w = (0.5 < cb0[11].x) ? -1.0 : 0.0;
 					// if_nz r1.w
 				if (any(r1.w)) {
 					// mul r4.xyzw, cb0[8].wwww, l(0.300000, 0.520000, 0.740000, 0.960000)
@@ -147605,6 +149402,8 @@ Shader "ShaderRipperTest/VariantMonster"
 					r1.w = sin(r1.w);
 					// mad r2.w, r0.w, r4.x, -r0.x
 					r2.w = mad(r0.w, r4.x, -(r0.x));
+					// sincos null, r2.w, r2.w
+					r2.w = cos(r2.w);
 					// add r3.y, r0.w, r0.z
 					r3.y = r0.w + r0.z;
 					// mul r5.xyzw, r4.xyzw, r3.yyyy
@@ -147616,27 +149415,31 @@ Shader "ShaderRipperTest/VariantMonster"
 					// mad r3.w, r0.z, r4.y, r6.x
 					r3.w = mad(r0.z, r4.y, r6.x);
 					// sincos r3.zw, null, r3.zzzw
-					r3.zw = sin(r3.zzzw);
+					r3.zw = float2(sin(r3.z), sin(r3.w));
 					// add r1.w, r1.w, r3.w
 					r1.w = r1.w + r3.w;
 					// mad r3.w, r0.w, r4.y, -r6.x
 					r3.w = mad(r0.w, r4.y, -(r6.x));
+					// sincos null, r3.w, r3.w
+					r3.w = cos(r3.w);
 					// add r2.w, r2.w, r3.w
 					r2.w = r2.w + r3.w;
 					// mad r5.xyz, r5.yzwy, l(0.600000, 0.600000, 0.600000, 0.000000), r6.xyzx
 					r5.xyz = float3(mad(r5.y, 0.6, r6.x), mad(r5.z, 0.6, r6.y), mad(r5.w, 0.6, r6.z));
 					// sincos r5.xyz, null, r5.xyzx
-					r5.xyz = sin(r5.xyzx);
+					r5.xyz = float3(sin(r5.x), sin(r5.y), sin(r5.z));
 					// add r3.z, r3.z, r5.x
 					r3.z = r3.z + r5.x;
 					// mad r4.xy, r0.zzzz, r4.zwzz, r6.yzyy
 					r4.xy = float2(mad(r0.z, r4.z, r6.y), mad(r0.z, r4.w, r6.z));
 					// sincos r4.xy, null, r4.xyxx
-					r4.xy = sin(r4.xyxx);
+					r4.xy = float2(sin(r4.x), sin(r4.y));
 					// add r1.w, r1.w, r4.x
 					r1.w = r1.w + r4.x;
 					// mad r4.xz, r0.wwww, r4.zzwz, -r6.yyzy
 					r4.xz = float2(mad(r0.w, r4.z, -(r6.y)), mad(r0.w, r4.w, -(r6.z)));
+					// sincos null, r4.xz, r4.xxzx
+					r4.xz = float2(cos(r4.x), cos(r4.z));
 					// add r2.w, r2.w, r4.x
 					r2.w = r2.w + r4.x;
 					// add r3.z, r5.y, r3.z
@@ -147657,6 +149460,8 @@ Shader "ShaderRipperTest/VariantMonster"
 					r1.w = r1.w + r3.w;
 					// mad r3.w, r0.w, r4.x, -r6.w
 					r3.w = mad(r0.w, r4.x, -(r6.w));
+					// sincos null, r3.w, r3.w
+					r3.w = cos(r3.w);
 					// add r2.w, r2.w, r3.w
 					r2.w = r2.w + r3.w;
 					// mul r3.yw, r3.yyyy, r4.xxxy
@@ -147677,6 +149482,8 @@ Shader "ShaderRipperTest/VariantMonster"
 					r5.x = r1.w + r4.x;
 					// mad r1.w, r0.w, r4.y, -r3.z
 					r1.w = mad(r0.w, r4.y, -(r3.z));
+					// sincos null, r1.w, r1.w
+					r1.w = cos(r1.w);
 					// add r5.y, r1.w, r2.w
 					r5.y = r1.w + r2.w;
 					// mad r1.w, r3.w, l(0.600000), r3.z
@@ -147704,7 +149511,7 @@ Shader "ShaderRipperTest/VariantMonster"
 				// mul r0.y, r0.y, r1.z
 				r0.y = r0.y * r1.z;
 				// lt r1.z, r0.y, cb0[9].w
-				r1.z = (r0.y < cb0[9].w) ? 1.0 : 0.0;
+				r1.z = (r0.y < cb0[9].w) ? -1.0 : 0.0;
 				// discard_nz r1.z
 				if (any(r1.z)) discard;
 				// mul_sat r1.x, r1.x, l(1.400000)
@@ -147777,7 +149584,7 @@ Shader "ShaderRipperTest/VariantMonster"
 				// mul r0.z, cb0[8].z, l(0.500000)
 				r0.z = cb0[8].z * 0.5;
 				// lt r0.z, r0.x, r0.z
-				r0.z = (r0.x < r0.z) ? 1.0 : 0.0;
+				r0.z = (r0.x < r0.z) ? -1.0 : 0.0;
 				// mad r0.w, -r0.x, l(3.000000), l(1.000000)
 				r0.w = mad(-(r0.x), 3.0, 1.0);
 				// max r0.w, r0.w, l(0.000000)
@@ -147789,7 +149596,7 @@ Shader "ShaderRipperTest/VariantMonster"
 				// mad r2.xyz, r2.xyzx, cb0[8].zzzz, r1.xyzx
 				r2.xyz = float3(mad(r2.x, cb0[8].z, r1.x), mad(r2.y, cb0[8].z, r1.y), mad(r2.z, cb0[8].z, r1.z));
 				// lt r0.x, r0.x, l(0.400000)
-				r0.x = (r0.x < 0.4) ? 1.0 : 0.0;
+				r0.x = (r0.x < 0.4) ? -1.0 : 0.0;
 				// mul r3.xyz, r1.xyzx, l(0.920000, 0.920000, 0.920000, 0.000000)
 				r3.xyz = float3(r1.x * 0.92, r1.y * 0.92, r1.z * 0.92);
 				// movc r1.xyz, r0.xxxx, r3.xyzx, r1.xyzx
@@ -147811,7 +149618,7 @@ Shader "ShaderRipperTest/VariantMonster"
 				// mul r0.xzw, r0.xxzw, cb0[10].yyyy
 				r0.xzw = float3(r0.x * cb0[10].y, r0.z * cb0[10].y, r0.w * cb0[10].y);
 				// lt r1.x, l(0.500000), cb0[11].y
-				r1.x = (0.5 < cb0[11].y) ? 1.0 : 0.0;
+				r1.x = (0.5 < cb0[11].y) ? -1.0 : 0.0;
 				// mul r1.yz, v1.xxyx, cb1[6].xxyx
 				r1.yz = float2(v1.x * _ScreenParams.x, v1.y * _ScreenParams.y);
 				// mul r1.yz, r1.yyzy, l(0.000000, 127.099998, 311.700012, 0.000000)
@@ -147876,6 +149683,27 @@ Shader "ShaderRipperTest/VariantMonster"
 			//   unnamed single lanes are shared by the Float/Range prop(s): _Iterations, _Steps, _WarpDepth, _Threshold, _Contrast, _Emission, _Saturation, _ToggleDetail, _ToggleBands, _ToggleDither
 			// cb1 = UnityPerDraw  (declared by UnityCG.cginc)
 			// cb2 = UnityPerFrame  (declared by UnityCG.cginc)
+			float4 _MainTex_TexelSize;
+			float4 _NoiseTex_ST;
+			float4 _NoiseTex_TexelSize;
+			float4 _DetailTex_ST;
+			float4 _DetailTex_TexelSize;
+			float4 _MaskTex_ST;
+			float4 _MaskTex_TexelSize;
+			float4 _Color;
+			float4 _ColorC;
+			float4 _Params;
+			float4 _Params3;
+			float _Iterations;
+			float _Steps;
+			float _WarpDepth;
+			float _Threshold;
+			float _Contrast;
+			float _Emission;
+			float _Saturation;
+			float _ToggleDetail;
+			float _ToggleBands;
+			float _ToggleDither;
 			// cbuffer order confirmed by the asset's own register index
 			// $Globals cb0: 1 slot(s) named from the compiled constant-buffer member table
 			// $Globals cb0: 2 slot(s) named from the compiled constant-buffer member table
@@ -147914,7 +149742,7 @@ Shader "ShaderRipperTest/VariantMonster"
 				// sample r0.xyzw, v1.xyxx, t0.xyzw, s3
 				r0.xyzw = tex2D(_MaskTex, float2(v1.x, v1.y));
 				// lt r0.x, r0.w, cb0[9].w
-				r0.x = (r0.w < cb0[9].w) ? 1.0 : 0.0;
+				r0.x = (r0.w < cb0[9].w) ? -1.0 : 0.0;
 				// discard_nz r0.x
 				if (any(r0.x)) discard;
 				// mul r0.x, cb0[6].z, cb1[0].y
@@ -148810,7 +150638,7 @@ Shader "ShaderRipperTest/VariantMonster"
 					// loop
 				for (;;) {
 					// ige r3.z, r1.w, r2.x
-					r3.z = (((int)(r1.w) >= (int)(r2.x)) ? 1 : 0);
+					r3.z = (((int)(r1.w) >= (int)(r2.x)) ? -1 : 0);
 					// breakc_nz r3.z
 					if (any(r3.z)) break;
 					// itof r3.z, r1.w
@@ -149232,7 +151060,7 @@ Shader "ShaderRipperTest/VariantMonster"
 						// loop
 					for (;;) {
 						// ige r5.y, r5.x, r2.y
-						r5.y = (((int)(r5.x) >= (int)(r2.y)) ? 1 : 0);
+						r5.y = (((int)(r5.x) >= (int)(r2.y)) ? -1 : 0);
 						// breakc_nz r5.y
 						if (any(r5.y)) break;
 						// itof r5.y, r5.x
@@ -149323,7 +151151,7 @@ Shader "ShaderRipperTest/VariantMonster"
 						// mad r5.w, |r5.w|, l(2.000000), r3.w
 						r5.w = mad(abs(r5.w), 2.0, r3.w);
 						// lt r6.x, l(2.200000), r5.w
-						r6.x = (2.2 < r5.w) ? 1.0 : 0.0;
+						r6.x = (2.2 < r5.w) ? -1.0 : 0.0;
 							// if_nz r6.x
 						if (any(r6.x)) {
 							// iadd r6.x, r5.x, l(1)
@@ -149357,7 +151185,7 @@ Shader "ShaderRipperTest/VariantMonster"
 					// mul r4.xy, r4.zwzz, l(1.040000, 1.040000, 0.000000, 0.000000)
 					r4.xy = float2(r4.z * 1.04, r4.w * 1.04);
 					// lt r5.xy, r3.wwww, l(0.600000, 1.400000, 0.000000, 0.000000)
-					r5.xy = float2((r3.w < 0.6) ? 1.0 : 0.0, (r3.w < 1.4) ? 1.0 : 0.0);
+					r5.xy = float2((r3.w < 0.6) ? -1.0 : 0.0, (r3.w < 1.4) ? -1.0 : 0.0);
 					// add r5.zw, r4.zzzw, l(0.000000, 0.000000, 0.020000, 0.010000)
 					r5.zw = float2(r4.z + 0.02, r4.w + 0.01);
 					// mov_sat r4.zw, r4.zzzw
@@ -149369,7 +151197,7 @@ Shader "ShaderRipperTest/VariantMonster"
 					// movc r4.xy, r5.xxxx, r4.xyxx, r5.yzyy
 					r4.xy = float2(r5.x != 0.0 ? r4.x : r5.y, r5.x != 0.0 ? r4.y : r5.z);
 					// lt r3.z, l(1.500000), r4.x
-					r3.z = (1.5 < r4.x) ? 1.0 : 0.0;
+					r3.z = (1.5 < r4.x) ? -1.0 : 0.0;
 						// if_nz r3.z
 					if (any(r3.z)) {
 						// mov r3.x, r4.y
@@ -149385,7 +151213,7 @@ Shader "ShaderRipperTest/VariantMonster"
 				// endloop
 				}
 				// lt r1.w, l(0.500000), cb0[10].w
-				r1.w = (0.5 < cb0[10].w) ? 1.0 : 0.0;
+				r1.w = (0.5 < cb0[10].w) ? -1.0 : 0.0;
 					// if_nz r1.w
 				if (any(r1.w)) {
 					// mul r1.w, r0.x, l(0.250000)
@@ -149507,7 +151335,7 @@ Shader "ShaderRipperTest/VariantMonster"
 				// endif
 				}
 				// lt r1.w, l(0.500000), cb0[11].x
-				r1.w = (0.5 < cb0[11].x) ? 1.0 : 0.0;
+				r1.w = (0.5 < cb0[11].x) ? -1.0 : 0.0;
 					// if_nz r1.w
 				if (any(r1.w)) {
 					// mul r4.xyzw, cb0[8].wwww, l(0.300000, 0.520000, 0.740000, 0.960000)
@@ -149518,6 +151346,8 @@ Shader "ShaderRipperTest/VariantMonster"
 					r1.w = sin(r1.w);
 					// mad r2.w, r0.w, r4.x, -r0.x
 					r2.w = mad(r0.w, r4.x, -(r0.x));
+					// sincos null, r2.w, r2.w
+					r2.w = cos(r2.w);
 					// add r3.y, r0.w, r0.z
 					r3.y = r0.w + r0.z;
 					// mul r5.xyzw, r4.xyzw, r3.yyyy
@@ -149529,27 +151359,31 @@ Shader "ShaderRipperTest/VariantMonster"
 					// mad r3.w, r0.z, r4.y, r6.x
 					r3.w = mad(r0.z, r4.y, r6.x);
 					// sincos r3.zw, null, r3.zzzw
-					r3.zw = sin(r3.zzzw);
+					r3.zw = float2(sin(r3.z), sin(r3.w));
 					// add r1.w, r1.w, r3.w
 					r1.w = r1.w + r3.w;
 					// mad r3.w, r0.w, r4.y, -r6.x
 					r3.w = mad(r0.w, r4.y, -(r6.x));
+					// sincos null, r3.w, r3.w
+					r3.w = cos(r3.w);
 					// add r2.w, r2.w, r3.w
 					r2.w = r2.w + r3.w;
 					// mad r5.xyz, r5.yzwy, l(0.600000, 0.600000, 0.600000, 0.000000), r6.xyzx
 					r5.xyz = float3(mad(r5.y, 0.6, r6.x), mad(r5.z, 0.6, r6.y), mad(r5.w, 0.6, r6.z));
 					// sincos r5.xyz, null, r5.xyzx
-					r5.xyz = sin(r5.xyzx);
+					r5.xyz = float3(sin(r5.x), sin(r5.y), sin(r5.z));
 					// add r3.z, r3.z, r5.x
 					r3.z = r3.z + r5.x;
 					// mad r4.xy, r0.zzzz, r4.zwzz, r6.yzyy
 					r4.xy = float2(mad(r0.z, r4.z, r6.y), mad(r0.z, r4.w, r6.z));
 					// sincos r4.xy, null, r4.xyxx
-					r4.xy = sin(r4.xyxx);
+					r4.xy = float2(sin(r4.x), sin(r4.y));
 					// add r1.w, r1.w, r4.x
 					r1.w = r1.w + r4.x;
 					// mad r4.xz, r0.wwww, r4.zzwz, -r6.yyzy
 					r4.xz = float2(mad(r0.w, r4.z, -(r6.y)), mad(r0.w, r4.w, -(r6.z)));
+					// sincos null, r4.xz, r4.xxzx
+					r4.xz = float2(cos(r4.x), cos(r4.z));
 					// add r2.w, r2.w, r4.x
 					r2.w = r2.w + r4.x;
 					// add r3.z, r5.y, r3.z
@@ -149570,6 +151404,8 @@ Shader "ShaderRipperTest/VariantMonster"
 					r1.w = r1.w + r3.w;
 					// mad r3.w, r0.w, r4.x, -r6.w
 					r3.w = mad(r0.w, r4.x, -(r6.w));
+					// sincos null, r3.w, r3.w
+					r3.w = cos(r3.w);
 					// add r2.w, r2.w, r3.w
 					r2.w = r2.w + r3.w;
 					// mul r3.yw, r3.yyyy, r4.xxxy
@@ -149590,6 +151426,8 @@ Shader "ShaderRipperTest/VariantMonster"
 					r5.x = r1.w + r4.x;
 					// mad r1.w, r0.w, r4.y, -r3.z
 					r1.w = mad(r0.w, r4.y, -(r3.z));
+					// sincos null, r1.w, r1.w
+					r1.w = cos(r1.w);
 					// add r5.y, r1.w, r2.w
 					r5.y = r1.w + r2.w;
 					// mad r1.w, r3.w, l(0.600000), r3.z
@@ -149617,7 +151455,7 @@ Shader "ShaderRipperTest/VariantMonster"
 				// mul r0.y, r0.y, r1.z
 				r0.y = r0.y * r1.z;
 				// lt r1.z, r0.y, cb0[9].w
-				r1.z = (r0.y < cb0[9].w) ? 1.0 : 0.0;
+				r1.z = (r0.y < cb0[9].w) ? -1.0 : 0.0;
 				// discard_nz r1.z
 				if (any(r1.z)) discard;
 				// mul_sat r1.x, r1.x, l(1.400000)
@@ -149690,7 +151528,7 @@ Shader "ShaderRipperTest/VariantMonster"
 				// mul r0.z, cb0[8].z, l(0.500000)
 				r0.z = cb0[8].z * 0.5;
 				// lt r0.z, r0.x, r0.z
-				r0.z = (r0.x < r0.z) ? 1.0 : 0.0;
+				r0.z = (r0.x < r0.z) ? -1.0 : 0.0;
 				// mad r0.w, -r0.x, l(3.000000), l(1.000000)
 				r0.w = mad(-(r0.x), 3.0, 1.0);
 				// max r0.w, r0.w, l(0.000000)
@@ -149702,7 +151540,7 @@ Shader "ShaderRipperTest/VariantMonster"
 				// mad r2.xyz, r2.xyzx, cb0[8].zzzz, r1.xyzx
 				r2.xyz = float3(mad(r2.x, cb0[8].z, r1.x), mad(r2.y, cb0[8].z, r1.y), mad(r2.z, cb0[8].z, r1.z));
 				// lt r0.x, r0.x, l(0.400000)
-				r0.x = (r0.x < 0.4) ? 1.0 : 0.0;
+				r0.x = (r0.x < 0.4) ? -1.0 : 0.0;
 				// mul r3.xyz, r1.xyzx, l(0.920000, 0.920000, 0.920000, 0.000000)
 				r3.xyz = float3(r1.x * 0.92, r1.y * 0.92, r1.z * 0.92);
 				// movc r1.xyz, r0.xxxx, r3.xyzx, r1.xyzx
@@ -149724,7 +151562,7 @@ Shader "ShaderRipperTest/VariantMonster"
 				// mul r0.xzw, r0.xxzw, cb0[10].yyyy
 				r0.xzw = float3(r0.x * cb0[10].y, r0.z * cb0[10].y, r0.w * cb0[10].y);
 				// lt r1.x, l(0.500000), cb0[11].y
-				r1.x = (0.5 < cb0[11].y) ? 1.0 : 0.0;
+				r1.x = (0.5 < cb0[11].y) ? -1.0 : 0.0;
 				// mul r1.yz, v1.xxyx, cb1[6].xxyx
 				r1.yz = float2(v1.x * _ScreenParams.x, v1.y * _ScreenParams.y);
 				// mul r1.yz, r1.yyzy, l(0.000000, 127.099998, 311.700012, 0.000000)
@@ -149788,6 +151626,28 @@ Shader "ShaderRipperTest/VariantMonster"
 			//   unnamed single lanes are shared by the Float/Range prop(s): _Iterations, _Steps, _WarpDepth, _Threshold, _Contrast, _Emission, _Saturation, _ToggleDetail, _ToggleBands, _ToggleDither
 			// cb1 = UnityPerDraw  (declared by UnityCG.cginc)
 			// cb2 = UnityPerFrame  (declared by UnityCG.cginc)
+			float4 _MainTex_TexelSize;
+			float4 _NoiseTex_ST;
+			float4 _NoiseTex_TexelSize;
+			float4 _DetailTex_ST;
+			float4 _DetailTex_TexelSize;
+			float4 _MaskTex_ST;
+			float4 _MaskTex_TexelSize;
+			float4 _Color;
+			float4 _ColorB;
+			float4 _ColorC;
+			float4 _Params;
+			float4 _Params3;
+			float _Iterations;
+			float _Steps;
+			float _WarpDepth;
+			float _Threshold;
+			float _Contrast;
+			float _Emission;
+			float _Saturation;
+			float _ToggleDetail;
+			float _ToggleBands;
+			float _ToggleDither;
 			// cbuffer order confirmed by the asset's own register index
 			// $Globals cb0: 1 slot(s) named from the compiled constant-buffer member table
 
@@ -149825,7 +151685,7 @@ Shader "ShaderRipperTest/VariantMonster"
 				// sample r0.xyzw, v1.xyxx, t0.xyzw, s3
 				r0.xyzw = tex2D(_MaskTex, float2(v1.x, v1.y));
 				// lt r0.x, r0.w, cb0[9].w
-				r0.x = (r0.w < cb0[9].w) ? 1.0 : 0.0;
+				r0.x = (r0.w < cb0[9].w) ? -1.0 : 0.0;
 				// discard_nz r0.x
 				if (any(r0.x)) discard;
 				// mul r0.x, cb0[6].z, cb1[0].y
@@ -150721,7 +152581,7 @@ Shader "ShaderRipperTest/VariantMonster"
 					// loop
 				for (;;) {
 					// ige r3.y, r3.x, r1.z
-					r3.y = (((int)(r3.x) >= (int)(r1.z)) ? 1 : 0);
+					r3.y = (((int)(r3.x) >= (int)(r1.z)) ? -1 : 0);
 					// breakc_nz r3.y
 					if (any(r3.y)) break;
 					// itof r3.y, r3.x
@@ -151143,7 +153003,7 @@ Shader "ShaderRipperTest/VariantMonster"
 						// loop
 					for (;;) {
 						// ige r5.x, r4.w, r1.w
-						r5.x = (((int)(r4.w) >= (int)(r1.w)) ? 1 : 0);
+						r5.x = (((int)(r4.w) >= (int)(r1.w)) ? -1 : 0);
 						// breakc_nz r5.x
 						if (any(r5.x)) break;
 						// itof r5.x, r4.w
@@ -151234,7 +153094,7 @@ Shader "ShaderRipperTest/VariantMonster"
 						// mad r5.z, |r5.z|, l(2.000000), r4.z
 						r5.z = mad(abs(r5.z), 2.0, r4.z);
 						// lt r5.w, l(2.200000), r5.z
-						r5.w = (2.2 < r5.z) ? 1.0 : 0.0;
+						r5.w = (2.2 < r5.z) ? -1.0 : 0.0;
 							// if_nz r5.w
 						if (any(r5.w)) {
 							// iadd r5.w, r4.w, l(1)
@@ -151268,7 +153128,7 @@ Shader "ShaderRipperTest/VariantMonster"
 					// mul r3.yz, r4.xxyx, l(0.000000, 1.040000, 1.040000, 0.000000)
 					r3.yz = float2(r4.x * 1.04, r4.y * 1.04);
 					// lt r5.xy, r4.zzzz, l(0.600000, 1.400000, 0.000000, 0.000000)
-					r5.xy = float2((r4.z < 0.6) ? 1.0 : 0.0, (r4.z < 1.4) ? 1.0 : 0.0);
+					r5.xy = float2((r4.z < 0.6) ? -1.0 : 0.0, (r4.z < 1.4) ? -1.0 : 0.0);
 					// add r5.zw, r4.xxxy, l(0.000000, 0.000000, 0.020000, 0.010000)
 					r5.zw = float2(r4.x + 0.02, r4.y + 0.01);
 					// mov_sat r4.xy, r4.xyxx
@@ -151280,7 +153140,7 @@ Shader "ShaderRipperTest/VariantMonster"
 					// movc r3.yz, r5.xxxx, r3.yyzy, r5.yyzy
 					r3.yz = float2(r5.x != 0.0 ? r3.y : r5.y, r5.x != 0.0 ? r3.z : r5.z);
 					// lt r3.w, l(1.500000), r3.y
-					r3.w = (1.5 < r3.y) ? 1.0 : 0.0;
+					r3.w = (1.5 < r3.y) ? -1.0 : 0.0;
 						// if_nz r3.w
 					if (any(r3.w)) {
 						// mov r2.z, r3.z
@@ -151296,7 +153156,7 @@ Shader "ShaderRipperTest/VariantMonster"
 				// endloop
 				}
 				// lt r1.z, l(0.500000), cb0[10].w
-				r1.z = (0.5 < cb0[10].w) ? 1.0 : 0.0;
+				r1.z = (0.5 < cb0[10].w) ? -1.0 : 0.0;
 					// if_nz r1.z
 				if (any(r1.z)) {
 					// mul r1.z, r0.x, l(0.250000)
@@ -151418,7 +153278,7 @@ Shader "ShaderRipperTest/VariantMonster"
 				// endif
 				}
 				// lt r1.z, l(0.500000), cb0[11].x
-				r1.z = (0.5 < cb0[11].x) ? 1.0 : 0.0;
+				r1.z = (0.5 < cb0[11].x) ? -1.0 : 0.0;
 					// if_nz r1.z
 				if (any(r1.z)) {
 					// mul r4.xyzw, cb0[8].wwww, l(0.300000, 0.520000, 0.740000, 0.960000)
@@ -151429,6 +153289,8 @@ Shader "ShaderRipperTest/VariantMonster"
 					r1.z = sin(r1.z);
 					// mad r1.w, r0.w, r4.x, -r0.x
 					r1.w = mad(r0.w, r4.x, -(r0.x));
+					// sincos null, r1.w, r1.w
+					r1.w = cos(r1.w);
 					// add r2.x, r0.w, r0.z
 					r2.x = r0.w + r0.z;
 					// mul r5.xyzw, r4.xyzw, r2.xxxx
@@ -151447,22 +153309,26 @@ Shader "ShaderRipperTest/VariantMonster"
 					r1.z = r1.z + r2.y;
 					// mad r2.y, r0.w, r4.y, -r6.x
 					r2.y = mad(r0.w, r4.y, -(r6.x));
+					// sincos null, r2.y, r2.y
+					r2.y = cos(r2.y);
 					// add r1.w, r1.w, r2.y
 					r1.w = r1.w + r2.y;
 					// mad r5.xyz, r5.yzwy, l(0.600000, 0.600000, 0.600000, 0.000000), r6.xyzx
 					r5.xyz = float3(mad(r5.y, 0.6, r6.x), mad(r5.z, 0.6, r6.y), mad(r5.w, 0.6, r6.z));
 					// sincos r5.xyz, null, r5.xyzx
-					r5.xyz = sin(r5.xyzx);
+					r5.xyz = float3(sin(r5.x), sin(r5.y), sin(r5.z));
 					// add r0.x, r0.x, r5.x
 					r0.x = r0.x + r5.x;
 					// mad r2.yw, r0.zzzz, r4.zzzw, r6.yyyz
 					r2.yw = float2(mad(r0.z, r4.z, r6.y), mad(r0.z, r4.w, r6.z));
 					// sincos r2.yw, null, r2.yyyw
-					r2.yw = sin(r2.yyyw);
+					r2.yw = float2(sin(r2.y), sin(r2.w));
 					// add r1.z, r1.z, r2.y
 					r1.z = r1.z + r2.y;
 					// mad r4.xy, r0.wwww, r4.zwzz, -r6.yzyy
 					r4.xy = float2(mad(r0.w, r4.z, -(r6.y)), mad(r0.w, r4.w, -(r6.z)));
+					// sincos null, r4.xy, r4.xyxx
+					r4.xy = float2(cos(r4.x), cos(r4.y));
 					// add r1.w, r1.w, r4.x
 					r1.w = r1.w + r4.x;
 					// add r0.x, r5.y, r0.x
@@ -151483,6 +153349,8 @@ Shader "ShaderRipperTest/VariantMonster"
 					r1.z = r1.z + r3.w;
 					// mad r3.w, r0.w, r2.y, -r6.w
 					r3.w = mad(r0.w, r2.y, -(r6.w));
+					// sincos null, r3.w, r3.w
+					r3.w = cos(r3.w);
 					// add r1.w, r1.w, r3.w
 					r1.w = r1.w + r3.w;
 					// mul r2.xy, r2.ywyy, r2.xxxx
@@ -151503,6 +153371,8 @@ Shader "ShaderRipperTest/VariantMonster"
 					r4.x = r1.z + r3.w;
 					// mad r1.z, r0.w, r2.w, -r2.x
 					r1.z = mad(r0.w, r2.w, -(r2.x));
+					// sincos null, r1.z, r1.z
+					r1.z = cos(r1.z);
 					// add r4.y, r1.z, r1.w
 					r4.y = r1.z + r1.w;
 					// mad r1.z, r2.y, l(0.600000), r2.x
@@ -151530,7 +153400,7 @@ Shader "ShaderRipperTest/VariantMonster"
 				// mul r0.x, r0.y, r0.x
 				r0.x = r0.y * r0.x;
 				// lt r0.y, r0.x, cb0[9].w
-				r0.y = (r0.x < cb0[9].w) ? 1.0 : 0.0;
+				r0.y = (r0.x < cb0[9].w) ? -1.0 : 0.0;
 				// discard_nz r0.y
 				if (any(r0.y)) discard;
 				// mad r1.xyz, r3.xyzx, l(0.900000, 0.900000, 0.900000, 0.000000), l(0.600000, 0.600000, 0.600000, 0.000000)
@@ -151568,7 +153438,7 @@ Shader "ShaderRipperTest/VariantMonster"
 				// mul r0.z, cb0[8].z, l(0.500000)
 				r0.z = cb0[8].z * 0.5;
 				// lt r0.z, r0.y, r0.z
-				r0.z = (r0.y < r0.z) ? 1.0 : 0.0;
+				r0.z = (r0.y < r0.z) ? -1.0 : 0.0;
 				// mad r0.w, -r0.y, l(3.000000), l(1.000000)
 				r0.w = mad(-(r0.y), 3.0, 1.0);
 				// max r0.w, r0.w, l(0.000000)
@@ -151580,7 +153450,7 @@ Shader "ShaderRipperTest/VariantMonster"
 				// mad r2.xyz, r2.xyzx, cb0[8].zzzz, r1.xyzx
 				r2.xyz = float3(mad(r2.x, cb0[8].z, r1.x), mad(r2.y, cb0[8].z, r1.y), mad(r2.z, cb0[8].z, r1.z));
 				// lt r0.y, r0.y, l(0.400000)
-				r0.y = (r0.y < 0.4) ? 1.0 : 0.0;
+				r0.y = (r0.y < 0.4) ? -1.0 : 0.0;
 				// mul r3.xyz, r1.xyzx, l(0.920000, 0.920000, 0.920000, 0.000000)
 				r3.xyz = float3(r1.x * 0.92, r1.y * 0.92, r1.z * 0.92);
 				// movc r1.xyz, r0.yyyy, r3.xyzx, r1.xyzx
@@ -151602,7 +153472,7 @@ Shader "ShaderRipperTest/VariantMonster"
 				// mul r0.yzw, r0.yyzw, cb0[10].yyyy
 				r0.yzw = float3(r0.y * cb0[10].y, r0.z * cb0[10].y, r0.w * cb0[10].y);
 				// lt r1.x, l(0.500000), cb0[11].y
-				r1.x = (0.5 < cb0[11].y) ? 1.0 : 0.0;
+				r1.x = (0.5 < cb0[11].y) ? -1.0 : 0.0;
 				// mul r1.yz, v1.xxyx, cb1[6].xxyx
 				r1.yz = float2(v1.x * _ScreenParams.x, v1.y * _ScreenParams.y);
 				// mul r1.yz, r1.yyzy, l(0.000000, 127.099998, 311.700012, 0.000000)
@@ -151674,6 +153544,15 @@ Shader "ShaderRipperTest/VariantMonster"
 			// touches; they stay undeclared because nothing can pin them.
 			// cb1 = UnityPerDraw  (declared by UnityCG.cginc)
 			// cb2 = UnityPerFrame  (declared by UnityCG.cginc)
+			float4 _MainTex_TexelSize;
+			float4 _NoiseTex_ST;
+			float4 _NoiseTex_TexelSize;
+			float4 _DetailTex_ST;
+			float4 _DetailTex_TexelSize;
+			float4 _MaskTex_ST;
+			float4 _MaskTex_TexelSize;
+			float4 _ColorB;
+			float4 _Params2;
 			// cbuffer order confirmed by the asset's own register index
 			// $Globals cb0: 1 slot(s) named from the compiled constant-buffer member table
 			// $Globals cb0: 14 member(s) named from the asset's own constant-buffer reflection (192 bytes)
@@ -151712,7 +153591,7 @@ Shader "ShaderRipperTest/VariantMonster"
 				// sample r0.xyzw, v1.xyxx, t0.xyzw, s3
 				r0.xyzw = tex2D(_MaskTex, float2(v1.x, v1.y));
 				// lt r0.x, r0.w, cb0[9].w
-				r0.x = (r0.w < _Threshold) ? 1.0 : 0.0;
+				r0.x = (r0.w < _Threshold) ? -1.0 : 0.0;
 				// discard_nz r0.x
 				if (any(r0.x)) discard;
 				// mul r0.x, cb0[6].z, cb1[0].y
@@ -152582,7 +154461,7 @@ Shader "ShaderRipperTest/VariantMonster"
 					// loop
 				for (;;) {
 					// ige r3.y, r3.x, r1.z
-					r3.y = (((int)(r3.x) >= (int)(r1.z)) ? 1 : 0);
+					r3.y = (((int)(r3.x) >= (int)(r1.z)) ? -1 : 0);
 					// breakc_nz r3.y
 					if (any(r3.y)) break;
 					// itof r3.y, r3.x
@@ -153004,7 +154883,7 @@ Shader "ShaderRipperTest/VariantMonster"
 						// loop
 					for (;;) {
 						// ige r5.x, r4.w, r1.w
-						r5.x = (((int)(r4.w) >= (int)(r1.w)) ? 1 : 0);
+						r5.x = (((int)(r4.w) >= (int)(r1.w)) ? -1 : 0);
 						// breakc_nz r5.x
 						if (any(r5.x)) break;
 						// itof r5.x, r4.w
@@ -153095,7 +154974,7 @@ Shader "ShaderRipperTest/VariantMonster"
 						// mad r5.z, |r5.z|, l(2.000000), r4.z
 						r5.z = mad(abs(r5.z), 2.0, r4.z);
 						// lt r5.w, l(2.200000), r5.z
-						r5.w = (2.2 < r5.z) ? 1.0 : 0.0;
+						r5.w = (2.2 < r5.z) ? -1.0 : 0.0;
 							// if_nz r5.w
 						if (any(r5.w)) {
 							// iadd r5.w, r4.w, l(1)
@@ -153129,7 +155008,7 @@ Shader "ShaderRipperTest/VariantMonster"
 					// mul r3.yz, r4.xxyx, l(0.000000, 1.040000, 1.040000, 0.000000)
 					r3.yz = float2(r4.x * 1.04, r4.y * 1.04);
 					// lt r5.xy, r4.zzzz, l(0.600000, 1.400000, 0.000000, 0.000000)
-					r5.xy = float2((r4.z < 0.6) ? 1.0 : 0.0, (r4.z < 1.4) ? 1.0 : 0.0);
+					r5.xy = float2((r4.z < 0.6) ? -1.0 : 0.0, (r4.z < 1.4) ? -1.0 : 0.0);
 					// add r5.zw, r4.xxxy, l(0.000000, 0.000000, 0.020000, 0.010000)
 					r5.zw = float2(r4.x + 0.02, r4.y + 0.01);
 					// mov_sat r4.xy, r4.xyxx
@@ -153141,7 +155020,7 @@ Shader "ShaderRipperTest/VariantMonster"
 					// movc r3.yz, r5.xxxx, r3.yyzy, r5.yyzy
 					r3.yz = float2(r5.x != 0.0 ? r3.y : r5.y, r5.x != 0.0 ? r3.z : r5.z);
 					// lt r3.w, l(1.500000), r3.y
-					r3.w = (1.5 < r3.y) ? 1.0 : 0.0;
+					r3.w = (1.5 < r3.y) ? -1.0 : 0.0;
 						// if_nz r3.w
 					if (any(r3.w)) {
 						// mov r2.z, r3.z
@@ -153157,7 +155036,7 @@ Shader "ShaderRipperTest/VariantMonster"
 				// endloop
 				}
 				// lt r1.z, l(0.500000), cb0[10].w
-				r1.z = (0.5 < _ToggleDetail) ? 1.0 : 0.0;
+				r1.z = (0.5 < _ToggleDetail) ? -1.0 : 0.0;
 					// if_nz r1.z
 				if (any(r1.z)) {
 					// mul r1.z, r0.x, l(0.250000)
@@ -153279,7 +155158,7 @@ Shader "ShaderRipperTest/VariantMonster"
 				// endif
 				}
 				// lt r1.z, l(0.500000), cb0[11].x
-				r1.z = (0.5 < _ToggleBands) ? 1.0 : 0.0;
+				r1.z = (0.5 < _ToggleBands) ? -1.0 : 0.0;
 					// if_nz r1.z
 				if (any(r1.z)) {
 					// mul r4.xyzw, cb0[8].wwww, l(0.300000, 0.520000, 0.740000, 0.960000)
@@ -153290,6 +155169,8 @@ Shader "ShaderRipperTest/VariantMonster"
 					r1.z = sin(r1.z);
 					// mad r1.w, r0.w, r4.x, -r0.x
 					r1.w = mad(r0.w, r4.x, -(r0.x));
+					// sincos null, r1.w, r1.w
+					r1.w = cos(r1.w);
 					// add r2.x, r0.w, r0.z
 					r2.x = r0.w + r0.z;
 					// mul r5.xyzw, r4.xyzw, r2.xxxx
@@ -153308,22 +155189,26 @@ Shader "ShaderRipperTest/VariantMonster"
 					r1.z = r1.z + r2.y;
 					// mad r2.y, r0.w, r4.y, -r6.x
 					r2.y = mad(r0.w, r4.y, -(r6.x));
+					// sincos null, r2.y, r2.y
+					r2.y = cos(r2.y);
 					// add r1.w, r1.w, r2.y
 					r1.w = r1.w + r2.y;
 					// mad r5.xyz, r5.yzwy, l(0.600000, 0.600000, 0.600000, 0.000000), r6.xyzx
 					r5.xyz = float3(mad(r5.y, 0.6, r6.x), mad(r5.z, 0.6, r6.y), mad(r5.w, 0.6, r6.z));
 					// sincos r5.xyz, null, r5.xyzx
-					r5.xyz = sin(r5.xyzx);
+					r5.xyz = float3(sin(r5.x), sin(r5.y), sin(r5.z));
 					// add r0.x, r0.x, r5.x
 					r0.x = r0.x + r5.x;
 					// mad r2.yw, r0.zzzz, r4.zzzw, r6.yyyz
 					r2.yw = float2(mad(r0.z, r4.z, r6.y), mad(r0.z, r4.w, r6.z));
 					// sincos r2.yw, null, r2.yyyw
-					r2.yw = sin(r2.yyyw);
+					r2.yw = float2(sin(r2.y), sin(r2.w));
 					// add r1.z, r1.z, r2.y
 					r1.z = r1.z + r2.y;
 					// mad r4.xy, r0.wwww, r4.zwzz, -r6.yzyy
 					r4.xy = float2(mad(r0.w, r4.z, -(r6.y)), mad(r0.w, r4.w, -(r6.z)));
+					// sincos null, r4.xy, r4.xyxx
+					r4.xy = float2(cos(r4.x), cos(r4.y));
 					// add r1.w, r1.w, r4.x
 					r1.w = r1.w + r4.x;
 					// add r0.x, r5.y, r0.x
@@ -153344,6 +155229,8 @@ Shader "ShaderRipperTest/VariantMonster"
 					r1.z = r1.z + r3.w;
 					// mad r3.w, r0.w, r2.y, -r6.w
 					r3.w = mad(r0.w, r2.y, -(r6.w));
+					// sincos null, r3.w, r3.w
+					r3.w = cos(r3.w);
 					// add r1.w, r1.w, r3.w
 					r1.w = r1.w + r3.w;
 					// mul r2.xy, r2.ywyy, r2.xxxx
@@ -153364,6 +155251,8 @@ Shader "ShaderRipperTest/VariantMonster"
 					r4.x = r1.z + r3.w;
 					// mad r1.z, r0.w, r2.w, -r2.x
 					r1.z = mad(r0.w, r2.w, -(r2.x));
+					// sincos null, r1.z, r1.z
+					r1.z = cos(r1.z);
 					// add r4.y, r1.z, r1.w
 					r4.y = r1.z + r1.w;
 					// mad r1.z, r2.y, l(0.600000), r2.x
@@ -153391,7 +155280,7 @@ Shader "ShaderRipperTest/VariantMonster"
 				// mul r0.x, r0.y, r0.x
 				r0.x = r0.y * r0.x;
 				// lt r0.y, r0.x, cb0[9].w
-				r0.y = (r0.x < _Threshold) ? 1.0 : 0.0;
+				r0.y = (r0.x < _Threshold) ? -1.0 : 0.0;
 				// discard_nz r0.y
 				if (any(r0.y)) discard;
 				// mad r1.xyz, r3.xyzx, l(0.900000, 0.900000, 0.900000, 0.000000), l(0.600000, 0.600000, 0.600000, 0.000000)
@@ -153429,7 +155318,7 @@ Shader "ShaderRipperTest/VariantMonster"
 				// mul r0.z, cb0[8].z, l(0.500000)
 				r0.z = _Params3.z * 0.5;
 				// lt r0.z, r0.y, r0.z
-				r0.z = (r0.y < r0.z) ? 1.0 : 0.0;
+				r0.z = (r0.y < r0.z) ? -1.0 : 0.0;
 				// mad r0.w, -r0.y, l(3.000000), l(1.000000)
 				r0.w = mad(-(r0.y), 3.0, 1.0);
 				// max r0.w, r0.w, l(0.000000)
@@ -153441,7 +155330,7 @@ Shader "ShaderRipperTest/VariantMonster"
 				// mad r2.xyz, r2.xyzx, cb0[8].zzzz, r1.xyzx
 				r2.xyz = float3(mad(r2.x, _Params3.z, r1.x), mad(r2.y, _Params3.z, r1.y), mad(r2.z, _Params3.z, r1.z));
 				// lt r0.y, r0.y, l(0.400000)
-				r0.y = (r0.y < 0.4) ? 1.0 : 0.0;
+				r0.y = (r0.y < 0.4) ? -1.0 : 0.0;
 				// mul r3.xyz, r1.xyzx, l(0.920000, 0.920000, 0.920000, 0.000000)
 				r3.xyz = float3(r1.x * 0.92, r1.y * 0.92, r1.z * 0.92);
 				// movc r1.xyz, r0.yyyy, r3.xyzx, r1.xyzx
@@ -153463,7 +155352,7 @@ Shader "ShaderRipperTest/VariantMonster"
 				// mul r0.yzw, r0.yyzw, cb0[10].yyyy
 				r0.yzw = float3(r0.y * _Emission, r0.z * _Emission, r0.w * _Emission);
 				// lt r1.x, l(0.500000), cb0[11].y
-				r1.x = (0.5 < _ToggleDither) ? 1.0 : 0.0;
+				r1.x = (0.5 < _ToggleDither) ? -1.0 : 0.0;
 				// mul r1.yz, v1.xxyx, cb1[6].xxyx
 				r1.yz = float2(v1.x * _ScreenParams.x, v1.y * _ScreenParams.y);
 				// mul r1.yz, r1.yyzy, l(0.000000, 127.099998, 311.700012, 0.000000)

@@ -177,7 +177,7 @@ Shader "ShaderRipperTest/ExtremeFlow"
 				float4 r0 = 0, r1 = 0, r2 = 0, r3 = 0, r4 = 0, r5 = 0, r6 = 0, r7 = 0, r8 = 0;
 
 				// lt r0.x, l(0.500000), cb0[19].w
-				r0.x = (0.5 < _Mirror) ? 1.0 : 0.0;
+				r0.x = (0.5 < _Mirror) ? -1.0 : 0.0;
 				// mad r0.yz, v1.xxyx, l(0.000000, 2.000000, 2.000000, 0.000000), l(0.000000, -1.000000, -1.000000, 0.000000)
 				r0.yz = float2(mad(v1.x, 2.0, -1.0), mad(v1.y, 2.0, -1.0));
 				// movc r0.xy, r0.xxxx, |r0.yzyy|, v1.xyxx
@@ -185,7 +185,7 @@ Shader "ShaderRipperTest/ExtremeFlow"
 				// sample r1.xyzw, r0.xyxx, t0.xyzw, s2
 				r1.xyzw = tex2D(_MaskTex, float2(r0.x, r0.y));
 				// lt r0.z, r1.w, cb0[19].y
-				r0.z = (r1.w < _Threshold) ? 1.0 : 0.0;
+				r0.z = (r1.w < _Threshold) ? -1.0 : 0.0;
 				// discard_nz r0.z
 				if (any(r0.z)) discard;
 				// mul r0.zw, cb0[9].xxxy, cb1[0].yyyy
@@ -207,7 +207,7 @@ Shader "ShaderRipperTest/ExtremeFlow"
 					// loop
 				for (;;) {
 					// ige r2.w, r1.w, r1.x
-					r2.w = (((int)(r1.w) >= (int)(r1.x)) ? 1 : 0);
+					r2.w = (((int)(r1.w) >= (int)(r1.x)) ? -1 : 0);
 					// breakc_nz r2.w
 					if (any(r2.w)) break;
 					// itof r2.w, r1.w
@@ -725,7 +725,7 @@ Shader "ShaderRipperTest/ExtremeFlow"
 						// loop
 					for (;;) {
 						// ige r4.w, r3.w, r1.z
-						r4.w = (((int)(r3.w) >= (int)(r1.z)) ? 1 : 0);
+						r4.w = (((int)(r3.w) >= (int)(r1.z)) ? -1 : 0);
 						// breakc_nz r4.w
 						if (any(r4.w)) break;
 						// itof r4.w, r3.w
@@ -820,7 +820,7 @@ Shader "ShaderRipperTest/ExtremeFlow"
 						// mad r5.w, |r5.w|, l(2.000000), r3.z
 						r5.w = mad(abs(r5.w), 2.0, r3.z);
 						// lt r6.x, l(2.500000), r5.w
-						r6.x = (2.5 < r5.w) ? 1.0 : 0.0;
+						r6.x = (2.5 < r5.w) ? -1.0 : 0.0;
 							// if_nz r6.x
 						if (any(r6.x)) {
 							// iadd r6.x, r3.w, l(1)
@@ -856,7 +856,7 @@ Shader "ShaderRipperTest/ExtremeFlow"
 					// add r5.xyz, r4.xyzx, l(0.020000, 0.010000, 0.030000, 0.000000)
 					r5.xyz = float3(r4.x + 0.02, r4.y + 0.01, r4.z + 0.03);
 					// lt r6.xyz, r3.zzzz, l(0.500000, 1.000000, 1.800000, 0.000000)
-					r6.xyz = float3((r3.z < 0.5) ? 1.0 : 0.0, (r3.z < 1.0) ? 1.0 : 0.0, (r3.z < 1.8) ? 1.0 : 0.0);
+					r6.xyz = float3((r3.z < 0.5) ? -1.0 : 0.0, (r3.z < 1.0) ? -1.0 : 0.0, (r3.z < 1.8) ? -1.0 : 0.0);
 					// mad r7.xyz, r4.xyzx, cb0[6].xyzx, -r4.xyzx
 					r7.xyz = float3(mad(r4.x, _ColorC.x, -(r4.x)), mad(r4.y, _ColorC.y, -(r4.y)), mad(r4.z, _ColorC.z, -(r4.z)));
 					// mad r7.xyz, r7.xyzx, l(0.250000, 0.250000, 0.250000, 0.000000), r4.xyzx
@@ -876,7 +876,7 @@ Shader "ShaderRipperTest/ExtremeFlow"
 					// movc r3.xyw, r6.xxxx, r3.xyxw, r5.xyxz
 					r3.xyw = float3(r6.x != 0.0 ? r3.x : r5.x, r6.x != 0.0 ? r3.y : r5.y, r6.x != 0.0 ? r3.w : r5.z);
 					// lt r2.w, l(1.400000), r3.y
-					r2.w = (1.4 < r3.y) ? 1.0 : 0.0;
+					r2.w = (1.4 < r3.y) ? -1.0 : 0.0;
 						// if_nz r2.w
 					if (any(r2.w)) {
 						// mov r2.xyz, r3.xywx
@@ -906,7 +906,7 @@ Shader "ShaderRipperTest/ExtremeFlow"
 				// mad r3.yzw, cb0[4].xxyz, r1.xxxx, r3.yyzw
 				r3.yzw = float3(mad(_ColorA.x, r1.x, r3.y), mad(_ColorA.y, r1.x, r3.z), mad(_ColorA.z, r1.x, r3.w));
 				// lt r1.xz, l(0.660000, 0.000000, 0.330000, 0.000000), r3.xxxx
-				r1.xz = float2((0.66 < r3.x) ? 1.0 : 0.0, (0.33 < r3.x) ? 1.0 : 0.0);
+				r1.xz = float2((0.66 < r3.x) ? -1.0 : 0.0, (0.33 < r3.x) ? -1.0 : 0.0);
 				// add r4.xyz, -cb0[5].xyzx, cb0[6].xyzx
 				r4.xyz = float3(-(_ColorB.x) + _ColorC.x, -(_ColorB.y) + _ColorC.y, -(_ColorB.z) + _ColorC.z);
 				// mad r4.xyz, r1.wwww, r4.xyzx, cb0[5].xyzx
@@ -1074,7 +1074,7 @@ Shader "ShaderRipperTest/ExtremeFlow"
 				// add r2.z, r2.z, r4.x
 				r2.z = r2.z + r4.x;
 				// lt r4.xy, l(0.500000, 0.500000, 0.000000, 0.000000), cb0[20].yzyy
-				r4.xy = float2((0.5 < _ToggleCell) ? 1.0 : 0.0, (0.5 < _ToggleNoise) ? 1.0 : 0.0);
+				r4.xy = float2((0.5 < _ToggleCell) ? -1.0 : 0.0, (0.5 < _ToggleNoise) ? -1.0 : 0.0);
 				// mul r4.zw, r0.zzzw, cb0[15].xxxx
 				r4.zw = float2(r0.z * _Params5.x, r0.w * _Params5.x);
 				// frc r4.zw, r4.zzzw
@@ -1119,6 +1119,8 @@ Shader "ShaderRipperTest/ExtremeFlow"
 				r2.w = mad(r0.z, r5.x, r2.y);
 				// mad r3.x, r0.w, r5.x, -r2.y
 				r3.x = mad(r0.w, r5.x, -(r2.y));
+				// sincos null, r3.x, r3.x
+				r3.x = cos(r3.x);
 				// add r4.x, r0.w, r0.z
 				r4.x = r0.w + r0.z;
 				// mul r6.xyzw, r5.xyzw, r4.xxxx
@@ -1126,7 +1128,7 @@ Shader "ShaderRipperTest/ExtremeFlow"
 				// mad r2.y, r6.x, l(0.600000), r2.y
 				r2.y = mad(r6.x, 0.6, r2.y);
 				// sincos r2.yw, null, r2.yyyw
-				r2.yw = sin(r2.yyyw);
+				r2.yw = float2(sin(r2.y), sin(r2.w));
 				// mad r4.z, r0.z, r5.y, r3.y
 				r4.z = mad(r0.z, r5.y, r3.y);
 				// sincos r4.z, null, r4.z
@@ -1135,22 +1137,26 @@ Shader "ShaderRipperTest/ExtremeFlow"
 				r2.w = r2.w + r4.z;
 				// mad r4.z, r0.w, r5.y, -r3.y
 				r4.z = mad(r0.w, r5.y, -(r3.y));
+				// sincos null, r4.z, r4.z
+				r4.z = cos(r4.z);
 				// add r3.x, r3.x, r4.z
 				r3.x = r3.x + r4.z;
 				// mad r6.xyz, r6.yzwy, l(0.600000, 0.600000, 0.600000, 0.000000), r3.yzwy
 				r6.xyz = float3(mad(r6.y, 0.6, r3.y), mad(r6.z, 0.6, r3.z), mad(r6.w, 0.6, r3.w));
 				// sincos r6.xyz, null, r6.xyzx
-				r6.xyz = sin(r6.xyzx);
+				r6.xyz = float3(sin(r6.x), sin(r6.y), sin(r6.z));
 				// add r2.y, r2.y, r6.x
 				r2.y = r2.y + r6.x;
 				// mad r4.zw, r0.zzzz, r5.zzzw, r3.zzzw
 				r4.zw = float2(mad(r0.z, r5.z, r3.z), mad(r0.z, r5.w, r3.w));
 				// sincos r4.zw, null, r4.zzzw
-				r4.zw = sin(r4.zzzw);
+				r4.zw = float2(sin(r4.z), sin(r4.w));
 				// add r2.w, r2.w, r4.z
 				r2.w = r2.w + r4.z;
 				// mad r3.yz, r0.wwww, r5.zzwz, -r3.zzwz
 				r3.yz = float2(mad(r0.w, r5.z, -(r3.z)), mad(r0.w, r5.w, -(r3.w)));
+				// sincos null, r3.yz, r3.yyzy
+				r3.yz = float2(cos(r3.y), cos(r3.z));
 				// add r3.x, r3.y, r3.x
 				r3.x = r3.y + r3.x;
 				// add r2.y, r6.y, r2.y
@@ -1168,11 +1174,13 @@ Shader "ShaderRipperTest/ExtremeFlow"
 				// mad r4.zw, r0.zzzz, r5.xxxy, r3.yyyz
 				r4.zw = float2(mad(r0.z, r5.x, r3.y), mad(r0.z, r5.y, r3.z));
 				// sincos r4.zw, null, r4.zzzw
-				r4.zw = sin(r4.zzzw);
+				r4.zw = float2(sin(r4.z), sin(r4.w));
 				// add r2.w, r2.w, r4.z
 				r2.w = r2.w + r4.z;
 				// mad r6.xy, r0.wwww, r5.xyxx, -r3.yzyy
 				r6.xy = float2(mad(r0.w, r5.x, -(r3.y)), mad(r0.w, r5.y, -(r3.z)));
+				// sincos null, r6.xy, r6.xyxx
+				r6.xy = float2(cos(r6.x), cos(r6.y));
 				// add r3.x, r3.x, r6.x
 				r3.x = r3.x + r6.x;
 				// mul r6.xzw, r4.xxxx, r5.xxyz
@@ -1180,7 +1188,7 @@ Shader "ShaderRipperTest/ExtremeFlow"
 				// mad r6.xzw, r6.xxzw, l(0.600000, 0.000000, 0.600000, 0.600000), r3.yyzw
 				r6.xzw = float3(mad(r6.x, 0.6, r3.y), mad(r6.z, 0.6, r3.z), mad(r6.w, 0.6, r3.w));
 				// sincos r6.xzw, null, r6.xxzw
-				r6.xzw = sin(r6.xxzw);
+				r6.xzw = float3(sin(r6.x), sin(r6.z), sin(r6.w));
 				// add r2.y, r2.y, r6.x
 				r2.y = r2.y + r6.x;
 				// add r2.w, r4.w, r2.w
@@ -1197,6 +1205,8 @@ Shader "ShaderRipperTest/ExtremeFlow"
 				r6.x = r2.w + r3.y;
 				// mad r2.w, r0.w, r5.z, -r3.w
 				r2.w = mad(r0.w, r5.z, -(r3.w));
+				// sincos null, r2.w, r2.w
+				r2.w = cos(r2.w);
 				// add r6.y, r2.w, r3.x
 				r6.y = r2.w + r3.x;
 				// add r6.z, r6.w, r2.y
@@ -1224,7 +1234,7 @@ Shader "ShaderRipperTest/ExtremeFlow"
 						// loop
 					for (;;) {
 						// ige r3.y, r3.x, r2.y
-						r3.y = (((int)(r3.x) >= (int)(r2.y)) ? 1 : 0);
+						r3.y = (((int)(r3.x) >= (int)(r2.y)) ? -1 : 0);
 						// breakc_nz r3.y
 						if (any(r3.y)) break;
 						// itof r3.y, r3.x
@@ -1739,7 +1749,7 @@ Shader "ShaderRipperTest/ExtremeFlow"
 						// mad r3.y, r3.z, r3.y, r2.w
 						r3.y = mad(r3.z, r3.y, r2.w);
 						// lt r3.z, l(0.900000), r3.y
-						r3.z = (0.9 < r3.y) ? 1.0 : 0.0;
+						r3.z = (0.9 < r3.y) ? -1.0 : 0.0;
 							// if_nz r3.z
 						if (any(r3.z)) {
 							// mov r2.w, r3.y
@@ -2283,7 +2293,7 @@ Shader "ShaderRipperTest/ExtremeFlow"
 				// add_sat r0.z, r0.z, -cb0[15].y
 				r0.z = saturate(r0.z + -(_Params5.y));
 				// lt r0.w, r0.z, cb0[19].y
-				r0.w = (r0.z < _Threshold) ? 1.0 : 0.0;
+				r0.w = (r0.z < _Threshold) ? -1.0 : 0.0;
 				// discard_nz r0.w
 				if (any(r0.w)) discard;
 				// add r0.w, r2.x, cb0[17].z
@@ -2346,7 +2356,7 @@ Shader "ShaderRipperTest/ExtremeFlow"
 				// mul r1.xyz, r0.wwww, r1.xyzx
 				r1.xyz = float3(r0.w * r1.x, r0.w * r1.y, r0.w * r1.z);
 				// lt r2.xy, l(0.500000, 0.500000, 0.000000, 0.000000), cb0[20].xwxx
-				r2.xy = float2((0.5 < _ToggleGlow) ? 1.0 : 0.0, (0.5 < _ToggleDither) ? 1.0 : 0.0);
+				r2.xy = float2((0.5 < _ToggleGlow) ? -1.0 : 0.0, (0.5 < _ToggleDither) ? -1.0 : 0.0);
 				// deriv_rtx r0.w, r1.x
 				r0.w = ddx(r1.x);
 				// mul r3.x, r0.w, l(40.000000)
@@ -2463,6 +2473,16 @@ Shader "ShaderRipperTest/ExtremeFlow"
 			// touches; they stay undeclared because nothing can pin them.
 			// cb1 = UnityPerDraw  (declared by UnityCG.cginc)
 			// cb2 = UnityPerFrame  (declared by UnityCG.cginc)
+			sampler2D _MainTex;
+			float4 _MainTex_TexelSize;
+			float4 _NoiseTex_ST;
+			float4 _NoiseTex_TexelSize;
+			float4 _DetailTex_ST;
+			float4 _DetailTex_TexelSize;
+			float4 _MaskTex_ST;
+			float4 _MaskTex_TexelSize;
+			float4 _Params1;
+			float4 _Params3;
 			// cbuffer order confirmed by the asset's own register index
 			// $Globals cb0: 1 slot(s) named from the compiled constant-buffer member table
 			// $Globals cb0: 31 member(s) named from the asset's own constant-buffer reflection (336 bytes)
@@ -2503,7 +2523,7 @@ Shader "ShaderRipperTest/ExtremeFlow"
 				float4 r0 = 0, r1 = 0, r2 = 0, r3 = 0, r4 = 0, r5 = 0, r6 = 0, r7 = 0, r8 = 0;
 
 				// lt r0.x, l(0.500000), cb0[19].w
-				r0.x = (0.5 < _Mirror) ? 1.0 : 0.0;
+				r0.x = (0.5 < _Mirror) ? -1.0 : 0.0;
 				// mad r0.yz, v1.xxyx, l(0.000000, 2.000000, 2.000000, 0.000000), l(0.000000, -1.000000, -1.000000, 0.000000)
 				r0.yz = float2(mad(v1.x, 2.0, -1.0), mad(v1.y, 2.0, -1.0));
 				// movc r0.xy, r0.xxxx, |r0.yzyy|, v1.xyxx
@@ -2511,7 +2531,7 @@ Shader "ShaderRipperTest/ExtremeFlow"
 				// sample r1.xyzw, r0.xyxx, t0.xyzw, s2
 				r1.xyzw = tex2D(_MaskTex, float2(r0.x, r0.y));
 				// lt r0.z, r1.w, cb0[19].y
-				r0.z = (r1.w < _Threshold) ? 1.0 : 0.0;
+				r0.z = (r1.w < _Threshold) ? -1.0 : 0.0;
 				// discard_nz r0.z
 				if (any(r0.z)) discard;
 				// mul r0.zw, cb0[9].xxxy, cb1[0].yyyy
@@ -2533,7 +2553,7 @@ Shader "ShaderRipperTest/ExtremeFlow"
 					// loop
 				for (;;) {
 					// ige r2.w, r1.w, r1.x
-					r2.w = (((int)(r1.w) >= (int)(r1.x)) ? 1 : 0);
+					r2.w = (((int)(r1.w) >= (int)(r1.x)) ? -1 : 0);
 					// breakc_nz r2.w
 					if (any(r2.w)) break;
 					// itof r2.w, r1.w
@@ -3051,7 +3071,7 @@ Shader "ShaderRipperTest/ExtremeFlow"
 						// loop
 					for (;;) {
 						// ige r4.w, r3.w, r1.z
-						r4.w = (((int)(r3.w) >= (int)(r1.z)) ? 1 : 0);
+						r4.w = (((int)(r3.w) >= (int)(r1.z)) ? -1 : 0);
 						// breakc_nz r4.w
 						if (any(r4.w)) break;
 						// itof r4.w, r3.w
@@ -3146,7 +3166,7 @@ Shader "ShaderRipperTest/ExtremeFlow"
 						// mad r5.w, |r5.w|, l(2.000000), r3.z
 						r5.w = mad(abs(r5.w), 2.0, r3.z);
 						// lt r6.x, l(2.500000), r5.w
-						r6.x = (2.5 < r5.w) ? 1.0 : 0.0;
+						r6.x = (2.5 < r5.w) ? -1.0 : 0.0;
 							// if_nz r6.x
 						if (any(r6.x)) {
 							// iadd r6.x, r3.w, l(1)
@@ -3182,7 +3202,7 @@ Shader "ShaderRipperTest/ExtremeFlow"
 					// add r5.xyz, r4.xyzx, l(0.020000, 0.010000, 0.030000, 0.000000)
 					r5.xyz = float3(r4.x + 0.02, r4.y + 0.01, r4.z + 0.03);
 					// lt r6.xyz, r3.zzzz, l(0.500000, 1.000000, 1.800000, 0.000000)
-					r6.xyz = float3((r3.z < 0.5) ? 1.0 : 0.0, (r3.z < 1.0) ? 1.0 : 0.0, (r3.z < 1.8) ? 1.0 : 0.0);
+					r6.xyz = float3((r3.z < 0.5) ? -1.0 : 0.0, (r3.z < 1.0) ? -1.0 : 0.0, (r3.z < 1.8) ? -1.0 : 0.0);
 					// mad r7.xyz, r4.xyzx, cb0[6].xyzx, -r4.xyzx
 					r7.xyz = float3(mad(r4.x, _ColorC.x, -(r4.x)), mad(r4.y, _ColorC.y, -(r4.y)), mad(r4.z, _ColorC.z, -(r4.z)));
 					// mad r7.xyz, r7.xyzx, l(0.250000, 0.250000, 0.250000, 0.000000), r4.xyzx
@@ -3202,7 +3222,7 @@ Shader "ShaderRipperTest/ExtremeFlow"
 					// movc r3.xyw, r6.xxxx, r3.xyxw, r5.xyxz
 					r3.xyw = float3(r6.x != 0.0 ? r3.x : r5.x, r6.x != 0.0 ? r3.y : r5.y, r6.x != 0.0 ? r3.w : r5.z);
 					// lt r2.w, l(1.400000), r3.y
-					r2.w = (1.4 < r3.y) ? 1.0 : 0.0;
+					r2.w = (1.4 < r3.y) ? -1.0 : 0.0;
 						// if_nz r2.w
 					if (any(r2.w)) {
 						// mov r2.xyz, r3.xywx
@@ -3232,7 +3252,7 @@ Shader "ShaderRipperTest/ExtremeFlow"
 				// mad r3.yzw, cb0[4].xxyz, r1.xxxx, r3.yyzw
 				r3.yzw = float3(mad(_ColorA.x, r1.x, r3.y), mad(_ColorA.y, r1.x, r3.z), mad(_ColorA.z, r1.x, r3.w));
 				// lt r1.xz, l(0.660000, 0.000000, 0.330000, 0.000000), r3.xxxx
-				r1.xz = float2((0.66 < r3.x) ? 1.0 : 0.0, (0.33 < r3.x) ? 1.0 : 0.0);
+				r1.xz = float2((0.66 < r3.x) ? -1.0 : 0.0, (0.33 < r3.x) ? -1.0 : 0.0);
 				// add r4.xyz, -cb0[5].xyzx, cb0[6].xyzx
 				r4.xyz = float3(-(_ColorB.x) + _ColorC.x, -(_ColorB.y) + _ColorC.y, -(_ColorB.z) + _ColorC.z);
 				// mad r4.xyz, r1.wwww, r4.xyzx, cb0[5].xyzx
@@ -3400,7 +3420,7 @@ Shader "ShaderRipperTest/ExtremeFlow"
 				// add r2.z, r2.z, r4.x
 				r2.z = r2.z + r4.x;
 				// lt r4.xy, l(0.500000, 0.500000, 0.000000, 0.000000), cb0[20].yzyy
-				r4.xy = float2((0.5 < _ToggleCell) ? 1.0 : 0.0, (0.5 < _ToggleNoise) ? 1.0 : 0.0);
+				r4.xy = float2((0.5 < _ToggleCell) ? -1.0 : 0.0, (0.5 < _ToggleNoise) ? -1.0 : 0.0);
 				// mul r4.zw, r0.zzzw, cb0[15].xxxx
 				r4.zw = float2(r0.z * _Params5.x, r0.w * _Params5.x);
 				// frc r4.zw, r4.zzzw
@@ -3445,6 +3465,8 @@ Shader "ShaderRipperTest/ExtremeFlow"
 				r2.w = mad(r0.z, r5.x, r2.y);
 				// mad r3.x, r0.w, r5.x, -r2.y
 				r3.x = mad(r0.w, r5.x, -(r2.y));
+				// sincos null, r3.x, r3.x
+				r3.x = cos(r3.x);
 				// add r4.x, r0.w, r0.z
 				r4.x = r0.w + r0.z;
 				// mul r6.xyzw, r5.xyzw, r4.xxxx
@@ -3452,7 +3474,7 @@ Shader "ShaderRipperTest/ExtremeFlow"
 				// mad r2.y, r6.x, l(0.600000), r2.y
 				r2.y = mad(r6.x, 0.6, r2.y);
 				// sincos r2.yw, null, r2.yyyw
-				r2.yw = sin(r2.yyyw);
+				r2.yw = float2(sin(r2.y), sin(r2.w));
 				// mad r4.z, r0.z, r5.y, r3.y
 				r4.z = mad(r0.z, r5.y, r3.y);
 				// sincos r4.z, null, r4.z
@@ -3461,22 +3483,26 @@ Shader "ShaderRipperTest/ExtremeFlow"
 				r2.w = r2.w + r4.z;
 				// mad r4.z, r0.w, r5.y, -r3.y
 				r4.z = mad(r0.w, r5.y, -(r3.y));
+				// sincos null, r4.z, r4.z
+				r4.z = cos(r4.z);
 				// add r3.x, r3.x, r4.z
 				r3.x = r3.x + r4.z;
 				// mad r6.xyz, r6.yzwy, l(0.600000, 0.600000, 0.600000, 0.000000), r3.yzwy
 				r6.xyz = float3(mad(r6.y, 0.6, r3.y), mad(r6.z, 0.6, r3.z), mad(r6.w, 0.6, r3.w));
 				// sincos r6.xyz, null, r6.xyzx
-				r6.xyz = sin(r6.xyzx);
+				r6.xyz = float3(sin(r6.x), sin(r6.y), sin(r6.z));
 				// add r2.y, r2.y, r6.x
 				r2.y = r2.y + r6.x;
 				// mad r4.zw, r0.zzzz, r5.zzzw, r3.zzzw
 				r4.zw = float2(mad(r0.z, r5.z, r3.z), mad(r0.z, r5.w, r3.w));
 				// sincos r4.zw, null, r4.zzzw
-				r4.zw = sin(r4.zzzw);
+				r4.zw = float2(sin(r4.z), sin(r4.w));
 				// add r2.w, r2.w, r4.z
 				r2.w = r2.w + r4.z;
 				// mad r3.yz, r0.wwww, r5.zzwz, -r3.zzwz
 				r3.yz = float2(mad(r0.w, r5.z, -(r3.z)), mad(r0.w, r5.w, -(r3.w)));
+				// sincos null, r3.yz, r3.yyzy
+				r3.yz = float2(cos(r3.y), cos(r3.z));
 				// add r3.x, r3.y, r3.x
 				r3.x = r3.y + r3.x;
 				// add r2.y, r6.y, r2.y
@@ -3494,11 +3520,13 @@ Shader "ShaderRipperTest/ExtremeFlow"
 				// mad r4.zw, r0.zzzz, r5.xxxy, r3.yyyz
 				r4.zw = float2(mad(r0.z, r5.x, r3.y), mad(r0.z, r5.y, r3.z));
 				// sincos r4.zw, null, r4.zzzw
-				r4.zw = sin(r4.zzzw);
+				r4.zw = float2(sin(r4.z), sin(r4.w));
 				// add r2.w, r2.w, r4.z
 				r2.w = r2.w + r4.z;
 				// mad r6.xy, r0.wwww, r5.xyxx, -r3.yzyy
 				r6.xy = float2(mad(r0.w, r5.x, -(r3.y)), mad(r0.w, r5.y, -(r3.z)));
+				// sincos null, r6.xy, r6.xyxx
+				r6.xy = float2(cos(r6.x), cos(r6.y));
 				// add r3.x, r3.x, r6.x
 				r3.x = r3.x + r6.x;
 				// mul r6.xzw, r4.xxxx, r5.xxyz
@@ -3506,7 +3534,7 @@ Shader "ShaderRipperTest/ExtremeFlow"
 				// mad r6.xzw, r6.xxzw, l(0.600000, 0.000000, 0.600000, 0.600000), r3.yyzw
 				r6.xzw = float3(mad(r6.x, 0.6, r3.y), mad(r6.z, 0.6, r3.z), mad(r6.w, 0.6, r3.w));
 				// sincos r6.xzw, null, r6.xxzw
-				r6.xzw = sin(r6.xxzw);
+				r6.xzw = float3(sin(r6.x), sin(r6.z), sin(r6.w));
 				// add r2.y, r2.y, r6.x
 				r2.y = r2.y + r6.x;
 				// add r2.w, r4.w, r2.w
@@ -3523,6 +3551,8 @@ Shader "ShaderRipperTest/ExtremeFlow"
 				r6.x = r2.w + r3.y;
 				// mad r2.w, r0.w, r5.z, -r3.w
 				r2.w = mad(r0.w, r5.z, -(r3.w));
+				// sincos null, r2.w, r2.w
+				r2.w = cos(r2.w);
 				// add r6.y, r2.w, r3.x
 				r6.y = r2.w + r3.x;
 				// add r6.z, r6.w, r2.y
@@ -3550,7 +3580,7 @@ Shader "ShaderRipperTest/ExtremeFlow"
 						// loop
 					for (;;) {
 						// ige r3.y, r3.x, r2.y
-						r3.y = (((int)(r3.x) >= (int)(r2.y)) ? 1 : 0);
+						r3.y = (((int)(r3.x) >= (int)(r2.y)) ? -1 : 0);
 						// breakc_nz r3.y
 						if (any(r3.y)) break;
 						// itof r3.y, r3.x
@@ -4065,7 +4095,7 @@ Shader "ShaderRipperTest/ExtremeFlow"
 						// mad r3.y, r3.z, r3.y, r2.w
 						r3.y = mad(r3.z, r3.y, r2.w);
 						// lt r3.z, l(0.900000), r3.y
-						r3.z = (0.9 < r3.y) ? 1.0 : 0.0;
+						r3.z = (0.9 < r3.y) ? -1.0 : 0.0;
 							// if_nz r3.z
 						if (any(r3.z)) {
 							// mov r2.w, r3.y
@@ -4609,7 +4639,7 @@ Shader "ShaderRipperTest/ExtremeFlow"
 				// add_sat r0.z, r0.z, -cb0[15].y
 				r0.z = saturate(r0.z + -(_Params5.y));
 				// lt r0.w, r0.z, cb0[19].y
-				r0.w = (r0.z < _Threshold) ? 1.0 : 0.0;
+				r0.w = (r0.z < _Threshold) ? -1.0 : 0.0;
 				// discard_nz r0.w
 				if (any(r0.w)) discard;
 				// add r0.w, r2.x, cb0[17].z
@@ -4672,7 +4702,7 @@ Shader "ShaderRipperTest/ExtremeFlow"
 				// mul r1.xyz, r0.wwww, r1.xyzx
 				r1.xyz = float3(r0.w * r1.x, r0.w * r1.y, r0.w * r1.z);
 				// lt r2.xy, l(0.500000, 0.500000, 0.000000, 0.000000), cb0[20].xwxx
-				r2.xy = float2((0.5 < _ToggleGlow) ? 1.0 : 0.0, (0.5 < _ToggleDither) ? 1.0 : 0.0);
+				r2.xy = float2((0.5 < _ToggleGlow) ? -1.0 : 0.0, (0.5 < _ToggleDither) ? -1.0 : 0.0);
 				// deriv_rtx r0.w, r1.x
 				r0.w = ddx(r1.x);
 				// mul r3.x, r0.w, l(40.000000)

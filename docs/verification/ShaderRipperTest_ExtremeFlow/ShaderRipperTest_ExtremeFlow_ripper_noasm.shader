@@ -173,11 +173,11 @@ Shader "ShaderRipperTest/ExtremeFlow"
 				float4 o0 = 0;
 				float4 r0 = 0, r1 = 0, r2 = 0, r3 = 0, r4 = 0, r5 = 0, r6 = 0, r7 = 0, r8 = 0;
 
-				r0.x = (0.5 < _Mirror) ? 1.0 : 0.0;
+				r0.x = (0.5 < _Mirror) ? -1.0 : 0.0;
 				r0.yz = float2(mad(v1.x, 2.0, -1.0), mad(v1.y, 2.0, -1.0));
 				r0.xy = float2(r0.x != 0.0 ? abs(r0.y) : v1.x, r0.x != 0.0 ? abs(r0.z) : v1.y);
 				r1.xyzw = tex2D(_MaskTex, float2(r0.x, r0.y));
-				r0.z = (r1.w < _Threshold) ? 1.0 : 0.0;
+				r0.z = (r1.w < _Threshold) ? -1.0 : 0.0;
 				if (any(r0.z)) discard;
 				r0.zw = float2(_Scroll.x * _Time.y, _Scroll.y * _Time.y);
 				r0.zw = float2(r0.z * _Params0.z, r0.w * _Params0.z);
@@ -188,7 +188,7 @@ Shader "ShaderRipperTest/ExtremeFlow"
 				r2.xyz = float3(0.0, 0.0, 0.0);
 				r1.w = 0.0;
 				for (;;) {
-					r2.w = (((int)(r1.w) >= (int)(r1.x)) ? 1 : 0);
+					r2.w = (((int)(r1.w) >= (int)(r1.x)) ? -1 : 0);
 					if (any(r2.w)) break;
 					r2.w = float(r1.w);
 					r3.x = mad(r2.w, 0.37, 1.0);
@@ -447,7 +447,7 @@ Shader "ShaderRipperTest/ExtremeFlow"
 					r4.xyz = float3(r2.x, r2.y, r2.z);
 					r3.zw = float2(0.0, 0.0);
 					for (;;) {
-						r4.w = (((int)(r3.w) >= (int)(r1.z)) ? 1 : 0);
+						r4.w = (((int)(r3.w) >= (int)(r1.z)) ? -1 : 0);
 						if (any(r4.w)) break;
 						r4.w = float(r3.w);
 						r5.x = mad(r4.w, 1.3, r2.w);
@@ -495,7 +495,7 @@ Shader "ShaderRipperTest/ExtremeFlow"
 						r5.x = mad(r5.y, r5.x, r5.w);
 						r5.w = r5.x + -0.5;
 						r5.w = mad(abs(r5.w), 2.0, r3.z);
-						r6.x = (2.5 < r5.w) ? 1.0 : 0.0;
+						r6.x = (2.5 < r5.w) ? -1.0 : 0.0;
 						if (any(r6.x)) {
 							r6.x = ((int)(r3.w) + (int)(1.0));
 							r3.z = r5.w;
@@ -513,7 +513,7 @@ Shader "ShaderRipperTest/ExtremeFlow"
 					}
 					r3.xyw = float3(r4.x * 1.05, r4.y * 1.05, r4.z * 1.05);
 					r5.xyz = float3(r4.x + 0.02, r4.y + 0.01, r4.z + 0.03);
-					r6.xyz = float3((r3.z < 0.5) ? 1.0 : 0.0, (r3.z < 1.0) ? 1.0 : 0.0, (r3.z < 1.8) ? 1.0 : 0.0);
+					r6.xyz = float3((r3.z < 0.5) ? -1.0 : 0.0, (r3.z < 1.0) ? -1.0 : 0.0, (r3.z < 1.8) ? -1.0 : 0.0);
 					r7.xyz = float3(mad(r4.x, _ColorC.x, -(r4.x)), mad(r4.y, _ColorC.y, -(r4.y)), mad(r4.z, _ColorC.z, -(r4.z)));
 					r7.xyz = float3(mad(r7.x, 0.25, r4.x), mad(r7.y, 0.25, r4.y), mad(r7.z, 0.25, r4.z));
 					r4.xyz = float3(saturate(r4.x), saturate(r4.y), saturate(r4.z));
@@ -523,7 +523,7 @@ Shader "ShaderRipperTest/ExtremeFlow"
 					r7.xyz = float3(r6.z != 0.0 ? r7.x : r8.x, r6.z != 0.0 ? r7.y : r8.y, r6.z != 0.0 ? r7.z : r8.z);
 					r5.xyz = float3(r6.y != 0.0 ? r5.x : r7.x, r6.y != 0.0 ? r5.y : r7.y, r6.y != 0.0 ? r5.z : r7.z);
 					r3.xyw = float3(r6.x != 0.0 ? r3.x : r5.x, r6.x != 0.0 ? r3.y : r5.y, r6.x != 0.0 ? r3.w : r5.z);
-					r2.w = (1.4 < r3.y) ? 1.0 : 0.0;
+					r2.w = (1.4 < r3.y) ? -1.0 : 0.0;
 					if (any(r2.w)) {
 						r2.xyz = float3(r3.x, r3.y, r3.w);
 						break;
@@ -538,7 +538,7 @@ Shader "ShaderRipperTest/ExtremeFlow"
 				r1.z = r1.z * r1.z;
 				r3.yzw = float3(r1.z * _ColorB.x, r1.z * _ColorB.y, r1.z * _ColorB.z);
 				r3.yzw = float3(mad(_ColorA.x, r1.x, r3.y), mad(_ColorA.y, r1.x, r3.z), mad(_ColorA.z, r1.x, r3.w));
-				r1.xz = float2((0.66 < r3.x) ? 1.0 : 0.0, (0.33 < r3.x) ? 1.0 : 0.0);
+				r1.xz = float2((0.66 < r3.x) ? -1.0 : 0.0, (0.33 < r3.x) ? -1.0 : 0.0);
 				r4.xyz = float3(-(_ColorB.x) + _ColorC.x, -(_ColorB.y) + _ColorC.y, -(_ColorB.z) + _ColorC.z);
 				r4.xyz = float3(mad(r1.w, r4.x, _ColorB.x), mad(r1.w, r4.y, _ColorB.y), mad(r1.w, r4.z, _ColorB.z));
 				r3.x = r2.y * 1.3;
@@ -627,7 +627,7 @@ Shader "ShaderRipperTest/ExtremeFlow"
 				r4.xy = float2(mad(r4.x, 0.5, 0.5), mad(r4.y, 0.5, 0.5));
 				r4.xyzw = tex2D(_NoiseTex, float2(r4.x, r4.y));
 				r2.z = r2.z + r4.x;
-				r4.xy = float2((0.5 < _ToggleCell) ? 1.0 : 0.0, (0.5 < _ToggleNoise) ? 1.0 : 0.0);
+				r4.xy = float2((0.5 < _ToggleCell) ? -1.0 : 0.0, (0.5 < _ToggleNoise) ? -1.0 : 0.0);
 				r4.zw = float2(r0.z * _Params5.x, r0.w * _Params5.x);
 				r4.zw = float2(frac(r4.z), frac(r4.w));
 				r4.zw = float2(r4.z + -0.5, r4.w + -0.5);
@@ -650,22 +650,25 @@ Shader "ShaderRipperTest/ExtremeFlow"
 				r5.xyzw = float4(_WaveFreq * 0.5, _WaveFreq * 0.81, _WaveFreq * 1.12, _WaveFreq * 1.43);
 				r2.w = mad(r0.z, r5.x, r2.y);
 				r3.x = mad(r0.w, r5.x, -(r2.y));
+				r3.x = cos(r3.x);
 				r4.x = r0.w + r0.z;
 				r6.xyzw = float4(r5.x * r4.x, r5.y * r4.x, r5.z * r4.x, r5.w * r4.x);
 				r2.y = mad(r6.x, 0.6, r2.y);
-				r2.yw = sin(r2.yyyw);
+				r2.yw = float2(sin(r2.y), sin(r2.w));
 				r4.z = mad(r0.z, r5.y, r3.y);
 				r4.z = sin(r4.z);
 				r2.w = r2.w + r4.z;
 				r4.z = mad(r0.w, r5.y, -(r3.y));
+				r4.z = cos(r4.z);
 				r3.x = r3.x + r4.z;
 				r6.xyz = float3(mad(r6.y, 0.6, r3.y), mad(r6.z, 0.6, r3.z), mad(r6.w, 0.6, r3.w));
-				r6.xyz = sin(r6.xyzx);
+				r6.xyz = float3(sin(r6.x), sin(r6.y), sin(r6.z));
 				r2.y = r2.y + r6.x;
 				r4.zw = float2(mad(r0.z, r5.z, r3.z), mad(r0.z, r5.w, r3.w));
-				r4.zw = sin(r4.zzzw);
+				r4.zw = float2(sin(r4.z), sin(r4.w));
 				r2.w = r2.w + r4.z;
 				r3.yz = float2(mad(r0.w, r5.z, -(r3.z)), mad(r0.w, r5.w, -(r3.w)));
+				r3.yz = float2(cos(r3.y), cos(r3.z));
 				r3.x = r3.y + r3.x;
 				r2.y = r6.y + r2.y;
 				r2.w = r4.w + r2.w;
@@ -674,13 +677,14 @@ Shader "ShaderRipperTest/ExtremeFlow"
 				r5.xyzw = float4(_WaveFreq * 1.74, _WaveFreq * 2.05, _WaveFreq * 2.36, _Sharpness * 0.1);
 				r3.yzw = float3(mad(_Time.y, _WaveSpeed, 4.44), mad(_Time.y, _WaveSpeed, 5.55), mad(_Time.y, _WaveSpeed, 6.66));
 				r4.zw = float2(mad(r0.z, r5.x, r3.y), mad(r0.z, r5.y, r3.z));
-				r4.zw = sin(r4.zzzw);
+				r4.zw = float2(sin(r4.z), sin(r4.w));
 				r2.w = r2.w + r4.z;
 				r6.xy = float2(mad(r0.w, r5.x, -(r3.y)), mad(r0.w, r5.y, -(r3.z)));
+				r6.xy = float2(cos(r6.x), cos(r6.y));
 				r3.x = r3.x + r6.x;
 				r6.xzw = float3(r4.x * r5.x, r4.x * r5.y, r4.x * r5.z);
 				r6.xzw = float3(mad(r6.x, 0.6, r3.y), mad(r6.z, 0.6, r3.z), mad(r6.w, 0.6, r3.w));
-				r6.xzw = sin(r6.xxzw);
+				r6.xzw = float3(sin(r6.x), sin(r6.z), sin(r6.w));
 				r2.y = r2.y + r6.x;
 				r2.w = r4.w + r2.w;
 				r3.x = r6.y + r3.x;
@@ -689,6 +693,7 @@ Shader "ShaderRipperTest/ExtremeFlow"
 				r3.y = sin(r3.y);
 				r6.x = r2.w + r3.y;
 				r2.w = mad(r0.w, r5.z, -(r3.w));
+				r2.w = cos(r2.w);
 				r6.y = r2.w + r3.x;
 				r6.z = r6.w + r2.y;
 				r3.xyz = float3(saturate(mad(r6.x, 0.14, 0.5)), saturate(mad(r6.y, 0.14, 0.5)), saturate(mad(r6.z, 0.14, 0.5)));
@@ -702,7 +707,7 @@ Shader "ShaderRipperTest/ExtremeFlow"
 					r2.w = 0.0;
 					r3.x = 0.0;
 					for (;;) {
-						r3.y = (((int)(r3.x) >= (int)(r2.y)) ? 1 : 0);
+						r3.y = (((int)(r3.x) >= (int)(r2.y)) ? -1 : 0);
 						if (any(r3.y)) break;
 						r3.y = float(r3.x);
 						r3.z = r3.y * 1.7;
@@ -960,7 +965,7 @@ Shader "ShaderRipperTest/ExtremeFlow"
 						r3.y = r3.y + 1.0;
 						r3.y = 1.0 / r3.y;
 						r3.y = mad(r3.z, r3.y, r2.w);
-						r3.z = (0.9 < r3.y) ? 1.0 : 0.0;
+						r3.z = (0.9 < r3.y) ? -1.0 : 0.0;
 						if (any(r3.z)) {
 							r2.w = r3.y;
 							break;
@@ -1232,7 +1237,7 @@ Shader "ShaderRipperTest/ExtremeFlow"
 				r0.w = mad(r2.z, 0.09, 0.4);
 				r0.z = mad(r0.z, r0.w, r5.w);
 				r0.z = saturate(r0.z + -(_Params5.y));
-				r0.w = (r0.z < _Threshold) ? 1.0 : 0.0;
+				r0.w = (r0.z < _Threshold) ? -1.0 : 0.0;
 				if (any(r0.w)) discard;
 				r0.w = r2.x + _HueShift;
 				r0.w = r0.w + -0.5;
@@ -1264,7 +1269,7 @@ Shader "ShaderRipperTest/ExtremeFlow"
 				r0.w = saturate(-(r0.w) + 1.0);
 				r0.w = mad(r0.w, 0.7, 0.5);
 				r1.xyz = float3(r0.w * r1.x, r0.w * r1.y, r0.w * r1.z);
-				r2.xy = float2((0.5 < _ToggleGlow) ? 1.0 : 0.0, (0.5 < _ToggleDither) ? 1.0 : 0.0);
+				r2.xy = float2((0.5 < _ToggleGlow) ? -1.0 : 0.0, (0.5 < _ToggleDither) ? -1.0 : 0.0);
 				r0.w = ddx(r1.x);
 				r3.x = r0.w * 40.0;
 				r0.w = ddy(r1.x);
@@ -1354,6 +1359,16 @@ Shader "ShaderRipperTest/ExtremeFlow"
 			// touches; they stay undeclared because nothing can pin them.
 			// cb1 = UnityPerDraw  (declared by UnityCG.cginc)
 			// cb2 = UnityPerFrame  (declared by UnityCG.cginc)
+			sampler2D _MainTex;
+			float4 _MainTex_TexelSize;
+			float4 _NoiseTex_ST;
+			float4 _NoiseTex_TexelSize;
+			float4 _DetailTex_ST;
+			float4 _DetailTex_TexelSize;
+			float4 _MaskTex_ST;
+			float4 _MaskTex_TexelSize;
+			float4 _Params1;
+			float4 _Params3;
 			// cbuffer order confirmed by the asset's own register index
 			// $Globals cb0: 1 slot(s) named from the compiled constant-buffer member table
 			// $Globals cb0: 31 member(s) named from the asset's own constant-buffer reflection (336 bytes)
@@ -1390,11 +1405,11 @@ Shader "ShaderRipperTest/ExtremeFlow"
 				float4 o0 = 0;
 				float4 r0 = 0, r1 = 0, r2 = 0, r3 = 0, r4 = 0, r5 = 0, r6 = 0, r7 = 0, r8 = 0;
 
-				r0.x = (0.5 < _Mirror) ? 1.0 : 0.0;
+				r0.x = (0.5 < _Mirror) ? -1.0 : 0.0;
 				r0.yz = float2(mad(v1.x, 2.0, -1.0), mad(v1.y, 2.0, -1.0));
 				r0.xy = float2(r0.x != 0.0 ? abs(r0.y) : v1.x, r0.x != 0.0 ? abs(r0.z) : v1.y);
 				r1.xyzw = tex2D(_MaskTex, float2(r0.x, r0.y));
-				r0.z = (r1.w < _Threshold) ? 1.0 : 0.0;
+				r0.z = (r1.w < _Threshold) ? -1.0 : 0.0;
 				if (any(r0.z)) discard;
 				r0.zw = float2(_Scroll.x * _Time.y, _Scroll.y * _Time.y);
 				r0.zw = float2(r0.z * _Params0.z, r0.w * _Params0.z);
@@ -1405,7 +1420,7 @@ Shader "ShaderRipperTest/ExtremeFlow"
 				r2.xyz = float3(0.0, 0.0, 0.0);
 				r1.w = 0.0;
 				for (;;) {
-					r2.w = (((int)(r1.w) >= (int)(r1.x)) ? 1 : 0);
+					r2.w = (((int)(r1.w) >= (int)(r1.x)) ? -1 : 0);
 					if (any(r2.w)) break;
 					r2.w = float(r1.w);
 					r3.x = mad(r2.w, 0.37, 1.0);
@@ -1664,7 +1679,7 @@ Shader "ShaderRipperTest/ExtremeFlow"
 					r4.xyz = float3(r2.x, r2.y, r2.z);
 					r3.zw = float2(0.0, 0.0);
 					for (;;) {
-						r4.w = (((int)(r3.w) >= (int)(r1.z)) ? 1 : 0);
+						r4.w = (((int)(r3.w) >= (int)(r1.z)) ? -1 : 0);
 						if (any(r4.w)) break;
 						r4.w = float(r3.w);
 						r5.x = mad(r4.w, 1.3, r2.w);
@@ -1712,7 +1727,7 @@ Shader "ShaderRipperTest/ExtremeFlow"
 						r5.x = mad(r5.y, r5.x, r5.w);
 						r5.w = r5.x + -0.5;
 						r5.w = mad(abs(r5.w), 2.0, r3.z);
-						r6.x = (2.5 < r5.w) ? 1.0 : 0.0;
+						r6.x = (2.5 < r5.w) ? -1.0 : 0.0;
 						if (any(r6.x)) {
 							r6.x = ((int)(r3.w) + (int)(1.0));
 							r3.z = r5.w;
@@ -1730,7 +1745,7 @@ Shader "ShaderRipperTest/ExtremeFlow"
 					}
 					r3.xyw = float3(r4.x * 1.05, r4.y * 1.05, r4.z * 1.05);
 					r5.xyz = float3(r4.x + 0.02, r4.y + 0.01, r4.z + 0.03);
-					r6.xyz = float3((r3.z < 0.5) ? 1.0 : 0.0, (r3.z < 1.0) ? 1.0 : 0.0, (r3.z < 1.8) ? 1.0 : 0.0);
+					r6.xyz = float3((r3.z < 0.5) ? -1.0 : 0.0, (r3.z < 1.0) ? -1.0 : 0.0, (r3.z < 1.8) ? -1.0 : 0.0);
 					r7.xyz = float3(mad(r4.x, _ColorC.x, -(r4.x)), mad(r4.y, _ColorC.y, -(r4.y)), mad(r4.z, _ColorC.z, -(r4.z)));
 					r7.xyz = float3(mad(r7.x, 0.25, r4.x), mad(r7.y, 0.25, r4.y), mad(r7.z, 0.25, r4.z));
 					r4.xyz = float3(saturate(r4.x), saturate(r4.y), saturate(r4.z));
@@ -1740,7 +1755,7 @@ Shader "ShaderRipperTest/ExtremeFlow"
 					r7.xyz = float3(r6.z != 0.0 ? r7.x : r8.x, r6.z != 0.0 ? r7.y : r8.y, r6.z != 0.0 ? r7.z : r8.z);
 					r5.xyz = float3(r6.y != 0.0 ? r5.x : r7.x, r6.y != 0.0 ? r5.y : r7.y, r6.y != 0.0 ? r5.z : r7.z);
 					r3.xyw = float3(r6.x != 0.0 ? r3.x : r5.x, r6.x != 0.0 ? r3.y : r5.y, r6.x != 0.0 ? r3.w : r5.z);
-					r2.w = (1.4 < r3.y) ? 1.0 : 0.0;
+					r2.w = (1.4 < r3.y) ? -1.0 : 0.0;
 					if (any(r2.w)) {
 						r2.xyz = float3(r3.x, r3.y, r3.w);
 						break;
@@ -1755,7 +1770,7 @@ Shader "ShaderRipperTest/ExtremeFlow"
 				r1.z = r1.z * r1.z;
 				r3.yzw = float3(r1.z * _ColorB.x, r1.z * _ColorB.y, r1.z * _ColorB.z);
 				r3.yzw = float3(mad(_ColorA.x, r1.x, r3.y), mad(_ColorA.y, r1.x, r3.z), mad(_ColorA.z, r1.x, r3.w));
-				r1.xz = float2((0.66 < r3.x) ? 1.0 : 0.0, (0.33 < r3.x) ? 1.0 : 0.0);
+				r1.xz = float2((0.66 < r3.x) ? -1.0 : 0.0, (0.33 < r3.x) ? -1.0 : 0.0);
 				r4.xyz = float3(-(_ColorB.x) + _ColorC.x, -(_ColorB.y) + _ColorC.y, -(_ColorB.z) + _ColorC.z);
 				r4.xyz = float3(mad(r1.w, r4.x, _ColorB.x), mad(r1.w, r4.y, _ColorB.y), mad(r1.w, r4.z, _ColorB.z));
 				r3.x = r2.y * 1.3;
@@ -1844,7 +1859,7 @@ Shader "ShaderRipperTest/ExtremeFlow"
 				r4.xy = float2(mad(r4.x, 0.5, 0.5), mad(r4.y, 0.5, 0.5));
 				r4.xyzw = tex2D(_NoiseTex, float2(r4.x, r4.y));
 				r2.z = r2.z + r4.x;
-				r4.xy = float2((0.5 < _ToggleCell) ? 1.0 : 0.0, (0.5 < _ToggleNoise) ? 1.0 : 0.0);
+				r4.xy = float2((0.5 < _ToggleCell) ? -1.0 : 0.0, (0.5 < _ToggleNoise) ? -1.0 : 0.0);
 				r4.zw = float2(r0.z * _Params5.x, r0.w * _Params5.x);
 				r4.zw = float2(frac(r4.z), frac(r4.w));
 				r4.zw = float2(r4.z + -0.5, r4.w + -0.5);
@@ -1867,22 +1882,25 @@ Shader "ShaderRipperTest/ExtremeFlow"
 				r5.xyzw = float4(_WaveFreq * 0.5, _WaveFreq * 0.81, _WaveFreq * 1.12, _WaveFreq * 1.43);
 				r2.w = mad(r0.z, r5.x, r2.y);
 				r3.x = mad(r0.w, r5.x, -(r2.y));
+				r3.x = cos(r3.x);
 				r4.x = r0.w + r0.z;
 				r6.xyzw = float4(r5.x * r4.x, r5.y * r4.x, r5.z * r4.x, r5.w * r4.x);
 				r2.y = mad(r6.x, 0.6, r2.y);
-				r2.yw = sin(r2.yyyw);
+				r2.yw = float2(sin(r2.y), sin(r2.w));
 				r4.z = mad(r0.z, r5.y, r3.y);
 				r4.z = sin(r4.z);
 				r2.w = r2.w + r4.z;
 				r4.z = mad(r0.w, r5.y, -(r3.y));
+				r4.z = cos(r4.z);
 				r3.x = r3.x + r4.z;
 				r6.xyz = float3(mad(r6.y, 0.6, r3.y), mad(r6.z, 0.6, r3.z), mad(r6.w, 0.6, r3.w));
-				r6.xyz = sin(r6.xyzx);
+				r6.xyz = float3(sin(r6.x), sin(r6.y), sin(r6.z));
 				r2.y = r2.y + r6.x;
 				r4.zw = float2(mad(r0.z, r5.z, r3.z), mad(r0.z, r5.w, r3.w));
-				r4.zw = sin(r4.zzzw);
+				r4.zw = float2(sin(r4.z), sin(r4.w));
 				r2.w = r2.w + r4.z;
 				r3.yz = float2(mad(r0.w, r5.z, -(r3.z)), mad(r0.w, r5.w, -(r3.w)));
+				r3.yz = float2(cos(r3.y), cos(r3.z));
 				r3.x = r3.y + r3.x;
 				r2.y = r6.y + r2.y;
 				r2.w = r4.w + r2.w;
@@ -1891,13 +1909,14 @@ Shader "ShaderRipperTest/ExtremeFlow"
 				r5.xyzw = float4(_WaveFreq * 1.74, _WaveFreq * 2.05, _WaveFreq * 2.36, _Sharpness * 0.1);
 				r3.yzw = float3(mad(_Time.y, _WaveSpeed, 4.44), mad(_Time.y, _WaveSpeed, 5.55), mad(_Time.y, _WaveSpeed, 6.66));
 				r4.zw = float2(mad(r0.z, r5.x, r3.y), mad(r0.z, r5.y, r3.z));
-				r4.zw = sin(r4.zzzw);
+				r4.zw = float2(sin(r4.z), sin(r4.w));
 				r2.w = r2.w + r4.z;
 				r6.xy = float2(mad(r0.w, r5.x, -(r3.y)), mad(r0.w, r5.y, -(r3.z)));
+				r6.xy = float2(cos(r6.x), cos(r6.y));
 				r3.x = r3.x + r6.x;
 				r6.xzw = float3(r4.x * r5.x, r4.x * r5.y, r4.x * r5.z);
 				r6.xzw = float3(mad(r6.x, 0.6, r3.y), mad(r6.z, 0.6, r3.z), mad(r6.w, 0.6, r3.w));
-				r6.xzw = sin(r6.xxzw);
+				r6.xzw = float3(sin(r6.x), sin(r6.z), sin(r6.w));
 				r2.y = r2.y + r6.x;
 				r2.w = r4.w + r2.w;
 				r3.x = r6.y + r3.x;
@@ -1906,6 +1925,7 @@ Shader "ShaderRipperTest/ExtremeFlow"
 				r3.y = sin(r3.y);
 				r6.x = r2.w + r3.y;
 				r2.w = mad(r0.w, r5.z, -(r3.w));
+				r2.w = cos(r2.w);
 				r6.y = r2.w + r3.x;
 				r6.z = r6.w + r2.y;
 				r3.xyz = float3(saturate(mad(r6.x, 0.14, 0.5)), saturate(mad(r6.y, 0.14, 0.5)), saturate(mad(r6.z, 0.14, 0.5)));
@@ -1919,7 +1939,7 @@ Shader "ShaderRipperTest/ExtremeFlow"
 					r2.w = 0.0;
 					r3.x = 0.0;
 					for (;;) {
-						r3.y = (((int)(r3.x) >= (int)(r2.y)) ? 1 : 0);
+						r3.y = (((int)(r3.x) >= (int)(r2.y)) ? -1 : 0);
 						if (any(r3.y)) break;
 						r3.y = float(r3.x);
 						r3.z = r3.y * 1.7;
@@ -2177,7 +2197,7 @@ Shader "ShaderRipperTest/ExtremeFlow"
 						r3.y = r3.y + 1.0;
 						r3.y = 1.0 / r3.y;
 						r3.y = mad(r3.z, r3.y, r2.w);
-						r3.z = (0.9 < r3.y) ? 1.0 : 0.0;
+						r3.z = (0.9 < r3.y) ? -1.0 : 0.0;
 						if (any(r3.z)) {
 							r2.w = r3.y;
 							break;
@@ -2449,7 +2469,7 @@ Shader "ShaderRipperTest/ExtremeFlow"
 				r0.w = mad(r2.z, 0.09, 0.4);
 				r0.z = mad(r0.z, r0.w, r5.w);
 				r0.z = saturate(r0.z + -(_Params5.y));
-				r0.w = (r0.z < _Threshold) ? 1.0 : 0.0;
+				r0.w = (r0.z < _Threshold) ? -1.0 : 0.0;
 				if (any(r0.w)) discard;
 				r0.w = r2.x + _HueShift;
 				r0.w = r0.w + -0.5;
@@ -2481,7 +2501,7 @@ Shader "ShaderRipperTest/ExtremeFlow"
 				r0.w = saturate(-(r0.w) + 1.0);
 				r0.w = mad(r0.w, 0.7, 0.5);
 				r1.xyz = float3(r0.w * r1.x, r0.w * r1.y, r0.w * r1.z);
-				r2.xy = float2((0.5 < _ToggleGlow) ? 1.0 : 0.0, (0.5 < _ToggleDither) ? 1.0 : 0.0);
+				r2.xy = float2((0.5 < _ToggleGlow) ? -1.0 : 0.0, (0.5 < _ToggleDither) ? -1.0 : 0.0);
 				r0.w = ddx(r1.x);
 				r3.x = r0.w * 40.0;
 				r0.w = ddy(r1.x);

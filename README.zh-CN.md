@@ -69,6 +69,8 @@ ShaderRipper.exe --file "a.apk" --out D:\ExportedProject
 
 注意：CGPROGRAM 里是**编译后汇编的直译**，不是作者源码（源码不在游戏包内）；属性、状态、Pass 结构、变体 `#if` 链均忠实还原。
 
+产物文件名取自 shader 名，只把层级分隔符换成下划线（`UI/Pause Planets` → `UI_Pause Planets.shader`，空格、括号、大小写都不动）。资源路径已被别的 shader 占用时，改用 shader 名做文件名，而不是追加看不懂的 path id。导出按 shader 并行处理，且所有名字/路径归属都在开工前单线程定好，因此重复运行得到完全一致的目录树。
+
 ### `multi_compile` 行是怎么还原的
 
 包里只存了每个变体**编译时带哪些关键字**，行结构本身没有留下。它由「哪些关键字能同时为真」反推：  
@@ -118,6 +120,7 @@ ShaderRipper.exe --file "a.apk" --out D:\ExportedProject
 | `--platform <id\|名>`  | 强制后端：`d3d11` / `d3d9` / `d3d12` / `gles3` / `gles20` / `openglcore` / `metal` / `vulkan`；默认优先 d3d11，无则自动选 GLSL 平台 |
 | `--asm`               | 输出逐指令反汇编注释（d3d11=DXBC、glsl=原 GLSL 行、d3d9/12=原生汇编）                                                                 |
 | `--only <子串>`         | 只处理名字含该子串的 shader                                                                                                 |
+| `--dedup`              | 同一个 shader 在多个数据文件里各存一份时只保留一份：优先保留有固定容器路径的那份，并列按 path id 取最小者，结果与线程调度无关 |
 | `--bundles [dir]`     | 同时扫描 asset bundle（默认扫 --data 同级）                                                                                  |
 | `--list-shaders <f>`  | 列出 SerializedFile 里的 shader 清单                                                                                    |
 | `--dump [子串]`         | 只打印 blob/参数块信息，不写文件                                                                                               |
@@ -148,8 +151,8 @@ ShaderRipper.exe --file "a.apk" --out D:\ExportedProject
 
 | 着色器 | 属性 | 变体 | fragment 指令 |
 |---|---|---|---|
-| `ShaderRipperTest/ExtremeFlow` | 37 | 1 | 1286 |
-| `ShaderRipperTest/VariantMonster` | 20 | 60 | 合计 82,550，单变体 763–1875 |
+| `ShaderRipperTest/ExtremeFlow` | 37 | 1 | 1328 |
+| `ShaderRipperTest/VariantMonster` | 20 | 60 | 合计 84,425，单变体 777–1911 |
 
 每个变体都用 `d3dcompiler_47` 以 `ps_5_0` 重新编译验证：1/1 与 60/60 全部通过，0 条未翻译指令，0 处 `TODO`；控制流原样保留（ExtremeFlow：3 个循环、5 个出口、2 处 `discard`，`ddx`/`ddy` 都在）。
 
@@ -168,8 +171,8 @@ if (accum.g > 1.4) break;              // 提前跳出 [loop]
 
 ```csharp
 r3.xyw = float3(r4.x * 1.05, r4.y * 1.05, r4.z * 1.05);                       // 第 1 臂
-r6.xyz = float3((r3.z < 0.5) ? 1.0 : 0.0, (r3.z < 1.0) ? 1.0 : 0.0,
-                (r3.z < 1.8) ? 1.0 : 0.0);                                    // 三个判据还在
+r6.xyz = float3((r3.z < 0.5) ? -1.0 : 0.0, (r3.z < 1.0) ? -1.0 : 0.0,
+                (r3.z < 1.8) ? -1.0 : 0.0);                                   // 三个判据还在
 r7.xyz = float3(mad(r4.x, _ColorC.x, -(r4.x)), ...);                          // lerp：accum*color - accum
 r7.xyz = float3(mad(r7.x, 0.25, r4.x), ...);                                  //   ... * 0.25 + accum
 r3.xyw = float3(r6.x != 0.0 ? r3.x : r5.x, ...);                              // 选择树
@@ -177,7 +180,9 @@ r2.w = (1.4 < r3.y) ? 1.0 : 0.0;
 if (any(r2.w)) { r2.xyz = float3(r3.x, r3.y, r3.w); break; }                  // 提前退出被重建
 ```
 
-编译器把分支链压成了谓词选择树，并把 `lerp` 改写成两条 `mad`；直译原样保留这个形态，而不是去猜原来的 `if/else`。这也解释了为什么输出比输入指令多（ExtremeFlow 1286 vs 1097）：编译器做过的算子融合拿不回来，硬猜就是编造。
+编译器把分支链压成了谓词选择树，并把 `lerp` 改写成两条 `mad`；直译原样保留这个形态，而不是去猜原来的 `if/else`。这里的 `-1.0` 不是笔误——DXBC 的比较指令为真时写的是全 1 掩码，后面消费这些值的斜坡运算依赖这个符号，改成 `1.0` 会让判断整个反过来。这也解释了为什么输出比输入指令多（ExtremeFlow 1328 vs 1097）：编译器做过的算子融合拿不回来，硬猜就是编造。
+
+`scripts/usc_validate.py` 用 Unity 自家的 `UnityShaderCompiler` 复核整棵产物树（真实 `CGIncludes`、真实关键字集合）：每个文件只预处理一次，再把 `// ---- variant N` 标记列出的每个变体按顶点/片元各编译一遍，每个 worker 一个 UnityShaderCompiler.exe 进程。某商业游戏的数据目录（418 个 shader、约 1400 个变体）在 8 进程下约 25 秒跑完——同样的检查用 `.temp` 里那套 `d3dcompiler_47` 桩要十分钟，而且看不到 include 级别的错误。
 
 ## 限制
 
