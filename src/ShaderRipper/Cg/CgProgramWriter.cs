@@ -229,11 +229,53 @@ namespace ShaderRipper.Cg
                 sb.Append(ShaderInterface.StructText(hasVs ? "v2f" : "appdata", iface.V2fFields, renumber: true));
 
             sb.AppendLine();
+            int declStart = sb.Length;
             DeclareResources(sb, vs, ps, vsCb, psCb, props);
             sb.AppendLine();
 
+            int bodyStart = sb.Length;
             if (hasVs) EmitVertex(sb, vs, iface, vsCb);
             if (hasPs) EmitFragment(sb, ps, iface, hasVs, psCb);
+
+            DeclareMissed(sb, declStart, bodyStart, props);
+        }
+
+        /// <summary>
+        /// A material property can be read by one variant while that variant's own
+        /// constant-buffer reflection does not name the row -- the ETC1 branch of a
+        /// sprite shader reads <c>_EnableExternalAlpha</c> and the sibling branch is
+        /// where the row got its name.  The body then carries an identifier nothing
+        /// declares and Unity refuses to compile it.  Fall back to the shader's own
+        /// Properties block, which states the type, for any such name.
+        /// </summary>
+        private static void DeclareMissed(StringBuilder sb, int declStart, int bodyStart,
+                                          IReadOnlyList<Property> props)
+        {
+            if (props == null || props.Count == 0) return;
+            if (bodyStart <= declStart || bodyStart > sb.Length) return;
+
+            string declText = sb.ToString(declStart, bodyStart - declStart);
+            string bodyText = sb.ToString(bodyStart, sb.Length - bodyStart);
+
+            var have = new HashSet<string>(StringComparer.Ordinal);
+            foreach (System.Text.RegularExpressions.Match m in System.Text.RegularExpressions.Regex.Matches(
+                         declText, @"\b(?:float[234]?(?:x[234])?|sampler2D|samplerCUBE|sampler3D|SamplerState)\s+(\w+)"))
+                have.Add(m.Groups[1].Value);
+
+            var extra = new StringBuilder();
+            foreach (Property pr in props)
+            {
+                if (have.Contains(pr.Name)) continue;
+                if (!System.Text.RegularExpressions.Regex.IsMatch(bodyText,
+                        @"\b" + System.Text.RegularExpressions.Regex.Escape(pr.Name) + @"\b"))
+                    continue;
+                string ty = pr.Type switch { 0 or 1 => "float4", 2 or 3 => "float", _ => "sampler2D" };
+                extra.Append('\t').Append(ty).Append(' ').Append(pr.Name)
+                     .Append(";  // from the Properties block (this variant's reflection did not name it)\n");
+                have.Add(pr.Name);
+            }
+
+            if (extra.Length > 0) sb.Insert(bodyStart, extra.ToString());
         }
 
         private static void DeclareResources(StringBuilder sb, AsmParser.Program vs, AsmParser.Program ps,
