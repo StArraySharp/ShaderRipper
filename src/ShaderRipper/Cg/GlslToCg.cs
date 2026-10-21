@@ -98,6 +98,10 @@ namespace ShaderRipper.Cg
             (new Regex(@"\binversesqrt\b"), "rsqrt"),
             (new Regex(@"\bfract\b"), "frac"),
             (new Regex(@"\bmix\b"), "lerp"),
+            // GLSL naming that HLSL does not have at all.  roundEven and HLSL
+            // round() are both round-half-to-even on SM4+ (DXBC round_ne), so the
+            // mapping is exact; leaving the GLSL name in place is an X3004.
+            (new Regex(@"\broundEven\s*\("), "round("),
             // GLSL derivative names.  Unity's CGIncludes do NOT define them
             // (only GraniteShaderLib3 maps the other way, ddx -> dFdx), so a
             // CGPROGRAM carrying dFdx fails to compile with X3004.
@@ -187,11 +191,22 @@ namespace ShaderRipper.Cg
             if (pv != null && pv.BodyText.Contains("gl_Position") && !v2f.ContainsKey("pos"))
                 v2f["pos"] = new InOut { Name = "pos", CgType = "float4", Semantic = "SV_Position" };
 
+            // GLSL vertex built-ins have no declared attribute, but HLSL needs them
+            // in the input signature.  Without this the body keeps referencing
+            // gl_VertexID, which no include defines (X3004 in Unity).
+            var builtinIns = new List<InOut>();
+            if (pv != null && pv.BodyText.Contains("gl_VertexID"))
+                builtinIns.Add(new InOut { Name = "sv_vertexid", CgType = "uint", Semantic = "SV_VERTEXID" });
+            if (pv != null && pv.BodyText.Contains("gl_InstanceID"))
+                builtinIns.Add(new InOut { Name = "sv_instanceid", CgType = "uint", Semantic = "SV_INSTANCEID" });
+
             var sb = new StringBuilder();
 
             sb.AppendLine("struct appdata");
             sb.AppendLine("{");
             foreach (var a in pv?.Ins ?? new List<InOut>())
+                sb.AppendLine($"\t{a.CgType} {a.Name} : {a.Semantic};");
+            foreach (var a in builtinIns)
                 sb.AppendLine($"\t{a.CgType} {a.Name} : {a.Semantic};");
             sb.AppendLine("};");
             sb.AppendLine();
@@ -211,7 +226,11 @@ namespace ShaderRipper.Cg
                 sb.AppendLine("{");
                 foreach (var g in pv.Locals) sb.AppendLine("\t" + g + ";");
                 sb.AppendLine("\tv2f o;");
-                foreach (var l in pv.Body) sb.AppendLine("\t" + l);
+                foreach (var l in CollapseMvp(string.Join("\n", pv.Body)).Split('\n'))
+                {
+                    if (l.Length == 0) continue;
+                    sb.AppendLine("\t" + CgBuiltins(l));
+                }
                 if (!pv.Body[^1].Trim().StartsWith("return", StringComparison.Ordinal))
                     sb.AppendLine("\treturn o;");
                 sb.AppendLine("}");
@@ -256,6 +275,43 @@ namespace ShaderRipper.Cg
                 i = eol + 1;
             }
             return glsl[at..];
+        }
+
+        /// <summary>
+        /// GLSL vertex built-ins that HLSL exposes as input-signature semantics.
+        /// They are added to <c>appdata</c> above, so the body has to read them
+        /// from there instead of keeping the GLSL name.
+        /// </summary>
+        private static string CgBuiltins(string line)
+        {
+            if (line.IndexOf("gl_VertexID", StringComparison.Ordinal) >= 0)
+                line = line.Replace("gl_VertexID", "v.sv_vertexid");
+            if (line.IndexOf("gl_InstanceID", StringComparison.Ordinal) >= 0)
+                line = line.Replace("gl_InstanceID", "v.sv_instanceid");
+            return line;
+        }
+
+        /// <summary>
+        /// HLSLcc expands a plain object-to-clip transform into eight explicit
+        /// matrix-column lines.  Unity's own <c>UnityObjectToClipPos</c> does the
+        /// same work in one call and is the form Unity itself is exercised with, so
+        /// collapse the block back when it has exactly that shape.  Anything that
+        /// does not match is left untouched.
+        /// </summary>
+        private static string CollapseMvp(string body)
+        {
+            var re = new Regex(
+                @"(?m)^[ \t]*(\w+) = (\S+)\.yyyy \* unity_ObjectToWorld\._m01_m11_m21_m31;[ \t]*\r?\n" +
+                @"[ \t]*\1 = unity_ObjectToWorld\._m00_m10_m20_m30 \* \2\.xxxx \+ \1;[ \t]*\r?\n" +
+                @"[ \t]*\1 = unity_ObjectToWorld\._m02_m12_m22_m32 \* \2\.zzzz \+ \1;[ \t]*\r?\n" +
+                @"[ \t]*\1 = \1 \+ unity_ObjectToWorld\._m03_m13_m23_m33;[ \t]*\r?\n" +
+                @"[ \t]*(\w+) = \1\.yyyy \* unity_MatrixVP\._m01_m11_m21_m31;[ \t]*\r?\n" +
+                @"[ \t]*\3 = unity_MatrixVP\._m00_m10_m20_m30 \* \1\.xxxx \+ \3;[ \t]*\r?\n" +
+                @"[ \t]*\3 = unity_MatrixVP\._m02_m12_m22_m32 \* \1\.zzzz \+ \3;[ \t]*\r?\n" +
+                @"[ \t]*(\w+(?:\.\w+)?) = unity_MatrixVP\._m03_m13_m23_m33 \* \1\.wwww \+ \3;");
+
+            return re.Replace(body, m =>
+                $"{m.Groups[4].Value} = UnityObjectToClipPos({m.Groups[2].Value}.xyz);");
         }
 
         private static Branch ParseBranch(string src, bool isVertex)
