@@ -46,7 +46,7 @@ namespace ShaderRipper.Cg
             var p = new Program();
             var lines = asmText.Split('\n');
             int icbDepth = 0;
-            _sigTarget = 0;
+            int sigTarget = 0;
             var icbRows = new List<float[]>();
 
             foreach (var raw0 in lines)
@@ -90,7 +90,7 @@ namespace ShaderRipper.Cg
                 if (t.StartsWith("//") || t.StartsWith(";"))
                 {
                     p.Signatures ??= Array.Empty<string>();
-                    CaptureSignature(p, t);
+                    CaptureSignature(p, t, ref sigTarget);
                     continue;
                 }
                 if (t.StartsWith("vs_") || t.StartsWith("ps_") || t.StartsWith("gs_") ||
@@ -111,30 +111,32 @@ namespace ShaderRipper.Cg
             return p;
         }
 
-        private static int _sigTarget;
-
         /// <summary>
         /// Collect the "Input signature:" / "Output signature:" tables that
         /// D3DDisassemble emits as comments.  They carry the exact semantic name,
         /// index, declaration mask and register for every shader stage input and
         /// output, which is what the appdata / v2f structs are built from.
+        ///
+        /// sigTarget is the caller's parse-local section state (0 = none,
+        /// 1 = input, 2 = output).  It used to be a static field, which made
+        /// concurrent Parse calls corrupt each other's section tracking.
         /// </summary>
-        private static void CaptureSignature(Program p, string rawLine)
+        private static void CaptureSignature(Program p, string rawLine, ref int sigTarget)
         {
             string s = rawLine.Trim();
             while (s.StartsWith("//") || s.StartsWith(";"))
                 s = s.Substring(s.StartsWith("//") ? 2 : 1).TrimStart();
 
             if (s.StartsWith("Input signature", StringComparison.OrdinalIgnoreCase))
-            { _sigTarget = 1; p.InputSig ??= new List<SigEntry>(); return; }
+            { sigTarget = 1; p.InputSig ??= new List<SigEntry>(); return; }
             if (s.StartsWith("Output signature", StringComparison.OrdinalIgnoreCase))
-            { _sigTarget = 2; p.OutputSig ??= new List<SigEntry>(); return; }
-            if (_sigTarget == 0) return;
+            { sigTarget = 2; p.OutputSig ??= new List<SigEntry>(); return; }
+            if (sigTarget == 0) return;
             if (s.Length == 0 || s.StartsWith("Name") || s.StartsWith("-"))
                 return;
 
             var m = SigRow.Match(s);
-            if (!m.Success) { _sigTarget = 0; return; }
+            if (!m.Success) { sigTarget = 0; return; }
 
             var e = new SigEntry
             {
@@ -146,7 +148,7 @@ namespace ShaderRipper.Cg
                 Format = m.Groups[6].Value,
                 Used = m.Groups[7].Value,
             };
-            if (_sigTarget == 1) p.InputSig.Add(e); else p.OutputSig.Add(e);
+            if (sigTarget == 1) p.InputSig.Add(e); else p.OutputSig.Add(e);
         }
 
         /// <summary>True when the trimmed line has no printable instruction characters.</summary>
