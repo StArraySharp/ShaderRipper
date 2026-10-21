@@ -74,17 +74,15 @@ Note: the CGPROGRAM body is a **translation of the compiled assembly**, not the 
 
 ### How the `multi_compile` lines are recovered
 
-The build stores only the **set** of keywords each variant was compiled with — the
-line structure is not in the data. It is recovered from which keywords can be on at the
-same time: two keywords that never co-occur in any variant are the alternatives of one
-line (Unity only ever defines one of them), while keywords that do co-occur are separate
-lines. For the 60-variant test shader in [`docs/verification/`](docs/verification/) that gives back exactly the
-four lines it was written with — `__ DIST_SWIRL DIST_WAVE`, `__ GLOW_ON`,
+The build stores only the **set** of keywords each variant was compiled with — the line structure is not in the
+data. It is recovered from which keywords can be on at the same time: two keywords that never co-occur in any
+variant are the alternatives of one line (Unity only ever defines one of them), while keywords that do co-occur
+are separate lines. For the 60-variant test shader in [`docs/verification/`](docs/verification/) that gives back
+exactly the four lines it was written with — `__ DIST_SWIRL DIST_WAVE`, `__ GLOW_ON`,
 `__ MODE_ADD MODE_MUL MODE_OVERLAY MODE_SCREEN`, `__ SHAPE_RING` — and 60/60 coverage, the full cartesian
-product 5 × 3 × 2 × 2. Treating the eight keywords as independent toggles would have claimed 2⁸ = 256 variants,
-and for the 25-mode blend shaders found in real game data it would have claimed 2²⁵. Every variant keeps its own
-exact guard (`defined(MODE_MUL)`, not "one of the modes"), so a hand-written `#ifdef` in the body still means
-what it did in the input.
+product 5 × 3 × 2 × 2. Treating those eight keywords as independent toggles would have claimed 2⁸ = 256 variants.
+Every variant keeps its own exact guard (`defined(MODE_MUL)`, not "one of the modes"), so a hand-written `#ifdef`
+in the body still means what it did in the input.
 
 Supported containers and compression:
 
@@ -153,16 +151,22 @@ For more readable output, prefer game data that includes **GLES3 / OpenGLCore** 
 
 ## Correctness verification
 
-[`docs/verification/`](docs/verification/) holds one round trip through a Unity 6 test project. Both shaders in it were **written by us**, packed into that project, and then extracted back out of its build data — so both ends of the chain are ours and every number below can be reproduced. Each sub-directory holds the source we packed (`*_original.shader`, the input), what this tool rebuilt (`*_ripper.shader`, the output, with per-instruction comments; `*_ripper_noasm.shader` is the same file without them), and the merged DXBC disassembly of every compiled variant.
+[`docs/verification/`](docs/verification/) holds one round trip through a Unity 6 test project: the source that
+went into the project (`*_original.shader`), what this tool extracted back out (`*_ripper.shader`, with
+per-instruction comments; `*_ripper_noasm.shader` is the same file without them), and the merged DXBC
+disassembly of every compiled variant. The sources ship with the repo, so the round trip can be repeated by
+packing them yourself.
 
 | shader | properties | variants | fragment instructions |
 |---|---|---|---|
 | `ShaderRipperTest/ExtremeFlow` | 37 | 1 | 1286 |
 | `ShaderRipperTest/VariantMonster` | 20 | 60 | 82,550 total, 763–1875 per variant |
 
-Every variant was recompiled with `d3dcompiler_47` at `ps_5_0`: 1/1 and 60/60 pass, 0 untranslated instructions, 0 `TODO` markers, and control flow comes back intact (ExtremeFlow: 3 loops, 5 exits between them, 2 `discard`s, `ddx`/`ddy` preserved). The 60-variant shader is shipped only in its stripped form — the annotated copy alone would be 6.6 MB — and `--asm` regenerates it in one run.
+Every variant was recompiled with `d3dcompiler_47` at `ps_5_0`: 1/1 and 60/60 pass, 0 untranslated
+instructions, 0 `TODO` markers, and control flow survives (ExtremeFlow: 3 loops, 5 exits between them,
+2 `discard`s, `ddx`/`ddy` preserved).
 
-What the compiler did to the source, and what the transliteration gives back, on ExtremeFlow's if/else chain:
+ExtremeFlow's if/else chain, before and after:
 
 Input:
 
@@ -188,11 +192,10 @@ r2.w = (1.4 < r3.y) ? 1.0 : 0.0;
 if (any(r2.w)) { r2.xyz = float3(r3.x, r3.y, r3.w); break; }                  // early exit rebuilt
 ```
 
-The compiler flattened the branch chain into predicated selects and rewrote `lerp` into two `mad`s. The
-instruction-by-instruction transliteration keeps exactly that shape instead of guessing the original
-`if/else` back — it is the same program, and it is why the output has more instructions than the input
-(1286 vs 1097 for ExtremeFlow): operator fusion the compiler performed is not recoverable, and inventing it
-would be a guess.
+The compiler flattened the branch chain into predicated selects and rewrote `lerp` into two `mad`s; the
+transliteration keeps that shape instead of guessing the original `if/else` back. That is also why the output
+has more instructions than the input (1286 vs 1097): fusion the compiler performed cannot be recovered, and
+inventing it would be a guess.
 
 ## Limitations
 

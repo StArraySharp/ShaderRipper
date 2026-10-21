@@ -1,4 +1,4 @@
-# ShaderRipper
+﻿# ShaderRipper
 
 [English](README.md) | 简体中文
 
@@ -71,12 +71,12 @@ ShaderRipper.exe --file "a.apk" --out D:\ExportedProject
 
 ### `multi_compile` 行是怎么还原的
 
-包里只存了每个变体**编译时带哪些关键字**，行结构本身没有留下。它由「哪些关键字能同时为真」反推：
-任何变体里都不同时出现的关键字，是同一行的各个候选（Unity 只会定义其中之一）；能同时出现的就是不同的行。
-以 [`docs/verification/`](docs/verification/) 里那个 60 变体的测试着色器为例，还原出的正是它当初手写的四条：
-`__ DIST_SWIRL DIST_WAVE`、`__ GLOW_ON`、`__ MODE_ADD MODE_MUL MODE_OVERLAY MODE_SCREEN`、`__ SHAPE_RING`，
-覆盖 60/60，即 5 × 3 × 2 × 2 的完整笛卡尔积。若把这 8 个关键字当成独立开关，会主张 2⁸ = 256 个变体；
-在真实游戏数据里那些 25 候选的混合模式着色器上，则会主张 2²⁵ 个。每个变体的守卫都是精确匹配
+包里只存了每个变体**编译时带哪些关键字**，行结构本身没有留下。它由「哪些关键字能同时为真」反推：  
+任何变体里都不同时出现的关键字，是同一行的各个候选（Unity 只会定义其中之一）；能同时出现的就是不同的行。  
+以 [`docs/verification/`](docs/verification/) 里那个 60 变体的测试着色器为例，还原出的正是它当初手写的四条：  
+`__ DIST_SWIRL DIST_WAVE`、`__ GLOW_ON`、`__ MODE_ADD MODE_MUL MODE_OVERLAY MODE_SCREEN`、`__ SHAPE_RING`，  
+覆盖 60/60，即 5 × 3 × 2 × 2 的完整笛卡尔积。若把这 8 个关键字当成独立开关，会主张 2⁸ = 256 个变体。  
+每个变体的守卫都是精确匹配  
 （`defined(MODE_MUL)`，而不是「是某个 mode」），所以函数体里手写的 `#ifdef` 语义与输入一致。
 
 支持的容器与压缩：
@@ -144,18 +144,16 @@ ShaderRipper.exe --file "a.apk" --out D:\ExportedProject
 
 ## 正确性验证
 
-[`docs/verification/`](docs/verification/) 是一次完整往返：这里的两个着色器都是**我们自己写的**，打包进一个 Unity 6 测试工程，再从该工程的构建产物里提取回来——链路两端都是我们自己的东西，下面的数字都能复现。每个子目录里放：我们打包进去的输入（`*_original.shader`）、本工具还原出的输出（`*_ripper.shader`，带逐指令注释；`*_ripper_noasm.shader` 是去掉注释的同一份）、以及所有已编译变体的 DXBC 反汇编合集。
+[`docs/verification/`](docs/verification/) 是一次完整往返：输入是打包进 Unity 6 测试工程的着色器源码（`*_original.shader`），输出是本工具从该工程的构建产物里提取回来的结果（`*_ripper.shader`，带逐指令注释；`*_ripper_noasm.shader` 是去掉注释的同一份），另有所有已编译变体的 DXBC 反汇编合集。源码随仓库提供，你自己打包一遍就能复现。
 
 | 着色器 | 属性 | 变体 | fragment 指令 |
 |---|---|---|---|
 | `ShaderRipperTest/ExtremeFlow` | 37 | 1 | 1286 |
 | `ShaderRipperTest/VariantMonster` | 20 | 60 | 合计 82,550，单变体 763–1875 |
 
-每个变体都用 `d3dcompiler_47` 以 `ps_5_0` 重新编译验证：1/1 与 60/60 全部通过，0 条未翻译指令，0 处 `TODO`；控制流原样保留（ExtremeFlow：3 个循环、5 个出口、2 处 `discard`，`ddx`/`ddy` 都在）。60 变体那份只放了去注释版（带注释的单文件就有 6.6 MB），加 `--asm` 跑一次即可生成。
+每个变体都用 `d3dcompiler_47` 以 `ps_5_0` 重新编译验证：1/1 与 60/60 全部通过，0 条未翻译指令，0 处 `TODO`；控制流原样保留（ExtremeFlow：3 个循环、5 个出口、2 处 `discard`，`ddx`/`ddy` 都在）。
 
-编译器对源码做了什么、直译又还回什么——以 ExtremeFlow 的 if/else 链为例。
-
-输入：
+以 ExtremeFlow 的 if/else 链为例，输入：
 
 ```hlsl
 if (energy < 0.5)      accum *= 1.05;
@@ -179,12 +177,9 @@ r2.w = (1.4 < r3.y) ? 1.0 : 0.0;
 if (any(r2.w)) { r2.xyz = float3(r3.x, r3.y, r3.w); break; }                  // 提前退出被重建
 ```
 
-编译器把分支链压成了谓词选择树，并把 `lerp` 改写成两条 `mad`。逐指令直译原样保留这个形态，而不是去猜
-原来的 `if/else`——它们本来就是同一个程序。这也解释了为什么输出比输入指令多（ExtremeFlow 1286 vs 1097）：
-编译器做过的算子融合拿不回来，硬猜就是编造。
+编译器把分支链压成了谓词选择树，并把 `lerp` 改写成两条 `mad`；直译原样保留这个形态，而不是去猜原来的 `if/else`。这也解释了为什么输出比输入指令多（ExtremeFlow 1286 vs 1097）：编译器做过的算子融合拿不回来，硬猜就是编造。
 
 ## 限制
-
 
 - Metal / Vulkan（SMOL-V 压缩 SPIR-V）只存参考文件，不回译
 - 纯 console 平台（PS/Switch）无可读产物
