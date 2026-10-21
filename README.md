@@ -72,6 +72,19 @@ ShaderRipper.exe --file "a.apk" --out D:\ExportedProject
 
 Note: the CGPROGRAM body is a **translation of the compiled assembly**, not the author's source (source code is not shipped in game data); properties, render state, Pass structure, and variant `#if` chains are faithfully reconstructed.
 
+### How the `multi_compile` lines are recovered
+
+The build stores only the **set** of keywords each variant was compiled with — the
+line structure is not in the data. It is recovered from which keywords can be on at the
+same time: two keywords that never co-occur in any variant are the alternatives of one
+line (Unity only ever defines one of them), while keywords that do co-occur are separate
+lines. For `Hidden/BlendModes/SpritesDefault/OverlayMasked` that yields three lines — a
+25-mode `BLENDMODES_MODE_*` line plus `ETC1_EXTERNAL_ALPHA` and `PIXELSNAP_ON` —
+covering 100 of the 104 reachable states; the 4 missing ones are the states the build
+stripped, so the emitted `#if / #elif` chain is already the runtime truth. Every variant
+keeps its own exact guard (`defined(MODE_MUL)`, not "one of the modes"), so a
+hand-written `#ifdef` in the body still means what it did in the original source.
+
 Supported containers and compression:
 
 - **SerializedFile** (`.assets`, and the extension-less GUID-named files inside APKs) — uncompressed

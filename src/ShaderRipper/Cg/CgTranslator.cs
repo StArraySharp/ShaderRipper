@@ -424,6 +424,12 @@ namespace ShaderRipper.Cg
                 case "sample_l_indexable": Sample(o, o.Count > 4 ? o[4] : null); break;
                 case "sample_c_lz": Sample(o, null); break;
                 case "utof": Un(o, "float"); break;
+                case "deriv_rtx": Un(o, "ddx"); break;
+                case "deriv_rty": Un(o, "ddy"); break;
+                case "deriv_rtx_coarse": Un(o, "ddx_coarse"); break;
+                case "deriv_rty_coarse": Un(o, "ddy_coarse"); break;
+                case "deriv_rtx_fine": Un(o, "ddx_fine"); break;
+                case "deriv_rty_fine": Un(o, "ddy_fine"); break;
                 case "rcp":
                     {
                         var s = Comps(o[1], N(o[0]), o[0].Swizzle);
@@ -434,6 +440,9 @@ namespace ShaderRipper.Cg
                     }
                 case "ubfe": Ubfe(o); break;
                 case "break": Line("break;"); break;
+                // A nop is padding the compiler kept for alignment; it maps to
+                // nothing, so it must not count as an unsupported instruction.
+                case "nop": break;
                 case "continue": Line("continue;"); break;
                 case "ld_structured_indexable": LdStructured(ins); break;
                 case "discard_nz": Line($"if (any({SrcExpr(o[0])})) discard;"); break;

@@ -138,7 +138,7 @@ namespace ShaderRipper
                             sb.AppendLine("\t\t\t#include \"UnityCG.cginc\"");
                             foreach (var g in groups)
                                 sb.AppendLine("\t\t\t" + Cg.VariantPlan.Pragma(g));
-                            sb.AppendLine($"\t\t\t// {keys.Count} keyword variant(s), {groups.Count} independent toggle(s)");
+                            sb.AppendLine($"\t\t\t// {keys.Count} keyword variant(s), {groups.Count} multi_compile line(s)");
                             var vanalysis = Cg.VariantPlan.Analyze(groups,
                                 keys.Select(k => new HashSet<string>(k.Split(',').Where(x => x.Length > 0), StringComparer.Ordinal)).ToList());
                             foreach (var note in vanalysis.Notes)
@@ -154,8 +154,6 @@ namespace ShaderRipper
                                 sb.AppendLine("\t\t\t" + (vi == 0
                                     ? (guard.Length > 0 ? "#if " + guard : "#if 1")
                                     : "#elif " + guard));
-                                foreach (var a in Cg.VariantPlan.AliasDefines(groups, kw))
-                                    sb.AppendLine($"\t\t\t#define {a}");
                                 foreach (var line in Cg.GlslToCg.Translate(srcByKey[keys[vi]]).Cg
                                              .Replace("\r\n", "\n").Split('\n'))
                                     sb.AppendLine("\t\t\t" + line.TrimEnd());

@@ -1,4 +1,4 @@
-using System;
+﻿using System;
 using System.Collections.Generic;
 using System.Linq;
 using System.Text;
@@ -68,7 +68,7 @@ namespace ShaderRipper.Cg
             foreach (var g in groups) sb.AppendLine(VariantPlan.Pragma(g));
             if (groups.Count > 0) sb.AppendLine();
             var vanalysis = VariantPlan.Analyze(groups, keywordSets.Select(s => new HashSet<string>(s, StringComparer.Ordinal)).ToList());
-            sb.AppendLine($"// {allKeys.Count} keyword variant(s), {groups.Count} independent toggle(s)");
+            sb.AppendLine($"// {allKeys.Count} keyword variant(s), {groups.Count} multi_compile line(s)");
             foreach (var note in vanalysis.Notes) sb.AppendLine($"// variants: {note}");
 
             for (int vi = 0; vi < allKeys.Count; vi++)
@@ -82,8 +82,6 @@ namespace ShaderRipper.Cg
                               (kw.Count == 0 ? " (base)" : ": " + string.Join(" + ", kw)) + " ----");
                 sb.AppendLine(vi == 0 ? (guard.Length > 0 ? $"#if {guard}" : "#if 1")
                                       : $"#elif {guard}");
-                foreach (var a in VariantPlan.AliasDefines(groups, kw))
-                    sb.AppendLine($"#define {a}");
 
                 vsByKey.TryGetValue(key, out var vsSp);
                 psByKey.TryGetValue(key, out var psSp);

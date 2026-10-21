@@ -69,6 +69,15 @@ ShaderRipper.exe --file "a.apk" --out D:\ExportedProject
 
 注意：CGPROGRAM 里是**编译后汇编的直译**，不是作者源码（源码不在游戏包内）；属性、状态、Pass 结构、变体 `#if` 链均忠实还原。
 
+### `multi_compile` 行是怎么还原的
+
+包里只存了每个变体**编译时带哪些关键字**，行结构本身没有留下。它由「哪些关键字能同时为真」反推：
+任何变体里都不同时出现的关键字，是同一行的各个候选（Unity 只会定义其中之一）；能同时出现的就是不同的行。
+以 `Hidden/BlendModes/SpritesDefault/OverlayMasked` 为例，还原出三条：一条 25 候选的
+`BLENDMODES_MODE_*`，加上 `ETC1_EXTERNAL_ALPHA` 和 `PIXELSNAP_ON`，覆盖 104 个可能状态中的 100 个——
+缺的 4 个正是构建时被剥掉的，所以生成的 `#if / #elif` 链已经就是运行时的全部真相。每个变体的守卫都是
+精确匹配（`defined(MODE_MUL)`，而不是「是某个 mode」），所以函数体里手写的 `#ifdef` 语义与原始源码一致。
+
 支持的容器与压缩：
 
 - **SerializedFile**（`.assets`、APK 内 GUID 命名的无扩展名文件）——未压缩

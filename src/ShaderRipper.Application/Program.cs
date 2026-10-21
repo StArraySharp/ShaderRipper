@@ -603,6 +603,9 @@ namespace ShaderRipper
             int skippedBuiltin = 0;
             var opStats = new Dictionary<string, int>();
             var usedNames = new HashSet<string>(StringComparer.Ordinal);
+            // paths claimed in THIS run only: overwriting last run's output is fine,
+            // suffixing it would litter the tree with _<pathID> copies
+            var writtenPaths = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
 
             foreach (var sh in allShaders)
             {
@@ -767,8 +770,9 @@ namespace ShaderRipper
                                 foreach (char c2 in Path.GetInvalidFileNameChars()) rparts0[i] = rparts0[i].Replace(c2, '_');
                             string outPathR = Path.Combine(new[] { outDir, "Assets" }.Concat(rparts0).ToArray());
                             // a resource path can be claimed twice when the same asset ships in
-                            // several data files — never overwrite silently
-                            if (File.Exists(outPathR))
+                            // several data files — never overwrite silently (but re-running into
+                            // the same directory must simply overwrite)
+                            if (!writtenPaths.Add(outPathR))
                                 outPathR = outPathR[..^".shader".Length] + "_" + sh.PathId + ".shader";
                             Directory.CreateDirectory(Path.GetDirectoryName(outPathR)!);
                             File.WriteAllText(outPathR, lab);
