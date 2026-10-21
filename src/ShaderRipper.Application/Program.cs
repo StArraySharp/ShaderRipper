@@ -1,4 +1,5 @@
 using System;
+using System.Collections.Concurrent;
 using System.Collections.Generic;
 using System.Globalization;
 using System.IO;
@@ -135,6 +136,7 @@ namespace ShaderRipper
 
             bool dumpMode = cli.Has("--dump");
             bool matCheck = cli.Has("--mat-check");
+            bool dedup = cli.Has("--dedup");
             string dumpFilter = cli.Value("--dump") ?? "";
 
             string bundleDir = cli.Value("--bundles") ?? dataDir;
@@ -601,29 +603,103 @@ namespace ShaderRipper
 
             int ok = 0;
             int skippedBuiltin = 0;
-            var opStats = new Dictionary<string, int>();
-            var usedNames = new HashSet<string>(StringComparer.Ordinal);
-            // paths claimed in THIS run only: overwriting last run's output is fine,
-            // suffixing it would litter the tree with _<pathID> copies
-            var writtenPaths = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+            var opStats = new ConcurrentDictionary<string, int>();
+            var usedNames = new ConcurrentDictionary<string, byte>(StringComparer.Ordinal);
+            var printLock = new object();
+            void Log(string s) { lock (printLock) Console.WriteLine(s); }
+            void LogErr(string s) { lock (printLock) Console.Error.WriteLine(s); }
 
-            foreach (var sh in allShaders)
+            string NameOf(Shader sh) => !string.IsNullOrEmpty(sh.Name) ? sh.Name
+                        : !string.IsNullOrEmpty(sh.ParsedForm?.Name) ? sh.ParsedForm.Name
+                        : "Shader_" + sh.PathId;
+            // File name = shader name with the hierarchy separators turned into
+            // underscores, and nothing else touched: "UI/Pause Planets" becomes
+            // "UI_Pause Planets.shader".  Chars the filesystem cannot represent
+            // are the only exception (no shader name seen so far has any).
+            string SafeOf(Shader sh)
             {
-                string name = !string.IsNullOrEmpty(sh.Name) ? sh.Name
-                            : !string.IsNullOrEmpty(sh.ParsedForm?.Name) ? sh.ParsedForm.Name
-                            : "Shader_" + sh.PathId;
-                if (only != null && !name.Contains(only, StringComparison.OrdinalIgnoreCase)) continue;
-                if (only == null && BuiltinIndex.Contains(name)) { skippedBuiltin++; continue; }
-                string safe = name;
-                foreach (char c in Path.GetInvalidFileNameChars()) safe = safe.Replace(c, '_');
-                safe = safe.Replace(' ', '_');
+                string safe = NameOf(sh).Replace('/', '_').Replace('\\', '_');
+                foreach (char c in Path.GetInvalidFileNameChars())
+                    if (c != '/' && c != '\\') safe = safe.Replace(c, '_');
+                return safe;
+            }
+            // A shader "has a fixed path" when its destination comes from the
+            // asset itself (m_Container or the resources map) instead of the
+            // Assets/Shader/<Name>.shader fallback the bundles get.
+            bool HasFixedPath(Shader sh) =>
+                !string.IsNullOrEmpty(sh.ContainerPath) ||
+                (resMap != null && sh.SourceFile != null &&
+                 resMap.TryGetValue((sh.SourceFile, sh.PathId), out _));
+            // The name-based destination every shader falls back to when its
+            // resource path is taken: Assets/Shader/<shader name>.shader.
+            string NamedPath(Shader sh) => Path.Combine(outDir, "Assets", "Shader", SafeOf(sh) + ".shader");
+
+            // Resource container paths can be claimed by more than one shader (the
+            // same asset may ship in several data files).  The winner must not depend
+            // on thread scheduling, so the claim is resolved here, single-threaded,
+            // in the exact list order a sequential run would use: first occurrence
+            // keeps the plain name, every later one gets its path id appended.
+            var resourceOutPath = new Dictionary<Shader, string>(ReferenceEqualityComparer.Instance);
+            {
+                var claimed = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+                foreach (var sh in allShaders)
+                {
+                    if (sh.ContainerPath != null || resMap == null || sh.SourceFile == null ||
+                        !resMap.TryGetValue((sh.SourceFile, sh.PathId), out var mapped))
+                        continue;
+                    string rel = "Resources/" + mapped.Replace('\\', '/');
+                    if (!rel.EndsWith(".shader", StringComparison.OrdinalIgnoreCase)) rel += ".shader";
+                    var rparts = rel.Split('/');
+                    for (int i = 0; i < rparts.Length; i++)
+                        foreach (char c in Path.GetInvalidFileNameChars()) rparts[i] = rparts[i].Replace(c, '_');
+                    string p = Path.Combine(new[] { outDir, "Assets" }.Concat(rparts).ToArray());
+                    if (!claimed.Add(p))
+                        // Another shader already owns that resource path.  Name this
+                        // one after the shader itself instead of appending an opaque
+                        // path id, so the file says what it contains; the path id is
+                        // only the last resort when even the name is taken.
+                        p = claimed.Add(NamedPath(sh)) ? NamedPath(sh)
+                                                       : NamedPath(sh)[..^".shader".Length] + "_" + sh.PathId + ".shader";
+                    resourceOutPath[sh] = p;
+                }
+            }
+
+            // Shaders are independent: parse, disassemble, write.  The only shared
+            // state is the counters and the name/path claims above, all of which are
+            // concurrency-safe.
+            var shaderSet = (IEnumerable<Shader>)allShaders;
+            if (dedup)
+            {
+                // The same shader can ship in several data files; only one copy is
+                // worth emitting.  Prefer the one with a fixed container path (it
+                // lands on the plain file name), then the lowest path id so the
+                // winner never depends on thread scheduling.
+                var winners = new List<Shader>();
+                int dropped = 0;
+                foreach (var g in allShaders.GroupBy(SafeOf, StringComparer.Ordinal))
+                {
+                    winners.Add(g.OrderByDescending(HasFixedPath).ThenBy(s => s.PathId).First());
+                    dropped += g.Count() - 1;
+                }
+                winners.Sort((a, b) => a.PathId.CompareTo(b.PathId));
+                shaderSet = winners;
+                Console.WriteLine($"// dedup: {allShaders.Count} -> {winners.Count} shader(s), "
+                                  + $"{dropped} duplicate(s) dropped (fixed-path copy preferred)");
+            }
+
+            Parallel.ForEach(shaderSet, sh =>
+            {
+                string name = NameOf(sh);
+                if (only != null && !name.Contains(only, StringComparison.OrdinalIgnoreCase)) return;
+                if (only == null && BuiltinIndex.Contains(name)) { Interlocked.Increment(ref skippedBuiltin); return; }
+                string safe = SafeOf(sh);
                 // Deduplicate before anything is written: the Disassembly/<name>/
                 // directory is created below, so a late rename would make two
                 // same-named shaders overwrite each other's disassembly.
-                if (!usedNames.Add(safe))
+                if (!usedNames.TryAdd(safe, 0))
                 {
                     safe = safe + "_" + sh.PathId;
-                    usedNames.Add(safe);
+                    usedNames.TryAdd(safe, 0);
                 }
 
                 try
@@ -632,7 +708,7 @@ namespace ShaderRipper
                     if (mainPlat < 0)
                     {
                         if (forcedPlatform != null)
-                            Console.Error.WriteLine(Strings.F("PlatformNotPresent", forcedPlatform));
+                            LogErr(Strings.F("PlatformNotPresent", forcedPlatform));
                         mainPlat = 0;
                     }
                     int mainPlatId = mainPlat < sh.Platforms.Length ? (int)sh.Platforms[mainPlat] : -1;
@@ -705,10 +781,7 @@ namespace ShaderRipper
 
                         var prog = global::ShaderRipper.Cg.AsmParser.Parse(asm);
                         foreach (var ins in prog.Code)
-                        {
-                            opStats.TryGetValue(ins.Opcode, out int c);
-                            opStats[ins.Opcode] = c + 1;
-                        }
+                            opStats.AddOrUpdate(ins.Opcode, 1, (_, c) => c + 1);
                         progs[slot.BlobIndex] = prog;
                     }
 
@@ -768,20 +841,19 @@ namespace ShaderRipper
                             var rparts0 = rel.Split('/');
                             for (int i = 0; i < rparts0.Length; i++)
                                 foreach (char c2 in Path.GetInvalidFileNameChars()) rparts0[i] = rparts0[i].Replace(c2, '_');
-                            string outPathR = Path.Combine(new[] { outDir, "Assets" }.Concat(rparts0).ToArray());
-                            // a resource path can be claimed twice when the same asset ships in
-                            // several data files — never overwrite silently (but re-running into
-                            // the same directory must simply overwrite)
-                            if (!writtenPaths.Add(outPathR))
-                                outPathR = outPathR[..^".shader".Length] + "_" + sh.PathId + ".shader";
+                            // Ownership was decided up front, in list order, so the
+                            // name a shader gets no longer depends on which worker
+                            // finishes first.
+                            if (!resourceOutPath.TryGetValue(sh, out string outPathR))
+                                outPathR = Path.Combine(new[] { outDir, "Assets" }.Concat(rparts0).ToArray());
                             Directory.CreateDirectory(Path.GetDirectoryName(outPathR)!);
                             File.WriteAllText(outPathR, lab);
-                            ok++;
-                            continue;
+                            Interlocked.Increment(ref ok);
+                            return;
                         }
                         if (container == null && resMap != null &&
                             Environment.GetEnvironmentVariable("SHADERRIPPER_DEBUG_RESMAP") != null)
-                            Console.Error.WriteLine($"  [resmap] miss {name} :: {sh.SourceFile} :: {sh.PathId}");
+                            LogErr($"  [resmap] miss {name} :: {sh.SourceFile} :: {sh.PathId}");
                         if (!string.IsNullOrEmpty(container))
                         {
                             rel = container.Replace('\\', '/');
@@ -805,7 +877,7 @@ namespace ShaderRipper
                         }
                         else
                         {
-                            Console.WriteLine($"  [ar] no container path: \"{name}\" -> Assets/Shader/{safe}.shader");
+                            LogErr($"  [ar] no container path: \"{name}\" -> Assets/Shader/{safe}.shader");
                             rel = "Shader/" + safe + ".shader";
                         }
                         var parts = rel.Split('/');
@@ -816,14 +888,14 @@ namespace ShaderRipper
                     }
                     Directory.CreateDirectory(Path.GetDirectoryName(outPath)!);
                     File.WriteAllText(outPath, lab);
-                    ok++;
+                    Interlocked.Increment(ref ok);
                 }
                 catch (Exception e)
                 {
-                    Console.Error.WriteLine(Strings.F("ShaderFailed", name, e.Message));
-                    Console.Error.WriteLine(e.StackTrace);
+                    LogErr(Strings.F("ShaderFailed", name, e.Message));
+                    LogErr(e.StackTrace);
                 }
-            }
+            });
 
             Console.WriteLine();
             Console.WriteLine(Strings.F("Done", ok)
