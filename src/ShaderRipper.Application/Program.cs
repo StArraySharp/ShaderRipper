@@ -132,6 +132,8 @@ namespace ShaderRipper
 
             string only = cli.Value("--only");
 
+            string syntax = Cg.CgSyntax.Normalize(cli.Value("--syntax"));
+
             int? forcedPlatform = Platforms.ByName(cli.Value("--platform"));
 
             bool dumpMode = cli.Has("--dump");
@@ -817,7 +819,7 @@ namespace ShaderRipper
                     string writerFormat = mainInfo.Format == "dxbc" && progs.Count == 0 && anyDxil
                         ? "dxil" : mainInfo.Format;
                     string lab = ShaderLabWriter.Write(sh, name, progs, paramBlobs, safe,
-                                                       writerFormat, mainPlatId, srcByBlob);
+                                                       writerFormat, mainPlatId, srcByBlob, syntax);
                     string outPath;
                     {
                         // Prefer the asset's real container path from the bundle
@@ -915,7 +917,7 @@ namespace ShaderRipper
         /// 把非主平台（GLES3/OpenGLCore/Metal/Vulkan）的编译结果落盘。
         ///
         /// 这些平台里 GLSL 与 Metal 是**源码文本** —— Unity 存的就是 HLSLcc 的输出，
-        /// 比从 DXBC 直译回来的 Cg 更接近作者原意；Vulkan 则是 SMOL-V 压缩的 SPIR-V，
+        /// 比从 DXBC 直译回来的 HLSL 更接近作者原意；Vulkan 则是 SMOL-V 压缩的 SPIR-V，
         /// 没有 0x07230203 魔数，解压器不在本工具范围内，只报告。
         /// </summary>
         private static void ExportOtherPlatforms(Shader sh, int mainPlat, string safe,

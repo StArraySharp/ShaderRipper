@@ -2,11 +2,11 @@
 
 English | [简体中文](README.zh-CN.md)
 
-Extract shaders from Unity game data and rebuild them as readable **ShaderLab + CGPROGRAM**. Pure C#, all runtime resources embedded, ready to run.
+Extract shaders from Unity game data and rebuild them as readable **ShaderLab + HLSLPROGRAM**. Pure C#, all runtime resources embedded, ready to run.
 
 > 💡 **This project's code is 100% AI-generated** (DeepSeek / GLM collaboration), with human work limited to requirements, acceptance testing and release.
 
-**Supported platforms**: d3d11 (instruction-by-instruction DXBC → Cg translation), GLES3 / GLES2 / OpenGLCore (GLSL back-translation to Cg), d3d9 (SM2/3 disassembly), D3D12 (DXIL via dxcompiler); Metal / Vulkan are exported as reference files only.
+**Supported platforms**: d3d11 (instruction-by-instruction DXBC → HLSL translation), GLES3 / GLES2 / OpenGLCore (GLSL back-translation to HLSL), d3d9 (SM2/3 disassembly), D3D12 (DXIL via dxcompiler); Metal / Vulkan are exported as reference files only.
 
 ## Build
 
@@ -36,8 +36,8 @@ The published artifact is a single executable with no companion files: schema tr
 
 | Backend | Windows | Linux | macOS | Output |
 |---|---|---|---|---|
-| d3d11 | ✅ | ✅ | ⚠️ untested | ShaderLab + CGPROGRAM (assembly transliteration) |
-| GLES3 / GLES2 / OpenGLCore | ✅ | ✅ | ⚠️ untested | ShaderLab + CGPROGRAM (GLSL back-translation) |
+| d3d11 | ✅ | ✅ | ⚠️ untested | ShaderLab + HLSLPROGRAM (assembly transliteration) |
+| GLES3 / GLES2 / OpenGLCore | ✅ | ✅ | ⚠️ untested | ShaderLab + HLSLPROGRAM (GLSL back-translation) |
 | d3d9 (SM2/3) | ✅ | ✅ | ⚠️ untested | Disassembly (Disassembly/) |
 | SM4/5 DXBC | ✅ | ✅ | ⚠️ untested | Disassembly (Disassembly/) |
 | D3D12 (DXIL) | ✅ | ✅ | ❌ no official macOS DXC | Disassembly (Disassembly/) |
@@ -70,7 +70,13 @@ ShaderRipper.exe --file "assets*.assets" "sharedassets*.assets" --out D:\out   #
 ShaderRipper.exe --file "a.apk" --out D:\ExportedProject
 ```
 
-Note: the CGPROGRAM body is a **translation of the compiled assembly**, not the author's source (source code is not shipped in game data); properties, render state, Pass structure, and variant `#if` chains are faithfully reconstructed.
+Note: the HLSLPROGRAM body is a **translation of the compiled assembly**, not the author's source (source code is not shipped in game data); properties, render state, Pass structure, and variant `#if` chains are faithfully reconstructed.
+
+### Program dialect (`--syntax`)
+
+The emitted block is `HLSLPROGRAM` by default: textures are declared as `Texture2D` / `Texture3D` / `TextureCube` / `Texture2DArray` with a companion `SamplerState`, and sampling goes through `.Sample()` / `.SampleLevel()`. `--syntax cg` restores the legacy `CGPROGRAM` form (`sampler2D` + `tex2D` / `tex2Dlod`). Both are generated from the same translation and compile identically; the difference is only the dialect.
+
+HLSLPROGRAM does **not** pre-include `HLSLSupport.cginc`, so the emitted header includes it explicitly — without it `fixed` / `half` are `unrecognized identifier` (X3004). The sampler is named `sampler<texture>`, which is Unity's own binding convention, so the material texture's importer sampler state still applies.
 
 File names come from the shader name with only the hierarchy separators replaced (`UI/Pause Planets` → `UI_Pause Planets.shader` — spaces, brackets and casing are kept). When a resource path is already claimed by another shader, the file is named after the shader itself rather than getting an opaque path id appended. Shaders are exported in parallel, and every name/path claim is resolved up front, so repeated runs produce identical trees.
 
@@ -111,8 +117,8 @@ Output is always an AssetRipper-style tree that can be copied over an ExportedPr
 
 For games **packed with IL2CPP that only ship d3d9 / d3d11 / d3d12 graphics backends** (typical for Steam titles), output is limited:
 
-- **d3d9 / d3d12**: disassembly only, no CGPROGRAM reconstruction
-- **d3d11**: Cg is rebuilt, but as a direct assembly transliteration — far less readable than original source
+- **d3d9 / d3d12**: disassembly only, no HLSL reconstruction
+- **d3d11**: HLSL is rebuilt, but as a direct assembly transliteration — far less readable than original source
 - Games that do not even ship a GLES3 / OpenGLCore backend: assembly is mostly all you can get
 
 For more readable output, prefer game data that includes **GLES3 / OpenGLCore** backends (mobile builds often have them).
@@ -125,6 +131,7 @@ For more readable output, prefer game data that includes **GLES3 / OpenGLCore** 
 | `--out <dir>` | Output directory, default `./<Game>_ShaderLabs`, or env `SHADERRIPPER_OUT` |
 | `--root <dir>` | Root of the schema/data resources (searched upward from the exe by default) |
 | `--platform <id\|name>` | Force backend: `d3d11` / `d3d9` / `d3d12` / `gles3` / `gles20` / `openglcore` / `metal` / `vulkan`; d3d11 preferred, otherwise auto-picks a GLSL platform |
+| `--syntax <hlsl\|cg>` | Program-block dialect: `hlsl` (default, `HLSLPROGRAM` + `Texture2D`/`SamplerState` + `.Sample()`) or `cg` (legacy `CGPROGRAM` + `sampler2D` + `tex2D`) |
 | `--asm` | Emit per-instruction disassembly comments (d3d11=DXBC, glsl=original GLSL lines, d3d9/12=native assembly) |
 | `--only <substr>` | Only process shaders whose name contains the substring |
 | `--dedup` | Keep one copy per shader when several data files ship the same shader; the copy with a fixed container path wins, ties break on the lowest path id |
@@ -137,7 +144,7 @@ For more readable output, prefer game data that includes **GLES3 / OpenGLCore** 
 | `--no-tmp-layout` | Don't use layout tables (TMP row indices stay numeric) |
 | `--builtin-index <f>` | Built-in shader name list (default `data/unity_builtin_shaders.txt`) |
 | `--matrix-names <f>` | float4x4 name list (default `data/unity_matrix_names.txt`) |
-| `--glsl2cg <file>` | Back-translate a single GLSL file to Cg (debug; add `--asm` to show original lines) |
+| `--glsl2cg <file>` | Back-translate a single GLSL file to HLSL (debug; add `--asm` to show original lines) |
 | `--disasm <file>` | Disassemble a single program file (DXBC/DXIL/d3d9 tokens) |
 | `--lang <en\|zh>` | UI language; follows the system by default |
 | `-h, --help` | Help |
@@ -211,4 +218,5 @@ the `d3dcompiler_47` harness in `.temp` takes ten minutes and cannot see the inc
 
 - Metal / Vulkan (SMOL-V compressed SPIR-V) are saved as reference files only, no back-translation
 - Pure console platforms (PS/Switch) have no readable output
-- d3d9 / d3d12 only produce disassembly, not translated Cg
+- d3d9 / d3d12 only produce disassembly, not translated HLSL
+- The HLSL is a per-instruction transliteration: register reuse and compiler fusion are kept as-is, so it is equivalent but verbose rather than idiomatic source

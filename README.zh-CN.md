@@ -1,12 +1,12 @@
-﻿# ShaderRipper
+# ShaderRipper
 
 [English](README.md) | 简体中文
 
-从 Unity 游戏数据中提取 Shader，重建为可读的 **ShaderLab + CGPROGRAM**。纯 C#，运行资源全部内嵌，下载即用。
+从 Unity 游戏数据中提取 Shader，重建为可读的 **ShaderLab + HLSLPROGRAM**。纯 C#，运行资源全部内嵌，下载即用。
 
 > 💡 **本项目代码 100% 由 AI 生成**（DeepSeek / GLM 协作完成），人工负责需求、验收与发布。
 
-**支持平台**：d3d11（DXBC 汇编逐条直译 Cg）、GLES3 / GLES2 / OpenGLCore（GLSL 回译 Cg）、d3d9（SM2/3 反汇编）、D3D12（DXIL，经 dxcompiler）；Metal / Vulkan 仅输出参考文件。
+**支持平台**：d3d11（DXBC 汇编逐条直译 HLSL）、GLES3 / GLES2 / OpenGLCore（GLSL 回译 HLSL）、d3d9（SM2/3 反汇编）、D3D12（DXIL，经 dxcompiler）；Metal / Vulkan 仅输出参考文件。
 
 ## 编译
 
@@ -36,8 +36,8 @@ dotnet publish src/ShaderRipper.Application/ShaderRipper.Application.csproj -c R
 
 | 后端                         | Windows | Linux | macOS             | 产物                             |
 | -------------------------- | ------- | ----- | ----------------- | ------------------------------ |
-| d3d11                      | ✅       | ✅     | ⚠️ 未验证            | ShaderLab + CGPROGRAM（汇编直译）    |
-| GLES3 / GLES2 / OpenGLCore | ✅       | ✅     | ⚠️ 未验证            | ShaderLab + CGPROGRAM（GLSL 回译） |
+| d3d11                      | ✅       | ✅     | ⚠️ 未验证            | ShaderLab + HLSLPROGRAM（汇编直译）    |
+| GLES3 / GLES2 / OpenGLCore | ✅       | ✅     | ⚠️ 未验证            | ShaderLab + HLSLPROGRAM（GLSL 回译） |
 | d3d9（SM2/3）                | ✅       | ✅     | ⚠️ 未验证            | 反汇编（Disassembly/）              |
 | SM4/5 DXBC                 | ✅       | ✅     | ⚠️ 未验证            | 反汇编（Disassembly/）              |
 | D3D12（DXIL）                | ✅       | ✅     | ❌ 无官方 macOS 版 DXC | 反汇编（Disassembly/）              |
@@ -67,7 +67,13 @@ ShaderRipper.exe --file "assets*.assets" "sharedassets*.assets" --out D:\out   #
 ShaderRipper.exe --file "a.apk" --out D:\ExportedProject
 ```
 
-注意：CGPROGRAM 里是**编译后汇编的直译**，不是作者源码（源码不在游戏包内）；属性、状态、Pass 结构、变体 `#if` 链均忠实还原。
+注意：HLSLPROGRAM 里是**编译后汇编的直译**，不是作者源码（源码不在游戏包内）；属性、状态、Pass 结构、变体 `#if` 链均忠实还原。
+
+### 程序块语法（`--syntax`）
+
+默认输出 `HLSLPROGRAM`：纹理声明成 `Texture2D` / `Texture3D` / `TextureCube` / `Texture2DArray`，配一个同名的 `SamplerState`，采样走 `.Sample()` / `.SampleLevel()`。`--syntax cg` 回到旧的 `CGPROGRAM` 形态（`sampler2D` + `tex2D` / `tex2Dlod`）。两者是同一次翻译的两种写法，编译结果一致，差别只在语法形态。
+
+`HLSLPROGRAM` **不会**自动 include `HLSLSupport.cginc`，所以产物头部显式包含它——缺了它 `fixed` / `half` 会报 `unrecognized identifier`（X3004）。采样器命名为 `sampler<纹理名>`，这是 Unity 自己的绑定约定，材质纹理的导入设置（wrap/filter）因此仍然生效。
 
 产物文件名取自 shader 名，只把层级分隔符换成下划线（`UI/Pause Planets` → `UI_Pause Planets.shader`，空格、括号、大小写都不动）。资源路径已被别的 shader 占用时，改用 shader 名做文件名，而不是追加看不懂的 path id。导出按 shader 并行处理，且所有名字/路径归属都在开工前单线程定好，因此重复运行得到完全一致的目录树。
 
@@ -104,8 +110,8 @@ ShaderRipper.exe --file "a.apk" --out D:\ExportedProject
 
 对 **IL2CPP 打包、且只带 d3d9 / d3d11 / d3d12 图形后端** 的游戏（Steam 单机大作多为此类），输出会很受限：
 
-- **d3d9 / d3d12**：只输出反汇编，不回译 CGPROGRAM
-- **d3d11**：能重建 Cg，但是汇编直译，可读性远不如作者源码
+- **d3d9 / d3d12**：只输出反汇编，不回译 HLSL
+- **d3d11**：能重建 HLSL，但是汇编直译，可读性远不如作者源码
 - 连 GLES3 / OpenGLCore 后端都没打包的游戏，基本只能拿到汇编
 
 想获得更好的可读产物，优先找带 **GLES3 / OpenGLCore** 后端的游戏数据（移动版常有）。
@@ -118,6 +124,7 @@ ShaderRipper.exe --file "a.apk" --out D:\ExportedProject
 | `--out <dir>`         | 输出目录，默认 `./<游戏名>_ShaderLabs`，或 `SHADERRIPPER_OUT`                                                                 |
 | `--root <dir>`        | schema/data 资源根目录（默认从 exe 位置向上查找）                                                                                 |
 | `--platform <id\|名>`  | 强制后端：`d3d11` / `d3d9` / `d3d12` / `gles3` / `gles20` / `openglcore` / `metal` / `vulkan`；默认优先 d3d11，无则自动选 GLSL 平台 |
+| `--syntax <hlsl\|cg>`   | 程序块语法：`hlsl`（默认，`HLSLPROGRAM` + `Texture2D`/`SamplerState` + `.Sample()`）或 `cg`（旧式 `CGPROGRAM` + `sampler2D` + `tex2D`） |
 | `--asm`               | 输出逐指令反汇编注释（d3d11=DXBC、glsl=原 GLSL 行、d3d9/12=原生汇编）                                                                 |
 | `--only <子串>`         | 只处理名字含该子串的 shader                                                                                                 |
 | `--dedup`              | 同一个 shader 在多个数据文件里各存一份时只保留一份：优先保留有固定容器路径的那份，并列按 path id 取最小者，结果与线程调度无关 |
@@ -130,7 +137,7 @@ ShaderRipper.exe --file "a.apk" --out D:\ExportedProject
 | `--no-tmp-layout`     | 不用布局表（TMP 行号保持数字）                                                                                                 |
 | `--builtin-index <f>` | 内置 shader 名单（默认 `data/unity_builtin_shaders.txt`）                                                                 |
 | `--matrix-names <f>`  | float4x4 名单（默认 `data/unity_matrix_names.txt`）                                                                     |
-| `--glsl2cg <file>`    | 单个 GLSL 文件回译 Cg（调试用，配 `--asm` 显示原行）                                                                               |
+| `--glsl2cg <file>`    | 单个 GLSL 文件回译 HLSL（调试用，配 `--asm` 显示原行）                                                                              |
 | `--disasm <file>`     | 反汇编单个程序文件（DXBC/DXIL/d3d9 token）                                                                                   |
 | `--lang <en\|zh>`     | UI 语言，默认跟随系统                                                                                                      |
 | `-h, --help`          | 帮助                                                                                                                |
@@ -188,4 +195,5 @@ if (any(r2.w)) { r2.xyz = float3(r3.x, r3.y, r3.w); break; }                  //
 
 - Metal / Vulkan（SMOL-V 压缩 SPIR-V）只存参考文件，不回译
 - 纯 console 平台（PS/Switch）无可读产物
-- d3d9 / d3d12 只出反汇编，不回译 Cg
+- d3d9 / d3d12 只出反汇编，不回译 HLSL
+- HLSL 是逐指令直译：寄存器复现和编译器的运算合并都原样保留，等价但啰嗦，不是地道的作者源码

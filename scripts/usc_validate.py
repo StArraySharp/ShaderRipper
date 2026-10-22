@@ -100,8 +100,9 @@ def check_file(client, path, cg, platform):
     name = os.path.splitext(os.path.basename(path))[0]
     # Shaders whose blob carries no translatable program (Unity's own inspector
     # stubs, GrabPass-only passes) are written as an empty SubShader: nothing to
-    # compile, so they are skipped rather than failed.
-    if "CGPROGRAM" not in text:
+    # compile, so they are skipped rather than failed.  Both program blocks count
+    # -- ShaderRipper emits HLSLPROGRAM by default and CGPROGRAM on --syntax cg.
+    if "CGPROGRAM" not in text and "HLSLPROGRAM" not in text:
         return name, None
     variants = parse_variants(text)
     if not variants:
@@ -143,7 +144,7 @@ def main():
             unity = args[i + 1]; i += 2; continue
         if a in ("-p", "--platform"):
             key = args[i + 1].lower()
-            platform = PLATFORM_IDS.get(key, int(key)); i += 2; continue
+            platform = PLATFORM_IDS[key] if key in PLATFORM_IDS else int(key); i += 2; continue
         rest.append(a); i += 1
 
     if not unity or not rest:

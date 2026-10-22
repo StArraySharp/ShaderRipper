@@ -1,4 +1,4 @@
-﻿using System;
+using System;
 using System.Collections.Generic;
 using System.IO;
 using System.Linq;
@@ -52,8 +52,12 @@ namespace ShaderRipper
                                    Dictionary<int, List<BlobTool.CbInfo>> paramBlobs,
                                    string shaderKey = null,
                                    string mainFormat = "dxbc", int mainPlatform = 4,
-                                   Dictionary<int, ExtractedProgram> sources = null)
+                                   Dictionary<int, ExtractedProgram> sources = null,
+                                   string syntax = Cg.CgSyntax.Hlsl)
         {
+            bool hlsl = Cg.CgSyntax.IsHlsl(syntax);
+            string begin = hlsl ? "HLSLPROGRAM" : "CGPROGRAM";
+            string end = hlsl ? "ENDHLSL" : "ENDCG";
             var sb = new StringBuilder();
             sb.AppendLine("// Reconstructed ShaderLab by ShaderRipper");
             sb.AppendLine($"// pathID={sh.PathId}  platforms=[{string.Join(",", sh.Platforms)}]");
@@ -129,10 +133,13 @@ namespace ShaderRipper
                             }
 
                             sb.AppendLine();
-                            sb.AppendLine("\t\t\tCGPROGRAM");
+                            sb.AppendLine("\t\t\t" + begin);
                             sb.AppendLine("\t\t\t#pragma vertex vert");
                             sb.AppendLine("\t\t\t#pragma fragment frag");
                             sb.AppendLine("\t\t\t#pragma target 3.0");
+                            // HLSLPROGRAM does not pre-include HLSLSupport.cginc, and
+                            // UnityCG.cginc needs the fixed/half types it defines.
+                            if (hlsl) sb.AppendLine("\t\t\t#include \"HLSLSupport.cginc\"");
                             // Builtin uniforms are stripped from the emitted declarations
                             // (GlslToCg) — the cginc must supply them.
                             sb.AppendLine("\t\t\t#include \"UnityCG.cginc\"");
@@ -144,6 +151,12 @@ namespace ShaderRipper
                             foreach (var note in vanalysis.Notes)
                                 sb.AppendLine($"\t\t\t// variants: {note}");
 
+                            string Body(string src)
+                            {
+                                string cg = Cg.GlslToCg.Translate(src).Cg;
+                                return hlsl ? Cg.CgSyntax.ToHlsl(cg) : cg;
+                            }
+
                             for (int vi = 0; vi < keys.Count; vi++)
                             {
                                 var kw = keys[vi].Split(',').Where(x => x.Length > 0).ToList();
@@ -154,18 +167,18 @@ namespace ShaderRipper
                                 sb.AppendLine("\t\t\t" + (vi == 0
                                     ? (guard.Length > 0 ? "#if " + guard : "#if 1")
                                     : "#elif " + guard));
-                                foreach (var line in Cg.GlslToCg.Translate(srcByKey[keys[vi]]).Cg
+                                foreach (var line in Body(srcByKey[keys[vi]])
                                              .Replace("\r\n", "\n").Split('\n'))
                                     sb.AppendLine(line.TrimEnd().Length == 0 ? "" : "\t\t\t" + line.TrimEnd());
                             }
                             sb.AppendLine();
                             sb.AppendLine("\t\t\t// ---- fallback: combinations Unity never compiled ----");
                             sb.AppendLine("\t\t\t#else");
-                            foreach (var line in Cg.GlslToCg.Translate(srcByKey[keys[0]]).Cg
+                            foreach (var line in Body(srcByKey[keys[0]])
                                          .Replace("\r\n", "\n").Split('\n'))
                                 sb.AppendLine(line.TrimEnd().Length == 0 ? "" : "\t\t\t" + line.TrimEnd());
                             sb.AppendLine("\t\t\t#endif");
-                            sb.AppendLine("\t\t\tENDCG");
+                            sb.AppendLine("\t\t\t" + end);
                             glslDone = true;
                         }
                     }
@@ -177,13 +190,17 @@ namespace ShaderRipper
                             sb.AppendLine($"\t\t\t// ({stage} stage present but not translated)");
 
                         sb.AppendLine();
-                        sb.AppendLine("\t\t\tCGPROGRAM");
+                        sb.AppendLine("\t\t\t" + begin);
                         if (byStage.ContainsKey("Vertex")) sb.AppendLine("\t\t\t#pragma vertex vert");
                         if (byStage.ContainsKey("Fragment")) sb.AppendLine("\t\t\t#pragma fragment frag");
+                        // HLSLPROGRAM does not pre-include HLSLSupport.cginc, and
+                        // UnityCG.cginc needs the fixed/half types it defines.
+                        if (hlsl) sb.AppendLine("\t\t\t#include \"HLSLSupport.cginc\"");
                         sb.AppendLine("\t\t\t#include \"UnityCG.cginc\"");
 
                         string body = Cg.CgProgramWriter.Build(pass, progs, pass.Tags, sh.ParsedForm.Props,
                                                                sh.ParsedForm.KeywordNames, paramBlobs, shaderKey);
+                        if (hlsl) body = Cg.CgSyntax.ToHlsl(body);
 
                         bool usesLight = body.Contains("_LightColor0") ||
                                          body.Contains("_SpecColor");
@@ -213,7 +230,7 @@ namespace ShaderRipper
                         foreach (var line in body.Split('\n'))
                             sb.AppendLine(line.TrimEnd('\r').Trim().Length == 0 ? "" : "\t\t\t" + line.TrimEnd('\r'));
 
-                        sb.AppendLine("\t\t\tENDCG");
+                        sb.AppendLine("\t\t\t" + end);
                     }
                     else
                         sb.AppendLine("\t\t\t// (no compiled program in this pass)");
