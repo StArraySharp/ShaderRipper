@@ -6,15 +6,45 @@ using System.Text.RegularExpressions;
 namespace ShaderRipper.Cg
 {
     /// <summary>
-    /// Rewrites a translated program body from Cg's combined-sampler dialect
-    /// (<c>sampler2D t; tex2D(t, uv)</c>) into the separated texture/sampler
-    /// form that <c>HLSLPROGRAM</c> expects
-    /// (<c>Texture2D t; SamplerState sampler_t; t.Sample(sampler_t, uv)</c>).
+    /// Second stage of the two-stage translation to HLSL.
     ///
-    /// Both translation paths (DXBC -> Cg, GLSL -> Cg) emit the combined form,
-    /// so the rewrite happens once, on the finished body, instead of in each
-    /// translator.  It is purely syntactic: no instruction is added, dropped or
-    /// reordered.
+    /// Both input paths first produce <em>Cg text</em>, and only then is that text
+    /// turned into HLSL: the DXBC path goes assembly -> <see cref="CgTranslator"/> ->
+    /// Cg, the GLSL path goes source -> <see cref="GlslToCg"/> -> Cg
+    /// (<c>GlslToCg.Translate(...).Cg</c>).  That Cg text uses the combined-sampler
+    /// dialect (<c>sampler2D t; tex2D(t, uv)</c>), while <c>HLSLPROGRAM</c> wants the
+    /// separated form (<c>Texture2D t; SamplerState sampler_t; t.Sample(sampler_t, uv)</c>),
+    /// so this class rewrites the finished body once at the writer rather than
+    /// teaching each translator to emit HLSL directly.  <c>--syntax cg</c> stops
+    /// after the first stage and emits the intermediate Cg verbatim; the default
+    /// (<c>hlsl</c>) runs this pass on top of it.
+    ///
+    /// That the second stage is a pass over text, not a mode of the translators,
+    /// has three consequences worth knowing:
+    ///   * it runs per finished variant body -- once per GLSL slot
+    ///     (<c>ShaderLabWriter</c>:157), once per DXBC pass (:203) -- so a texture's
+    ///     dimension is resolved only against declarations inside the preprocessor
+    ///     branch that makes them (see <c>ScopeBoundary</c>);
+    ///   * it is line-oriented: the body is split on newlines, and a call is matched
+    ///     and paren-balanced inside a single one of them.  That is sound only
+    ///     because both producers put one statement per line -- <see cref="CgTranslator"/>
+    ///     appends statement by statement, and <see cref="GlslToCg"/> maps one input
+    ///     line to one output line (<c>TranslateBody</c>); its only multi-line edit,
+    ///     <c>CollapseMvp</c>, merges eight whole lines into one and so cannot split
+    ///     a statement.  A call whose arguments straddle a newline is not rewritten
+    ///     and nothing reports it: the rewrite backs off as soon as the parentheses
+    ///     do not close on the line it is looking at (<c>RewriteCode</c>).  hlslcc
+    ///     output is in practice strictly one statement per line, so this is an
+    ///     assumption about the input rather than a property the pass enforces;
+    ///   * it adds no instruction and reorders nothing, though three local
+    ///     deviations are deliberate and are documented where they happen: an
+    ///     over-wide coordinate swizzle is truncated to the components the texture
+    ///     type consumes (<c>ClampCoord</c> -- what the hardware does anyway, and
+    ///     what <c>tex2D</c> refuses to accept); the lod packed into a lod-sampling
+    ///     call is re-derived from whichever trailing component is not a literal
+    ///     zero, because the two producers pack it at different indices
+    ///     (<c>Lod</c>); and <c>SamplerState sN;</c> declarations the rewrite left
+    ///     unused are dropped (<c>DropUnusedSamplerStates</c>).
     ///
     /// Verified against UnityShaderCompiler 6000.3.10f1 by compiling probes on
     /// d3d11, gles3 and openglcore:
@@ -22,9 +52,11 @@ namespace ShaderRipper.Cg
     ///   * HLSLPROGRAM does NOT pre-include HLSLSupport.cginc -- without it
     ///     `fixed`/`half` are "unrecognized identifier" (X3004), so the writer
     ///     emits that include explicitly.
-    ///   * <c>SamplerState sampler##tex</c> is Unity's own binding convention
-    ///     (HLSLSupport.cginc:461), which is what makes the material texture's
-    ///     importer sampler state apply at runtime.
+    ///   * <c>SamplerState sampler##tex</c> is Unity's own binding convention, taken
+    ///     from HLSLSupport.cginc:461
+    ///     (<c>UNITY_DECLARE_TEX2D(tex) Texture2D tex; SamplerState sampler##tex</c>),
+    ///     which is what makes the material texture's importer sampler state apply
+    ///     at runtime.
     /// </summary>
     internal static class CgSyntax
     {
@@ -152,10 +184,15 @@ namespace ShaderRipper.Cg
         }
 
         /// <summary>
-        /// Rewrites every sampling call on one line.  The emitted code keeps one
-        /// statement per line, so a call never spans a line break and parens can
-        /// be balanced inside the line alone.  A trailing <c>//</c> comment is
-        /// split off first so text inside it is never rewritten.
+        /// Rewrites every sampling call on one line.  Balancing parentheses needs
+        /// the whole argument list, so a call whose arguments continue onto the
+        /// next line cannot be seen from here: parens are counted to the end of
+        /// this line, and if they have not closed by then <see cref="RewriteCode"/>
+        /// gives up and the call survives untranslated, silently.  That does not
+        /// happen with either producer's output -- both keep one statement per
+        /// line -- but it is a property of the input, not something enforced here.
+        /// A trailing <c>//</c> comment is split off first so text inside it is
+        /// never rewritten.
         /// </summary>
         private static string RewriteLine(string line, Dictionary<string, string> textures)
         {

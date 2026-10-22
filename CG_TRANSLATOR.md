@@ -138,8 +138,8 @@ for (;;) {
 | `src/ShaderRipper/Cg/AsmModel.cs` | 操作数/指令模型 |
 | `src/ShaderRipper/Cg/AsmParser.cs` | 汇编文本解析器 |
 | `src/ShaderRipper/Cg/CgTranslator.cs` | 汇编→HLSL 翻译器 |
-| `src/ShaderRipper/Cg/GlslToCg.cs` | GLSL→HLSL 回译器（GLES3/GLES2/OpenGLCore 输入） |
-| `src/ShaderRipper/Cg/CgSyntax.cs` | 方言开关：`CGPROGRAM`↔`HLSLPROGRAM`、`tex2D`→`.Sample()`、坐标截断 |
+| `src/ShaderRipper/Cg/GlslToCg.cs` | GLSL→Cg 回译器（GLES3/GLES2/OpenGLCore 输入），逐行重写 |
+| `src/ShaderRipper/Cg/CgSyntax.cs` | 第二段：Cg→HLSL 语义翻译 + 方言重写（`CGPROGRAM`↔`HLSLPROGRAM`、`tex2D`→`.Sample()`、坐标截断、lod 解包、未用采样器剔除） |
 | `src/ShaderRipper/Program.cs` | 编排（解析→翻译→输出），`--syntax` 在此解析 |
 | `game_shaderlab_cg/_cg/*.cg` | 258 份翻译后的 HLSL（历史目录名保留） |
 | `game_shaderlab_cg/*.shader` | 含翻译结果的 ShaderLab（默认 `HLSLPROGRAM`） |
@@ -147,14 +147,16 @@ for (;;) {
 ## GLSL 输入（GLES3 / GLES2 / OpenGLCore）
 
 `--platform gles3`（或包里没有 d3d11 时自动选中）走的是另一条翻译链路：
-GL 平台上 Unity 存的就是 HLSLcc 输出的**GLSL 源码**，所以不需要反汇编，
-`Cg/GlslToCg.cs` 逐行重写回 HLSL 即可，产物与 DXBC 路径同形态
-（`HLSLPROGRAM` + appdata/v2f + 同样的变体 `#if` 链；`--syntax cg` 时为 `CGPROGRAM`）。
+GL 平台上 Unity 存的就是 HLSLcc 输出的**GLSL 源码**，所以不需要反汇编。
+第一段 `Cg/GlslToCg.cs` 逐行重写成 **Cg**（`tex2D`、`sampler2D`、`appdata`/`v2f`），
+第二段 `Cg/CgSyntax.ToHlsl` 再把它语义翻译 + 方言重写成 HLSL——与 DXBC 路径
+（`CgTranslator` 产出 Cg → `ToHlsl`）汇合于同一个第二段，所以两条路径产物同形态
+（`HLSLPROGRAM` + appdata/v2f + 同样的变体 `#if` 链；`--syntax cg` 时跳过第二段，保留 `CGPROGRAM`）。
 
 | | DXBC 路径 | GLSL 路径 |
 |---|---|---|
 | 输入 | `D3DDisassemble` 的汇编文本 | HLSLcc 的 GLSL 源码 |
-| 翻译器 | `CgTranslator.cs`，逐条指令映射 | `GlslToCg.cs`，逐行重写 |
+| 翻译器 | `CgTranslator.cs`，逐条指令映射 → Cg | `GlslToCg.cs`，逐行重写 → Cg（此后同走 `ToHlsl`） |
 | 变量名 | `r0` / `cb0[2].x`，靠常量缓冲反射命名 | `u_xlat0` 这类 HLSLcc 临时量，保留原名 |
 | 矩阵 | 按 `MatrixNames` 展开成 `m[row]` 成员 | GLSL 原生 `mat4`，仍存成 4 个 vec4 行 |
 | 语义 | 从 DXBC 签名推断 | HLSLcc 命名约定（`in_POSITION0`→POSITION0、`vs_TEXCOORD1`→TEXCOORD1） |
@@ -170,22 +172,58 @@ GL 平台上 Unity 存的就是 HLSLcc 输出的**GLSL 源码**，所以不需�
 翻译时不能直接 `return` 掉。
 
 
+## 为什么不直接上 glslcc（评估结论）
+
+GLSL 输入这条路，一个显而易见的替代方案是：不自己写回译器，直接把 HLSLcc 的 GLSL
+喂给现成的 GLSL→HLSL 转译器。`glslcc`（v1.7.6 win64，**已实测**）是最像样的候选，
+结论是**不能替代**当前的两段式路径，原因不在产物格式而在工具链假设。
+
+`glslcc` 走的是 `glslang → SPIR-V (Vulkan) → SPIRV-Cross`，因此对输入提出 Unity
+根本不满足的硬要求：
+
+- 必须 `#version 450`，而 HLSLcc 产出的是 ES2/ES3 风格（`#version 300 es`、`precision` 行）；
+- 非 opaque uniform 必须 UBO 化并给出 `layout(binding)`，采样器必须显式 `layout(binding)`，
+  varying 必须 `layout(location)`——`asset` 里的源码这三样都没有；
+- 顶点着色器在补齐 UBO 与 binding 之前根本无法通过。
+
+就算按上述要求把输入全部改写（等于先做一遍语义重写，再让 glslcc 做第二遍），
+产物仍有四处与 Unity 约定冲突：
+
+1. 材质常量被摊平进 `_15_` 这类 cbuffer 前缀，Unity 的 `Properties` 绑定被切断；
+2. 语义误映射：`in_COLOR0` 被写成 `TEXCOORD1`；
+3. 采样器命名是 `__MainTex_sampler` + `register(s0)`，而 Unity 侧要的是
+   `sampler_MainTex` / `UNITY_DECLARE_TEX2D`（见 `HLSLSupport.cginc:461`）；
+4. 产物不再受本项目对变体 `#if` 链、`appdata`/`v2f` 结构与常量缓冲注释的控制。
+
+相比之下现有的自研路径（`GlslToCg.cs` 逐行重写 → `CgSyntax.ToHlsl` 语义翻译 +
+方言重写）直接在 HLSLcc 的原生方言上工作，不需要 `#version 450`、UBO 化或 binding，
+且产物的变体结构与 DXBC 路径完全同形。
+
+**支撑这一取舍的语料事实**：对 520 个 HLSLcc GLSL 文件、221,007 行做精确扫描，
+跨行 `texture(...)` 调用 **0 例**、续行 **0 例**——所以「每行一条语句」在真实输入上严格成立，
+逐行重写是安全的（这也是 `CgSyntax` 里那条输入假设的依据）。
+
 ## 已知限制（如实说明）
 
-1. **翻译是逐指令直译，不是优化还原** —— 结果等价但冗长：
+1. **第二段假设「每行一条语句」** —— `CgSyntax.ToHlsl` 按行匹配调用并按行配平括号。
+   两个上游都满足这个假设（`CgTranslator` 逐语句 `AppendLine`；`GlslToCg` 一行进一行出，
+   其唯一的跨行改写 `CollapseMvp` 只合并不拆分），真实语料 520 文件 / 221,007 行里
+   续行为 0。但它是**对输入的假设而非代码保证**：若某行括号不闭合，`RewriteCode`
+   会直接退让（`close < 0` 时原样返回），该行剩余调用**不会被翻译且不会报错**。
+2. **翻译是逐指令直译，不是优化还原** —— 结果等价但冗长：
    寄存器复用、常量折叠、共同子表达式都保留原样。若要接近人手写的 HLSL，
    需要额外的 SSA/表达式树优化（未做）。
-2. **`cb#[]` 常量缓冲未命名** —— Unity 的 CBuffer 成员名（如 `unity_ObjectToWorld`）
+3. **`cb#[]` 常量缓冲未命名** —— Unity 的 CBuffer 成员名（如 `unity_ObjectToWorld`）
    在 DXBC 里只是个索引，需结合 Shader 的 `m_ConstantBuffers` 元数据才能映射；
    当前保留了 `cb3[9]` 这种原始形式。
-3. **类型系统是弱化的** —— 一律用 `float4` 临时寄存器 + `(int)` 强制转换，
+4. **类型系统是弱化的** —— 一律用 `float4` 临时寄存器 + `(int)` 强制转换，
    没有区分 int/uint/half。
-4. **验证范围限于单文件编译** —— 产物已用真实 Unity 的 `UnityShaderCompiler`
+5. **验证范围限于单文件编译** —— 产物已用真实 Unity 的 `UnityShaderCompiler`
    逐文件编译过（ADOFAI Windows 数据 63 个 Shader：d3d11 63/63、gles3 63/63 通过；
    Linux depot 398 个：14 → 7 个失败，无回归，且修好 8 个 3D 纹理被当 2D 采样的错译），
    但没有做整包 Import/实机渲染回归。GPU 驱动级行为（采样状态、纹理绑定）未实测。
-5. **仍有少量 Shader 编译失败** —— 属历史遗留而非本特性引入：
+6. **仍有少量 Shader 编译失败** —— 属历史遗留而非本特性引入：
    `unity_4LightPosX0` 等 Unity 内建 uniform 被重复声明（`CGPROGRAM` 下同样报错），
    以及个别 `u_xlat0` 未初始化就被读取的 GLSL 回译路径。
-6. 本游戏是 d3d11；GL 平台走 `Cg/GlslToCg.cs` 的源码回译（见上），
+7. 本游戏是 d3d11；GL 平台走 `Cg/GlslToCg.cs` 的源码回译（见上），
    Metal / SPIR-V 没有对应翻译路径。
