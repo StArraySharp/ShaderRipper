@@ -4,6 +4,10 @@
 GL 平台（GLES3/GLES2/OpenGLCore）则直接拿 HLSLcc 的 GLSL 源码回译成 HLSL，
 两条路径默认都产出同形态的 `HLSLPROGRAM`（见文末「GLSL 输入」）。
 
+**两条路径都是直译**：DXBC 是一句指令映射一句，GLSL 是一行重写一行，
+不做优化还原、不重排、不折叠表达式。中间会经过一次 Cg 中间态（见
+「为什么不直接上现成反编译器」），那只是采样器写法不同，不是多了一层语义加工。
+
 > **方言开关**：默认 `--syntax hlsl`，输出 `HLSLPROGRAM` + `Texture2D`/`SamplerState` + `.Sample()`；
 > 传 `--syntax cg` 则回到历史上文出现过的旧形态 `CGPROGRAM` + `sampler2D` + `tex2D`。
 > 两条路径（DXBC / GLSL）都受该开关控制，产物结构一致，只有程序块头、纹理声明和采样调用形式不同。
@@ -172,11 +176,16 @@ GL 平台上 Unity 存的就是 HLSLcc 输出的**GLSL 源码**，所以不需�
 翻译时不能直接 `return` 掉。
 
 
-## 为什么不直接上 glslcc（评估结论）
+## 为什么不直接上现成反编译器（评估结论）
+
+自研回译器之前，先试过两个现成工具。两者都能跑出可读的 HLSL，**都不能替代**当前路径——
+不是因为产物语法不对，而是它们看不到 Unity 的 shader 元数据。
+
+### glslcc（GLSL 路径，v1.7.6 win64，已实测）
 
 GLSL 输入这条路，一个显而易见的替代方案是：不自己写回译器，直接把 HLSLcc 的 GLSL
-喂给现成的 GLSL→HLSL 转译器。`glslcc`（v1.7.6 win64，**已实测**）是最像样的候选，
-结论是**不能替代**当前的两段式路径，原因不在产物格式而在工具链假设。
+喂给现成的 GLSL→HLSL 转译器。`glslcc` 是最像样的候选，结论是**不能替代**，
+原因不在产物格式而在工具链假设。
 
 `glslcc` 走的是 `glslang → SPIR-V (Vulkan) → SPIRV-Cross`，因此对输入提出 Unity
 根本不满足的硬要求：
@@ -202,6 +211,34 @@ GLSL 输入这条路，一个显而易见的替代方案是：不自己写回译
 **支撑这一取舍的语料事实**：对 520 个 HLSLcc GLSL 文件、221,007 行做精确扫描，
 跨行 `texture(...)` 调用 **0 例**、续行 **0 例**——所以「每行一条语句」在真实输入上严格成立，
 逐行重写是安全的（这也是 `CgSyntax` 里那条输入假设的依据）。
+
+### HLSL-Decompiler（DXBC 路径，v0.6，已实测）
+
+[YYadorigi/HLSL-Decompiler](https://github.com/YYadorigi/HLSL-Decompiler) 直接支持
+DXBC → HLSL，是 DXBC 路径最直接的替代候选。拿本项目的真实 DXBC 实测：`exit=0`，
+产物 44 行、格式干净，`Texture2D` / `SamplerState` / `.Sample()` 都齐备。
+
+它走 `DXBC → DXIL → SPIR-V → SPIRV-Cross(HLSL)`，因此产物带着 SPIRV-Cross 的印记，
+而它只读得到 DXBC 字节码、读不到 Shader 资产里的元数据，于是：
+
+| | 它的产物 | Unity 需要的 |
+|---|---|---|
+| 采样器 | `Texture2D<float4> T0 : register(t0); SamplerState S0 : register(s0);` | `sampler2D t0` → 按名绑定的 `_MainTex`，采样器为 `sampler_MainTex` |
+| 语义 | 硬编码 `TEXCOORD1` / `TEXCOORD2` | 从 DXBC 签名 + 资产元数据推断的真实语义 |
+| 入口结构 | `SPIRV_Cross_Input` / `frag_main()` | `appdata` / `v2f` / `vert` / `frag` |
+| 常量 | 不解析 `cb#` | 结合 `m_ConstantBuffers` 命名的 `$Globals` 成员 |
+
+关键差别在最后一条：现有 `CgTranslator` 能从 Shader 资产的 `m_ConstantBuffers` 把
+`cb0[3]` 还原成 `_MainTex_ST` 这样的真实属性名，而 HLSL-Decompiler 只看得到寄存器编号，
+无从得知材质属性叫什么。`T0` / `S0` 在我们的产物里是 `sampler2D t0` 加按名绑定的
+`_MainTex`；`S0` 在 Unity 里根本绑不到材质采样器状态。
+
+另外两个工程事实：仓库**没有 LICENSE 文件**（再分发有法律风险），且依赖一整包预编译
+二进制（`dxcompiler.dll`、`dxil-spirv.exe`、`spirv-cross.exe`，约 12.8 MB）。
+
+它与 glslcc 的定位一致：**面向图形调试的反编译器**，目标是「人能读懂单条 shader」；
+本项目的目标是「产物能作为 Unity 工程资产编译运行」，必须保住属性名、语义与常量缓冲
+绑定。目标不同，不能互换。
 
 ## 已知限制（如实说明）
 

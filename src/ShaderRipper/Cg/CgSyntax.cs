@@ -8,6 +8,13 @@ namespace ShaderRipper.Cg
     /// <summary>
     /// Second stage of the two-stage translation to HLSL.
     ///
+    /// Translation here is a straight-line transliteration, not a re-optimisation:
+    /// instructions are rewritten one for one and nothing is reordered, folded or
+    /// regenerated.  The two stages exist only because DXBC and GLSL both describe
+    /// samplers the Cg way, not because the first stage is unfaithful -- its output
+    /// is already the right program, merely written in Cg's combined-sampler
+    /// dialect.
+    ///
     /// Both input paths first produce <em>Cg text</em>, and only then is that text
     /// turned into HLSL: the DXBC path goes assembly -> <see cref="CgTranslator"/> ->
     /// Cg, the GLSL path goes source -> <see cref="GlslToCg"/> -> Cg
