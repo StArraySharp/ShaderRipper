@@ -159,10 +159,11 @@ namespace ShaderRipper
             global::ShaderRipper.Antlr.AntlrCheck.Enabled = cli.Has("--validate");
 
             // Which route reads the DXBC disassembly.  Both produce the same
-            // model (verified over the 75,919-file corpus), so this picks the
-            // mechanism, not the output.  Default stays the hand parser.
-            bool asmAntlr = string.Equals(cli.Value("--asm-parser"), "antlr",
-                                          StringComparison.OrdinalIgnoreCase);
+            // model (verified field by field over 77,155 files), so this picks
+            // the mechanism, not the output.  The grammar is the default, like
+            // the GLSL reader; --asm-parser regex falls back to the hand parser.
+            bool asmAntlr = !string.Equals(cli.Value("--asm-parser"), "regex",
+                                           StringComparison.OrdinalIgnoreCase);
 
             int indexCount = BuiltinIndex.Load(cli.Value("--builtin-index"));
 

@@ -50,9 +50,13 @@ produces the same `AsmParser.Program` model as the hand-written scanner. Both
 routes ship; `--asm-parser` picks one:
 
 ```
---asm-parser regex    hand-written scanner (default)
---asm-parser antlr    DxbcAsm.g4
+--asm-parser antlr    DxbcAsm.g4 (default)
+--asm-parser regex    hand-written scanner
 ```
+
+Both are grammar-driven now: the DXBC route was flipped to the grammar after the
+table below was measured, and a full d3d11 export through either route comes out
+byte-identical (3,047 files).
 
 They are kept equal on purpose, and that is measured, not asserted:
 

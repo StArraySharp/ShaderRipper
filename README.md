@@ -134,7 +134,7 @@ For more readable output, prefer game data that includes **GLES3 / OpenGLCore** 
 | `--syntax <hlsl\|cg>` | Program-block dialect: `hlsl` (default, `HLSLPROGRAM` + `Texture2D`/`SamplerState` + `.Sample()`) or `cg` (legacy `CGPROGRAM` + `sampler2D` + `tex2D`) |
 | `--asm` | Emit per-instruction disassembly comments (d3d11=DXBC, glsl=original GLSL lines, d3d9/12=native assembly) |
 | `--validate` | Re-parse each emitted shader with the bundled ANTLR grammars (ShaderLab + HLSL) and report any that is not well-formed |
-| `--asm-parser <regex\|antlr>` | Which route reads the DXBC disassembly: the hand-written scanner (default) or `DxbcAsm.g4`. Both produce identical output (verified on 77,155 files) |
+| `--asm-parser <antlr\|regex>` | Which route reads the DXBC disassembly: `DxbcAsm.g4` (default) or the hand-written scanner. Both produce identical output (verified field by field on 77,155 files, and byte-identical on a full export) |
 | `--glsl-parser <antlr\|regex>` | Which route reads the GLSL payload: `Glsl.g4` (default) or the line scanner. Both produce identical output (verified on 3,164 files, and byte-identical on a full GL export) |
 | `--only <substr>` | Only process shaders whose name contains the substring |
 | `--dedup` | Keep one copy per shader when several data files ship the same shader; the copy with a fixed container path wins, ties break on the lowest path id |

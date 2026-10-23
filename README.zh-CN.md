@@ -126,6 +126,7 @@ ShaderRipper.exe --file "a.apk" --out D:\ExportedProject
 | `--platform <id\|名>`  | 强制后端：`d3d11` / `d3d9` / `d3d12` / `gles3` / `gles20` / `openglcore` / `metal` / `vulkan`；默认优先 d3d11，无则自动选 GLSL 平台 |
 | `--syntax <hlsl\|cg>`   | 程序块语法：`hlsl`（默认，`HLSLPROGRAM` + `Texture2D`/`SamplerState` + `.Sample()`）或 `cg`（旧式 `CGPROGRAM` + `sampler2D` + `tex2D`） |
 | `--asm`               | 输出逐指令反汇编注释（d3d11=DXBC、glsl=原 GLSL 行、d3d9/12=原生汇编）                                                                 |
+| `--asm-parser <antlr\|regex>` | 读 DXBC 反汇编走哪条路径：`DxbcAsm.g4` 语法（默认）或手写扫描器。两者同一模型（77,155 个文件逐字段对拍）、同一份导出（3,047 文件逐字节相同） |
 | `--only <子串>`         | 只处理名字含该子串的 shader                                                                                                 |
 | `--dedup`              | 同一个 shader 在多个数据文件里各存一份时只保留一份：优先保留有固定容器路径的那份，并列按 path id 取最小者，结果与线程调度无关 |
 | `--bundles [dir]`     | 同时扫描 asset bundle（默认扫 --data 同级）                                                                                  |
