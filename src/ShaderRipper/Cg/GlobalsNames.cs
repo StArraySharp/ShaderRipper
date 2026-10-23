@@ -63,23 +63,28 @@ namespace ShaderRipper.Cg
         /// <summary>Directory the tables are read from; null disables the feature.</summary>
         public static string TableDir;
 
-        private static readonly Dictionary<string, GlobalsNames> Cache = new(StringComparer.Ordinal);
+        // Concurrent: Program exports shaders in a Parallel.ForEach and every pass
+        // asks for its table, so a plain Dictionary here was a real data race --
+        // a torn bucket could drop a table (or throw) depending on thread timing,
+        // which is exactly the kind of nondeterminism the export must not have.
+        private static readonly System.Collections.Concurrent.ConcurrentDictionary<string, GlobalsNames>
+            Cache = new(StringComparer.Ordinal);
 
         /// <summary>Table for one shader, or null when none was authored.</summary>
         public static GlobalsNames For(string shaderKey)
         {
             if (TableDir == null || shaderKey == null) return null;
-            if (Cache.TryGetValue(shaderKey, out var hit)) return hit;
-
-            GlobalsNames res = null;
-            string path = Path.Combine(TableDir, shaderKey + ".json");
-            if (File.Exists(path))
+            return Cache.GetOrAdd(shaderKey, static key =>
             {
-                try { res = Parse(File.ReadAllText(path)); }
-                catch (Exception e) { Console.Error.WriteLine($"  [!] names table {path}: {e.Message}"); }
-            }
-            Cache[shaderKey] = res;
-            return res;
+                string path = Path.Combine(TableDir, key + ".json");
+                if (!File.Exists(path)) return null;
+                try { return Parse(File.ReadAllText(path)); }
+                catch (Exception e)
+                {
+                    Console.Error.WriteLine($"  [!] names table {path}: {e.Message}");
+                    return null;
+                }
+            });
         }
 
         /// <summary>Top-level keys that describe the table rather than name rows.</summary>

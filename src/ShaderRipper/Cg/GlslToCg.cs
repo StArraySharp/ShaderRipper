@@ -166,14 +166,20 @@ namespace ShaderRipper.Cg
                 if (pf != null && pf.Globals.Contains(g)) pf.Locals.Insert(0, g);
             }
 
-            _s3d.Clear(); _cube.Clear();
+            // Per-call, not static: Translate runs on several shaders at once
+            // (Program exports in a Parallel.ForEach), and these used to be shared
+            // fields that each call cleared and refilled -- so one shader could
+            // enumerate the sets while another was rewriting them, which throws
+            // "Collection was modified" and silently loses that whole shader.
+            var s3d = new HashSet<string>(StringComparer.Ordinal);
+            var cube = new HashSet<string>(StringComparer.Ordinal);
             foreach (var u in (pv?.Uniforms ?? new List<(string, string)>())
                      .Concat(pf?.Uniforms ?? new List<(string, string)>()))
             {
                 var m = Regex.Match(u.decl, @"^(sampler3D|samplerCUBE|samplerCube)\s+(\w+)");
                 if (!m.Success) continue;
-                if (m.Groups[1].Value == "sampler3D") _s3d.Add(m.Groups[2].Value);
-                else _cube.Add(m.Groups[2].Value);
+                if (m.Groups[1].Value == "sampler3D") s3d.Add(m.Groups[2].Value);
+                else cube.Add(m.Groups[2].Value);
             }
 
             // Texture types are fixed by the uniform declarations, so the sampling
@@ -188,9 +194,9 @@ namespace ShaderRipper.Cg
             }
 
             if (pv != null && pv.BodyText.Length > 0)
-                pv.Body = TranslateBody(pv.BodyText, true, hlsl, texTypes);
+                pv.Body = TranslateBody(pv.BodyText, true, hlsl, texTypes, s3d, cube);
             if (pf != null && pf.BodyText.Length > 0)
-                pf.Body = TranslateBody(pf.BodyText, false, hlsl, texTypes);
+                pf.Body = TranslateBody(pf.BodyText, false, hlsl, texTypes, s3d, cube);
 
             var v2f = new Dictionary<string, InOut>(StringComparer.Ordinal);
             foreach (var v in pv?.Varyings ?? Enumerable.Empty<InOut>())
@@ -502,8 +508,11 @@ namespace ShaderRipper.Cg
         }
 
         private static List<string> TranslateBody(string body, bool isVertex, bool hlsl = false,
-                                                  IReadOnlyDictionary<string, string> texTypes = null)
+                                                  IReadOnlyDictionary<string, string> texTypes = null,
+                                                  HashSet<string> s3d = null, HashSet<string> cube = null)
         {
+            s3d ??= new HashSet<string>(StringComparer.Ordinal);
+            cube ??= new HashSet<string>(StringComparer.Ordinal);
             var res = new List<string>();
             foreach (var raw in body.Split('\n'))
             {
@@ -520,11 +529,11 @@ namespace ShaderRipper.Cg
 
                 s = RewriteRelational(s);
                 s = RewriteTexLod(s);
-                foreach (var n in _s3d)
+                foreach (var n in s3d)
                     s = Regex.Replace(s, @"tex2D\(" + Regex.Escape(n) + @"\b", "tex3D(" + n);
-                foreach (var n in _cube)
+                foreach (var n in cube)
                     s = Regex.Replace(s, @"tex2D\(" + Regex.Escape(n) + @"\b", "texCUBE(" + n);
-                string excl = string.Concat(_s3d.Concat(_cube)
+                string excl = string.Concat(s3d.Concat(cube)
                     .Select(n => Regex.Escape(n) + "|"));
                 s = Regex.Replace(s,
                     @"tex2D\((?!" + excl + @")([^,()]*(?:\([^()]*\))?),\s*(\w[\w.\[\]]*)\.xyzw*\)",
@@ -591,10 +600,6 @@ namespace ShaderRipper.Cg
 
         private static readonly IReadOnlyDictionary<string, string> EmptyTexTypes =
             new Dictionary<string, string>(StringComparer.Ordinal);
-
-        /// <summary>本 shader 的 3D / Cube 采样器名单（每次 Translate 刷新）。</summary>
-        private static readonly HashSet<string> _s3d = new(StringComparer.Ordinal);
-        private static readonly HashSet<string> _cube = new(StringComparer.Ordinal);
 
         /// <summary>
         /// tex2Dlod(tex, uv, lod) 三参形态（textureLod 直译而来）→
