@@ -105,6 +105,14 @@ namespace ShaderRipper.Cg
         }
 
         /// <summary>
+        /// <see cref="ClampCoord"/> for the ANTLR-based rewriter, so the structured
+        /// path and this one clamp identically instead of keeping two copies of the
+        /// rule.  Additive: nothing in this class calls it.
+        /// </summary>
+        internal static string ClampCoordinate(string coord, string texType) =>
+            ClampCoord(coord, texType);
+
+        /// <summary>
         /// The sampler field Unity binds to a texture: <c>sampler##tex</c> from
         /// HLSLSupport.cginc.  A property name already starts with '_', so
         /// <c>_MainTex</c> yields <c>sampler_MainTex</c> -- exactly what the

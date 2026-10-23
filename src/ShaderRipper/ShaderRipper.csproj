@@ -43,5 +43,9 @@
     <PackageReference Include="K4os.Compression.LZ4" Version="1.3.8" />
     <PackageReference Include="LZMA-SDK" Version="22.1.1" />
     <PackageReference Include="DXDecompiler-ly" Version="0.0.1" />
+    <!-- ANTLR runtime only: the C# lexer/parser under Antlr/ is generated ahead of
+         time and checked in, so building this project needs no JVM.  Regenerate
+         with the command documented in Antlr/README.md after editing CgExpr.g4. -->
+    <PackageReference Include="Antlr4.Runtime.Standard" Version="4.13.1" />
   </ItemGroup>
 </Project>
