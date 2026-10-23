@@ -411,8 +411,12 @@ PP : '#' ~[\r\n]* ;
 
 // Comments are tokens rather than skipped text so the adapter can keep them:
 // the emitted HLSL carries them through as the original-source annotations.
-LINE_COMMENT  : '//' ~[\r\n]* ;
-BLOCK_COMMENT : '/*' .*? '*/' ;
+// Comments are legal anywhere a token is, and HLSLcc does not emit them --
+// but a shader that carries one must still parse, so they are dropped the way
+// whitespace is.  Keeping them as tokens made `// ...` an "extraneous input"
+// in every body that had a comment.
+LINE_COMMENT  : '//' ~[\r\n]* -> skip ;
+BLOCK_COMMENT : '/*' .*? '*/' -> skip ;
 
 WS : [ \t\r\n]+ -> skip ;
 

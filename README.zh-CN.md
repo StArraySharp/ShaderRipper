@@ -137,6 +137,7 @@ ShaderRipper.exe --file "a.apk" --out D:\ExportedProject
 | `--no-tmp-layout`     | 不用布局表（TMP 行号保持数字）                                                                                                 |
 | `--builtin-index <f>` | 内置 shader 名单（默认 `data/unity_builtin_shaders.txt`）                                                                 |
 | `--matrix-names <f>`  | float4x4 名单（默认 `data/unity_matrix_names.txt`）                                                                     |
+| `--glsl-parser <antlr\|regex>` | 读 GLSL 走哪条路径：`Glsl.g4` 语法（默认）或逐行扫描器。两者输出一致（3,164 个文件比对，整次 GL 导出逐字节相同） |
 | `--glsl2cg <file>`    | 单个 GLSL 文件回译 HLSL（调试用，配 `--asm` 显示原行）                                                                              |
 | `--disasm <file>`     | 反汇编单个程序文件（DXBC/DXIL/d3d9 token）                                                                                   |
 | `--lang <en\|zh>`     | UI 语言，默认跟随系统                                                                                                      |

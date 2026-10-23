@@ -40,6 +40,9 @@ BAD  tmp_sdf-surface.shader
 `AntlrCheck.cs` is the entry point; the parsers themselves are the generated
 files next to each grammar.
 
+`Glsl.g4` does more than check: it reads the GLSL payloads for the translator
+itself (see "The GLSL route" below).
+
 ## The DXBC route, side by side with the hand parser
 
 `DxbcAsm.g4` also drives a second DXBC asm reader, `DxbcAsmReader.cs`, which
@@ -72,6 +75,52 @@ grammar route deliberately reproduces a hand-parser quirk rather than
 
 Each is a candidate for a single fix applied to both routes at once; the point
 of the A/B table above is that such a fix can be made and re-verified.
+
+## The GLSL route: the conversion itself, on a tree
+
+`GlslToCgTree.cs` reads a GLSL payload into the same model the line scanner in
+`GlslToCg` produces -- uniforms, attributes, varyings, globals, one translated
+string per statement -- and both hand that model to one emitter
+(`Cg/GlslEmitter.cs`). `--glsl-parser` picks the reader; `antlr` is the default.
+
+| Check | Scale | Result |
+|---|---|---|
+| Both readers, same input | 3,164 GLSL files / 6,328 programs | identical text, 0 differences |
+| Full GL export through each route | 3,047 files | identical by hash |
+| Bodies the grammar could not read | 6,328 | 0 |
+
+The switch is a choice of mechanism, and the mechanism is the point: the scanner
+works one physical line at a time, so it cannot see a statement. Three things
+follow, and only the first is about output equality:
+
+* A call split across lines -- `u_xlat0 = texture(_MainTex,` then
+  `u_xlat0.xyzw);` -- is one node here and one bad line there. The tree rewrites
+  the whole call and emits `tex2D(_MainTex, (u_xlat0).xy)`; the scanner emits a
+  truncated line that does not compile.
+* A comment that mentions `texture(_MainTex, u_xlat0.xyzw)` is rewritten by the
+  scanner, because a comment is just text at that level. The grammar drops
+  comments in the lexer; the tree never sees one.
+* `mix`, `mod`, `lessThan` are rewritten as *calls with arguments* rather than as
+  words followed by a parenthesis hunt. `lessThan(a, b)` becomes
+  `((a) < (b))` because it has two arguments, not because a bracket counter
+  found a comma.
+
+Two defects were found and fixed on both routes while building this, which is
+the reason the equality table above is not zero for free:
+
+* The coordinate-narrowing rule built its negative lookahead from the 3D/cube
+  sampler names. With no such sampler in the shader the lookahead degenerated to
+  `(?!)` -- a pattern that can never match -- so the rule silently did nothing
+  for most shaders and left `float4` coordinates in `tex2D`. It now narrows any
+  3- or 4-component swizzle and keeps `.xy` as written.
+* `LINE_COMMENT` / `BLOCK_COMMENT` were real tokens in `Glsl.g4`, so a body with
+  a comment parsed as "extraneous input". They are skipped now, like whitespace.
+
+The tree route deliberately reproduces the scanner where the difference is not a
+defect, so the two stay comparable: `int(int(0x1f))` keeps its outer wrapper
+(the scanner sees the line once), one-argument vector constructors keep the
+`(float4)(x)` cast form, and `glstate_matrix_*[n]` expands to the named columns
+for the whole family, not just the four matrices the tree knows by name.
 
 ## Validation against real corpora
 

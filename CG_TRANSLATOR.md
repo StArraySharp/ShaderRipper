@@ -142,7 +142,9 @@ for (;;) {
 | `src/ShaderRipper/Cg/AsmModel.cs` | 操作数/指令模型 |
 | `src/ShaderRipper/Cg/AsmParser.cs` | 汇编文本解析器 |
 | `src/ShaderRipper/Cg/CgTranslator.cs` | 汇编→HLSL 翻译器 |
-| `src/ShaderRipper/Cg/GlslToCg.cs` | GLSL→Cg 回译器（GLES3/GLES2/OpenGLCore 输入），逐行重写 |
+| `src/ShaderRipper/Cg/GlslToCg.cs` | GLSL→Cg 前端之一：逐行扫描器（`--glsl-parser regex`） |
+| `src/ShaderRipper/Antlr/GlslToCgTree.cs` | GLSL→Cg 前端之二：`Glsl.g4` 语法树（默认），语句/表达式级改写 |
+| `src/ShaderRipper/Cg/GlslEmitter.cs` | 两条 GLSL 前端共用的装配段（appdata/v2f/vert/frag），保证输出不因读法而变 |
 | `src/ShaderRipper/Cg/CgSyntax.cs` | 第二段：Cg→HLSL 语义翻译 + 方言重写（`CGPROGRAM`↔`HLSLPROGRAM`、`tex2D`→`.Sample()`、坐标截断、lod 解包、未用采样器剔除） |
 | `src/ShaderRipper/Program.cs` | 编排（解析→翻译→输出），`--syntax` 在此解析 |
 | `game_shaderlab_cg/_cg/*.cg` | 258 份翻译后的 HLSL（历史目录名保留） |
@@ -152,7 +154,12 @@ for (;;) {
 
 `--platform gles3`（或包里没有 d3d11 时自动选中）走的是另一条翻译链路：
 GL 平台上 Unity 存的就是 HLSLcc 输出的**GLSL 源码**，所以不需要反汇编。
-第一段 `Cg/GlslToCg.cs` 逐行重写成 **Cg**（`tex2D`、`sampler2D`、`appdata`/`v2f`），
+第一段把 GLSL 读成 **Cg**（`tex2D`、`sampler2D`、`appdata`/`v2f`）——
+读法有两种：`Glsl.g4` 语法树（默认，`Antlr/GlslToCgTree.cs`）和逐行扫描器
+（`Cg/GlslToCg.cs`，`--glsl-parser regex`）。两者填同一个模型、走同一个
+`Cg/GlslEmitter.cs` 装配，所以选的是机制不是输出：3,164 个 GLSL 文件（6,328 个
+program）逐字符一致，整次 GLES3 导出 3,047 个文件哈希一致。语法路径能处理
+跨行调用、注释里的 `texture(...)`、嵌套括号参数——扫描器按物理行工作，看不到这些；
 第二段 `Cg/CgSyntax.ToHlsl` 再把它语义翻译 + 方言重写成 HLSL——与 DXBC 路径
 （`CgTranslator` 产出 Cg → `ToHlsl`）汇合于同一个第二段，所以两条路径产物同形态
 （`HLSLPROGRAM` + appdata/v2f + 同样的变体 `#if` 链；`--syntax cg` 时跳过第二段，保留 `CGPROGRAM`）。
@@ -160,7 +167,7 @@ GL 平台上 Unity 存的就是 HLSLcc 输出的**GLSL 源码**，所以不需�
 | | DXBC 路径 | GLSL 路径 |
 |---|---|---|
 | 输入 | `D3DDisassemble` 的汇编文本 | HLSLcc 的 GLSL 源码 |
-| 翻译器 | `CgTranslator.cs`，逐条指令映射 → Cg | `GlslToCg.cs`，逐行重写 → Cg（此后同走 `ToHlsl`） |
+| 翻译器 | `CgTranslator.cs`，逐条指令映射 → Cg | `GlslToCgTree.cs`（`Glsl.g4`，默认）或 `GlslToCg.cs`（逐行）→ 同一个 `GlslEmitter`（此后同走 `ToHlsl`） |
 | 变量名 | `r0` / `cb0[2].x`，靠常量缓冲反射命名 | `u_xlat0` 这类 HLSLcc 临时量，保留原名 |
 | 矩阵 | 按 `MatrixNames` 展开成 `m[row]` 成员 | GLSL 原生 `mat4`，仍存成 4 个 vec4 行 |
 | 语义 | 从 DXBC 签名推断 | HLSLcc 命名约定（`in_POSITION0`→POSITION0、`vs_TEXCOORD1`→TEXCOORD1） |

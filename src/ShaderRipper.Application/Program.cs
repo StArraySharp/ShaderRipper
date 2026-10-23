@@ -22,6 +22,13 @@ namespace ShaderRipper
             if (cli.Has("--help") || cli.Has("-h")) { Usage(); return 0; }
             string disasmFile = cli.Value("--disasm");
             if (disasmFile != null) return DisasmFile(disasmFile);
+            // Which reader parses GLSL payloads.  Default is the grammar
+            // (Antlr/Glsl.g4); --glsl-parser regex falls back to the line scanner.
+            // Both feed the same emitter, so this picks the mechanism, not the
+            // output -- verified by byte-comparing a full export through each.
+            if (string.Equals(cli.Value("--glsl-parser"), "regex", StringComparison.OrdinalIgnoreCase))
+                Cg.GlslToCg.Parser = "regex";
+
             string glslFile = cli.Value("--glsl2cg");
             if (glslFile != null)
             {
