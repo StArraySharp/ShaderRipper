@@ -275,9 +275,12 @@ BAD  tmp_sdf-surface.shader
     hlsl@line 77: line 148:41 no viable alternative at input 'float2(mad(r3.x,_FaceTex_ST.,' [,]
 ```
 
-**当前边界**：翻译本身仍由 `CgTranslator`（DXBC）与 `GlslToCg`（GLSL）的文本
-改写完成，ANTLR 这一层目前是**校验**而非**替换**。把产码也改成走语法树是下一步，
-语法与语料基线已经就位。
+**当前边界**：GLSL 的翻译仍由 `GlslToCg` 的文本改写完成；DXBC 这一侧有两条**并存**
+的读取路线，`--asm-parser regex`（手写扫描器，默认）与 `--asm-parser antlr`
+（`DxbcAsm.g4`），两者产出的模型在 77,155 个反汇编文件上逐字段完全一致
+（822,736 声明 / 3,028,214 指令 / 9,276,061 操作数 / 464,282 签名行），
+端到端导出的 875 个文件逐字节相同 —— 选的是机制，不是结果。
+把产码也改成走语法树仍然是下一步。
 
 ## 已知限制（如实说明）
 

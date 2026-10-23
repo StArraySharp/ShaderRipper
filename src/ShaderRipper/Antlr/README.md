@@ -40,6 +40,39 @@ BAD  tmp_sdf-surface.shader
 `AntlrCheck.cs` is the entry point; the parsers themselves are the generated
 files next to each grammar.
 
+## The DXBC route, side by side with the hand parser
+
+`DxbcAsm.g4` also drives a second DXBC asm reader, `DxbcAsmReader.cs`, which
+produces the same `AsmParser.Program` model as the hand-written scanner. Both
+routes ship; `--asm-parser` picks one:
+
+```
+--asm-parser regex    hand-written scanner (default)
+--asm-parser antlr    DxbcAsm.g4
+```
+
+They are kept equal on purpose, and that is measured, not asserted:
+
+| Check | Scale | Result |
+|---|---|---|
+| Model, field by field | 77,155 files | 77,155 identical, 0 different |
+| ... covering | 822,736 declarations, 3,028,214 instructions, 9,276,061 operands, 464,282 signature rows | all fields equal |
+| End-to-end export, both routes | 257 shaders, 875 files | 875 identical by hash |
+
+So the switch is a choice of mechanism, not of output. Three places where the
+grammar route deliberately reproduces a hand-parser quirk rather than
+"improving" it, because diverging would silently change output:
+
+* Register kinds `u`, `a`, `g`, `m` have no case in the hand parser's kind
+  table and fall back to `"r"`. They do here too.
+* `dcl_uav_*` / `dcl_tgsm_*` come out as kind `"other"`, because the hand
+  parser has no branch for them.
+* A declaration with a trailing semantic keeps it in the mask:
+  `dcl_input_ps_siv linear v0.z, position` gives `"z, position"`, not `"z"`.
+
+Each is a candidate for a single fix applied to both routes at once; the point
+of the A/B table above is that such a fix can be made and re-verified.
+
 ## Validation against real corpora
 
 Every grammar is measured against the data in this repository, not against

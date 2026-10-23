@@ -58,6 +58,8 @@ declaration
     | DCL_UAV sampleCount? typeSpecGroup? regToken (COMMA dclArgs)?
     | DCL_TGSM typeSpecGroup? regToken (COMMA dclArgs)?
     | DCL_INPUT_PS_SIV interpolationMode* operand COMMA IDENT
+    | DCL_INPUT_PS_SGV interpolationMode* operand COMMA IDENT
+    | DCL_INPUT_SIV interpolationMode* operand COMMA IDENT
     | DCL_INPUT_SGV interpolationMode* operand COMMA IDENT
     | DCL_INPUT_PS interpolationMode* operand dclArgs?
     | DCL_INPUT interpolationMode* operand dclArgs?

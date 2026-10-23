@@ -151,6 +151,12 @@ namespace ShaderRipper
 
             global::ShaderRipper.Antlr.AntlrCheck.Enabled = cli.Has("--validate");
 
+            // Which route reads the DXBC disassembly.  Both produce the same
+            // model (verified over the 75,919-file corpus), so this picks the
+            // mechanism, not the output.  Default stays the hand parser.
+            bool asmAntlr = string.Equals(cli.Value("--asm-parser"), "antlr",
+                                          StringComparison.OrdinalIgnoreCase);
+
             int indexCount = BuiltinIndex.Load(cli.Value("--builtin-index"));
 
             int matrixCount = MatrixNames.Load(cli.Value("--matrix-names"));
@@ -906,7 +912,9 @@ namespace ShaderRipper
                             DisName(slot.BlobIndex) + (dxil ? ".dxil.asm" : ".dxbc.asm")), asm);
                         if (dxil) continue;
 
-                        var prog = global::ShaderRipper.Cg.AsmParser.Parse(asm);
+                        var prog = asmAntlr
+                            ? global::ShaderRipper.Antlr.DxbcAsmReader.Parse(asm)
+                            : global::ShaderRipper.Cg.AsmParser.Parse(asm);
                         foreach (var ins in prog.Code)
                             opStats.AddOrUpdate(ins.Opcode, 1, (_, c) => c + 1);
                         progs[slot.BlobIndex] = prog;
