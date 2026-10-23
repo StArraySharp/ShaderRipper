@@ -341,6 +341,129 @@ namespace ShaderRipper
                 string assetsName = Path.GetFileName(assets);
                 foreach (var sh0 in sf.Shaders) sh0.SourceFile = assetsName;
                 allShaders.AddRange(sf.Shaders);
+
+                // --scan-all: also sweep every other serialized container in the
+                // data directory — built-in shader files (Resources/unity default
+                // resources, unity_builtin_extra), globalgamemanagers.assets,
+                // sharedassets*, level*.  Built-in names are still filtered later
+                // by BuiltinIndex, so the default export stays clean.
+                if (cli.Has("--scan-all"))
+                {
+                    var seenNames = new HashSet<string>(StringComparer.Ordinal);
+                    foreach (var sh0 in sf.Shaders)
+                        seenNames.Add(!string.IsNullOrEmpty(sh0.Name) ? sh0.Name : sh0.ParsedForm?.Name ?? "");
+
+                    var extraFiles = new List<string>();
+                    string resDir = Path.Combine(dataDir, "Resources");
+                    if (Directory.Exists(resDir))
+                        extraFiles.AddRange(Directory.EnumerateFiles(resDir));
+                    foreach (var f in Directory.EnumerateFiles(dataDir))
+                    {
+                        string n = Path.GetFileName(f);
+                        if (n.Equals(Path.GetFileName(assets), StringComparison.OrdinalIgnoreCase)) continue;
+                        bool isAssets = n.EndsWith(".assets", StringComparison.OrdinalIgnoreCase)
+                                        && (n.StartsWith("globalgamemanagers", StringComparison.OrdinalIgnoreCase)
+                                            || n.StartsWith("sharedassets", StringComparison.OrdinalIgnoreCase));
+                        bool isLevel = n.StartsWith("level", StringComparison.OrdinalIgnoreCase) && !n.Contains('.');
+                        if (isAssets || isLevel) extraFiles.Add(f);
+                    }
+
+                    int extraFound = 0;
+                    foreach (var f in extraFiles)
+                    {
+                        SerializedFile inner;
+                        try { inner = SerializedFile.Load(f, root, tpkClass); }
+                        catch (Exception e)
+                        {
+                            Console.Error.WriteLine($"  [scan-all] {Path.GetFileName(f)}: {e.Message}");
+                            continue;
+                        }
+                        if (inner.Shaders.Count == 0) continue;
+                        string fname = Path.GetFileName(f);
+                        int added = 0;
+                        foreach (var sh in inner.Shaders)
+                        {
+                            sh.SourceFile = fname;
+                            string nm = !string.IsNullOrEmpty(sh.Name) ? sh.Name : sh.ParsedForm?.Name ?? "";
+                            if (!string.IsNullOrEmpty(nm) && !seenNames.Add(nm)) continue;
+                            allShaders.Add(sh);
+                            added++;
+                        }
+                        if (added > 0)
+                            Console.WriteLine($"  [scan-all] {fname}: {added} shader(s)");
+                        extraFound += added;
+                    }
+
+                    // header-sniff every remaining file (any extension or none):
+                    // bundles, nested containers, GUID-named serialized files.
+                    var sniffed = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+                    foreach (var f in extraFiles) sniffed.Add(Path.GetFullPath(f));
+                    sniffed.Add(Path.GetFullPath(assets));
+                    foreach (var f in Directory.EnumerateFiles(dataDir, "*", SearchOption.AllDirectories))
+                    {
+                        if (sniffed.Contains(Path.GetFullPath(f))) continue;
+                        var fi = new FileInfo(f);
+                        if (fi.Length < 40 || fi.Length > 512 * 1024 * 1024) continue;
+                        InputKind kind;
+                        try { kind = SniffFile(f); }
+                        catch { continue; }
+                        if (kind == InputKind.Serialized)
+                        {
+                            sniffed.Add(Path.GetFullPath(f));
+                            SerializedFile inner;
+                            try { inner = SerializedFile.Load(f, root, tpkClass); }
+                            catch (Exception e)
+                            {
+                                Console.Error.WriteLine($"  [scan-all] {Path.GetFileName(f)}: {e.Message}");
+                                continue;
+                            }
+                            if (inner.Shaders.Count == 0) continue;
+                            string fname = Path.GetFileName(f);
+                            int added = 0;
+                            foreach (var sh in inner.Shaders)
+                            {
+                                sh.SourceFile = fname;
+                                string nm = !string.IsNullOrEmpty(sh.Name) ? sh.Name : sh.ParsedForm?.Name ?? "";
+                                if (!string.IsNullOrEmpty(nm) && !seenNames.Add(nm)) continue;
+                                allShaders.Add(sh);
+                                added++;
+                            }
+                            if (added > 0)
+                                Console.WriteLine($"  [scan-all] {fname}: {added} shader(s)");
+                            extraFound += added;
+                        }
+                        else if (kind == InputKind.Bundle)
+                        {
+                            sniffed.Add(Path.GetFullPath(f));
+                            List<Bundle.Node> nodes2;
+                            try { nodes2 = Bundle.Read(f); }
+                            catch (Exception e)
+                            {
+                                Console.Error.WriteLine($"  [scan-all] {Path.GetFileName(f)}: {e.Message}");
+                                continue;
+                            }
+                            foreach (var nd in nodes2)
+                            {
+                                if (SkipNode(nd.Path)) continue;
+                                SerializedFile inner;
+                                try { inner = SerializedFile.Load(nd.Data, root, tpkClass); }
+                                catch { continue; }
+                                if (inner.Shaders.Count == 0) continue;
+                                foreach (var sh in inner.Shaders)
+                                {
+                                    sh.ContainerPath = nd.Path;
+                                    string nm = !string.IsNullOrEmpty(sh.Name) ? sh.Name : sh.ParsedForm?.Name ?? "";
+                                    if (!string.IsNullOrEmpty(nm) && !seenNames.Add(nm)) continue;
+                                    allShaders.Add(sh);
+                                    extraFound++;
+                                }
+                            }
+                        }
+                    }
+                    if (extraFound > 0)
+                        Console.WriteLine(Strings.F("Unity_Shaders", sf.UnityVersion, sf.Shaders.Count + extraFound)
+                                          + $"  (scan-all: +{extraFound})");
+                }
             }
             if (indexCount > 0)
                 Console.WriteLine(Strings.F("BuiltinIndex", indexCount, BuiltinIndex.ResolvedPath));
