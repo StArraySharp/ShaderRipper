@@ -72,6 +72,16 @@ namespace ShaderRipper
             foreach (var p in sh.ParsedForm.Props) sb.AppendLine("\t\t" + PropLine(p));
             sb.AppendLine("\t}");
 
+            // Unity 6 strips the whole pass structure for SRP-managed shaders
+            // (Shader Graph, custom passes, ray-tracing) at build time: the
+            // serialized object only carries Properties + SubShader tags, and
+            // the compressed program blob is an empty placeholder.  Say so
+            // instead of shipping a silently empty shell.
+            bool noPasses = sh.ParsedForm.SubShaders.All(s => s.Passes.Count == 0);
+            if (noPasses && sh.ParsedForm.SubShaders.Count > 0)
+                sb.AppendLine("\t// NOTE: this build contains no passes for this shader — Unity 6 "
+                    + "strips pass/program data for SRP-managed and ray-tracing shaders at build time.");
+
             foreach (var ss in sh.ParsedForm.SubShaders)
             {
                 sb.AppendLine();

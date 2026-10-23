@@ -73,6 +73,7 @@ namespace ShaderRipper
             if (tpkClass != null)
             {
                 bool jsonIs6000 = schema?.Find("m_ParsedForm") != null
+                                  && sf.UnityVersion != null
                                   && sf.UnityVersion.StartsWith("6000.", StringComparison.Ordinal);
                 if (!jsonIs6000)
                 {
@@ -383,16 +384,21 @@ namespace ShaderRipper
             return v switch { float f => f, double db => (float)db, int i => i, uint u => u, _ => 0f };
         }
 
+        /// <summary>Decode a SerializedTagMap dictionary into key/value pairs.</summary>
+        private static void ReadTagMap(Dictionary<string, object> node, List<(string k, string v)> into)
+        {
+            if (node == null) return;
+            var tags = node.TryGetValue("tags", out var tl) ? tl as List<object> : null;
+            if (tags == null) return;
+            foreach (Dictionary<string, object> t in tags)
+                into.Add((Str(t, "first"), Str(t, "second")));
+        }
+
         private static SubShader MapSubShader(Dictionary<string, object> ss)
         {
             var o = new SubShader { LOD = Int(ss, "m_LOD") };
             if (ss.TryGetValue("m_Tags", out var tg) && tg is Dictionary<string, object> tgd)
-            {
-                var tags = tgd.TryGetValue("tags", out var tl) ? tl as List<object> : null;
-                if (tags != null)
-                    foreach (Dictionary<string, object> t in tags)
-                        o.Tags.Add((Str(t, "first"), Str(t, "second")));
-            }
+                ReadTagMap(tgd, o.Tags);
             if (ss.TryGetValue("m_Passes", out var pl) && pl is List<object> passes)
                 foreach (Dictionary<string, object> p in passes) o.Passes.Add(MapPass(p));
             return o;
@@ -474,10 +480,25 @@ namespace ShaderRipper
 
             if (p.TryGetValue("m_Tags", out var ptg) && ptg is Dictionary<string, object> ptgd)
             {
-                var tags = ptgd.TryGetValue("tags", out var tl) ? tl as List<object> : null;
-                if (tags != null)
-                    foreach (Dictionary<string, object> t in tags)
-                        o.Tags.Add((Str(t, "first"), Str(t, "second")));
+                // Pass-level tags override same-named state-level tags.  In
+                // Unity's serialized form the Tags{} block inside a Pass lives
+                // in the state's m_Tags; the pass-level map is usually empty.
+                var passTags = ptgd.TryGetValue("tags", out var tl) ? tl as List<object> : null;
+                var stateDict = p.TryGetValue("m_State", out var st2) && st2 is Dictionary<string, object> sd
+                    ? sd : null;
+                var stateTagDict = stateDict != null && stateDict.TryGetValue("m_Tags", out var stg) && stg is Dictionary<string, object> sgd
+                    ? sgd : null;
+                if (stateTagDict != null)
+                    ReadTagMap(stateTagDict, o.Tags);
+                if (passTags != null)
+                    foreach (Dictionary<string, object> t in passTags)
+                    {
+                        var k = Str(t, "first");
+                        var v = Str(t, "second");
+                        int idx = o.Tags.FindIndex(x => x.k.Equals(k, StringComparison.OrdinalIgnoreCase));
+                        if (idx >= 0) o.Tags[idx] = (k, v);
+                        else o.Tags.Add((k, v));
+                    }
             }
             o.ProgramMask = (uint)Int(p, "m_ProgramMask");
 
