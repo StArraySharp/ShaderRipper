@@ -58,6 +58,12 @@ Both are grammar-driven now: the DXBC route was flipped to the grammar after the
 table below was measured, and a full d3d11 export through either route comes out
 byte-identical (3,047 files).
 
+That costs wall clock, and the cost is why the reader parses with SLL first:
+2,645 programs per export, full LL prediction 13.2-15.0 s, SLL 11.0 s, the hand
+scanner 10.0 s (same machine, same data). A bail strategy turns "SLL guessed
+wrong" into an exception instead of a wrong tree, and the retry re-parses with
+LL; on this corpus the fallback never fires (0 of 2,645).
+
 They are kept equal on purpose, and that is measured, not asserted:
 
 | Check | Scale | Result |
