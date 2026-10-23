@@ -131,7 +131,7 @@ namespace ShaderRipper.Cg
         /// GLSL 本身就是 Unity 存下的"原始汇编"，这就是它的逐行反汇编注释。</summary>
         public static bool AnnotateSource;
 
-        public static Result Translate(string glsl)
+        public static Result Translate(string glsl, bool hlsl = false)
         {
             var notes = new List<string>();
             var pv = ParseBranch(ExtractBranch(glsl, "VERTEX"), true);
@@ -176,10 +176,21 @@ namespace ShaderRipper.Cg
                 else _cube.Add(m.Groups[2].Value);
             }
 
+            // Texture types are fixed by the uniform declarations, so the sampling
+            // form can be chosen while the body is being written instead of by a
+            // later pass that would have to rediscover them line by line.
+            var texTypes = new Dictionary<string, string>(StringComparer.Ordinal);
+            foreach (var u in (pv?.Uniforms ?? new List<(string, string)>())
+                     .Concat(pf?.Uniforms ?? new List<(string, string)>()))
+            {
+                var mt = Regex.Match(u.decl, @"^(sampler1D|sampler2D|sampler3D|samplerCUBE|sampler2DArray)\s+(\w+)");
+                if (mt.Success) texTypes[mt.Groups[2].Value] = CgSyntax.TexTypeOf(mt.Groups[1].Value);
+            }
+
             if (pv != null && pv.BodyText.Length > 0)
-                pv.Body = TranslateBody(pv.BodyText, true);
+                pv.Body = TranslateBody(pv.BodyText, true, hlsl, texTypes);
             if (pf != null && pf.BodyText.Length > 0)
-                pf.Body = TranslateBody(pf.BodyText, false);
+                pf.Body = TranslateBody(pf.BodyText, false, hlsl, texTypes);
 
             var v2f = new Dictionary<string, InOut>(StringComparer.Ordinal);
             foreach (var v in pv?.Varyings ?? Enumerable.Empty<InOut>())
@@ -218,7 +229,20 @@ namespace ShaderRipper.Cg
             sb.AppendLine("};");
             sb.AppendLine();
 
-            foreach (var u in uniforms) sb.AppendLine(u);
+            foreach (var u in uniforms)
+            {
+                if (hlsl)
+                {
+                    var mu = Regex.Match(u, @"^(sampler1D|sampler2D|sampler3D|samplerCUBE|sampler2DArray)\s+(\w+)\s*;");
+                    if (mu.Success)
+                    {
+                        foreach (var line in CgSyntax.DeclareTexture(mu.Groups[1].Value, mu.Groups[2].Value, true, "\t"))
+                            sb.AppendLine(line);
+                        continue;
+                    }
+                }
+                sb.AppendLine(u);
+            }
 
             if (pv != null && pv.Body.Count > 0)
             {
@@ -477,7 +501,8 @@ namespace ShaderRipper.Cg
             return $"{(quals.Length > 0 ? quals + " " : "")}{ty} {name}{arr}";
         }
 
-        private static List<string> TranslateBody(string body, bool isVertex)
+        private static List<string> TranslateBody(string body, bool isVertex, bool hlsl = false,
+                                                  IReadOnlyDictionary<string, string> texTypes = null)
         {
             var res = new List<string>();
             foreach (var raw in body.Split('\n'))
@@ -519,6 +544,11 @@ namespace ShaderRipper.Cg
                     s = Regex.Replace(s, @"\bSV_Target\d*\b", "fragOut");
                     if (s == "return;") s = "return fragOut;";
                 }
+                // The line is Cg so far.  Switching dialect right here emits the
+                // HLSL form from the same one-statement-per-line shape, instead of
+                // re-reading the finished body with a second pass.
+                if (hlsl) s = CgSyntax.RewriteLine(s, texTypes ?? EmptyTexTypes);
+
                 res.Add(s);
                 if (AnnotateSource && s != raw?.Trim())
                     res.Insert(res.Count - 1, "// " + (raw?.Trim() ?? ""));
@@ -558,6 +588,9 @@ namespace ShaderRipper.Cg
                 pos = m.Index + 1;
             }
         }
+
+        private static readonly IReadOnlyDictionary<string, string> EmptyTexTypes =
+            new Dictionary<string, string>(StringComparer.Ordinal);
 
         /// <summary>本 shader 的 3D / Cube 采样器名单（每次 Translate 刷新）。</summary>
         private static readonly HashSet<string> _s3d = new(StringComparer.Ordinal);

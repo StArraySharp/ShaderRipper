@@ -73,6 +73,14 @@ namespace ShaderRipper.Cg
         public AssetConstantBuffer AssetGlobals;
 
         /// <summary>
+        /// Row span of each $Globals matrix member, gathered from every program of
+        /// the shader (see the note where CgProgramWriter builds it).  A buffer's
+        /// own reflection is incomplete for some variants, so the span cannot be
+        /// inferred from one layout alone.
+        /// </summary>
+        public Dictionary<string, int> MatrixRows;
+
+        /// <summary>
         /// 整个 shader 所有子程序的参数块。每个子程序只记自己读到的成员，单看一份
         /// 算不出"到下一个成员的距离"，矩阵就判不出来；按缓冲尺寸合起来才完整。
         /// </summary>
@@ -124,6 +132,32 @@ namespace ShaderRipper.Cg
         /// program can drop the raw <c>cbN[...]</c> declaration without leaving an
         /// undefined identifier behind.
         /// </summary>
+        /// <summary>
+        /// True when some row of this register is read but still has no name, so the
+        /// emitted program needs the raw <c>cbN[...]</c> array.  Decided at emit time
+        /// because cross-variant filling can name rows after the mapping pass ran;
+        /// trusting the earlier snapshot left a dead array declaration (and a
+        /// duplicate of the buffer) in front of fully named code.
+        /// </summary>
+        public bool HasDynamicIndex(int reg) => _dynamicIndex.Contains(reg);
+
+        public bool NeedsRawArray(int reg, int extent = int.MaxValue)
+        {
+            // A register indexed by a runtime expression cannot be expressed as
+            // named members at all, so the array has to stay even when every
+            // constant row is named.
+            if (_dynamicIndex.Contains(reg)) return true;
+            if (!RowUse.TryGetValue(reg, out var ru)) return false;
+            foreach (var kv in ru)
+            {
+                // Rows past the emitted declaration's own length cannot be read
+                // through it anyway (the same bound the fill pass applies).
+                if (kv.Key >= extent) continue;
+                if (!RowFullyNamed(reg, kv.Key)) return true;
+            }
+            return false;
+        }
+
         private bool RowFullyNamed(int reg, int row)
         {
             if (RowExpr.ContainsKey((reg, row))) return true;
@@ -145,9 +179,11 @@ namespace ShaderRipper.Cg
                                          List<BlobTool.CbInfo> allParamCbs = null,
                                          bool tmpLayout = false,
                                          TmpLayouts.Layout layoutHint = null,
-                                         System.Collections.Generic.List<(string Name, int Index, int Sampler)> texParams = null)
+                                         System.Collections.Generic.List<(string Name, int Index, int Sampler)> texParams = null,
+                                         Dictionary<string, int> matrixRows = null)
         {
             var r = new CbResolver(new HashSet<string>(nameTable ?? new List<string>(), StringComparer.Ordinal));
+            r.MatrixRows = matrixRows;
             r._prog = prog;
             r.ParamCbs = paramCbs;
             r.AllParamCbs = allParamCbs;
@@ -270,6 +306,41 @@ namespace ShaderRipper.Cg
                         + $"names=[{string.Join(",", r._nameTable.OrderBy(x => x, StringComparer.Ordinal))}]");
                 }
             }
+            // ---- last resort: the program's own compiled member table ----
+            // The parameter blob records the exact members (name, byte offset,
+            // type, dim) of every constant buffer this compile kept.  When the
+            // curated table, the name table and the heuristic routes all missed
+            // a row, its name is still here.  Conservative: only whole-float4
+            // rows are named, so a partial read can never pick up a wrong lane.
+            if (r.ParamCbs != null && r.ParamCbs.Count > 0)
+            {
+                var cbDecls = prog.Decls.Where(d => d.Kind == "constbuffer").ToList();
+                if (cbDecls.Count == r.ParamCbs.Count)
+                {
+                    for (int i = 0; i < cbDecls.Count; i++)
+                    {
+                        var d = cbDecls[i];
+                        var pcb = r.ParamCbs[i];
+                        if (pcb.Members.Count == 0) continue;
+                        if (!used.TryGetValue(d.Register, out var rowsUsed)) continue;
+                        foreach (int row in rowsUsed)
+                        {
+                            var key = (d.Register, row);
+                            if (r.RowExpr.ContainsKey(key) ||
+                                Enumerable.Range(0, 4).Any(c => r.CompExpr.ContainsKey((d.Register, row, c))))
+                                continue;
+                            var mem = pcb.Members.FirstOrDefault(mm => mm.offset == row * 16);
+                            if (string.IsNullOrEmpty(mem.name) || mem.dim != 4) continue;
+                            r.RowExpr[key] = mem.name;
+                            r.RowWidth[key] = 4;
+                            if (!r.GlobalsDecl.TryGetValue((int)d.Register, out var gdecls))
+                                r.GlobalsDecl[(int)d.Register] = gdecls = new List<(string name, string type)>();
+                            if (!gdecls.Any(x => x.name == mem.name))
+                                gdecls.Add((mem.name, "float4"));
+                        }
+                    }
+                }
+            }
             return r;
         }
 
@@ -277,13 +348,6 @@ namespace ShaderRipper.Cg
         /// Identify each constant buffer from the program's parameter blob.
         ///
         /// The blob lists exactly the buffers this program kept, in register order,
-        /// each with its byte size; <c>dcl_constantbuffer CBn[k]</c> gives the furthest
-        /// row the code touches.  A pairing is accepted only when every register's
-        /// touched extent fits inside the size the blob records for it, which makes it
-        /// self-checking: a wrong pairing makes some buffer too small.
-        ///
-        /// The blob also carries a partial index list (buffer name -&gt; position), which
-        /// omits $Globals.  When every name it lists sits at the position it records,
         /// the asset has confirmed the ordering; it is never used to *drop* a buffer,
         /// because not every buffer appears in it.
         ///
@@ -509,10 +573,23 @@ namespace ShaderRipper.Cg
             return sb.Append(')').ToString();
         }
 
-        private bool MapGlobalsFromAssetReflection(AsmParser.Decl d, SortedSet<int> rows)
+        private bool MapGlobalsFromAssetReflection(AsmParser.Decl d, SortedSet<int> rows, bool fillOnly = false)
         {
             var cb = AssetGlobals;
             if (cb == null || cb.Members.Count == 0) return false;
+
+            // In fillOnly mode this table supplements the compiled member table
+            // instead of replacing it: it may only add rows the other left
+            // nameless, and only declare members not already declared.  The two
+            // disagree in both directions -- this shader's parameter blob omits
+            // _LightColor0, while the asset reflection knows _EnvMatrix is a
+            // matrix spanning rows 13..16 where the blob only sees row 13 -- so
+            // neither table alone covers the block.
+            bool RowTaken(int row) =>
+                RowExpr.ContainsKey((d.Register, row)) ||
+                Enumerable.Range(0, 4).Any(c => CompExpr.ContainsKey((d.Register, row, c)));
+            bool Declared(string name) =>
+                GlobalsDecl.TryGetValue((int)d.Register, out var g) && g.Any(x => x.name == name);
 
             int mapped = 0;
             var decls = new List<(string name, string type)>();
@@ -526,21 +603,31 @@ namespace ShaderRipper.Cg
                 if (string.IsNullOrEmpty(m.Name)) continue;
                 if (m.Offset % 4 != 0) continue;
                 int row = m.Offset / 16;
-                if (!rows.Contains(row)) continue;
                 int col = (m.Offset % 16) / 4;
 
+                // A matrix member spans several rows, and a stage rarely reads all
+                // of them: one light variant samples _EnvMatrix rows 14 and 15 but
+                // never row 13.  Requiring the member's first row to be read threw
+                // the whole matrix away for such a stage, so its rows stayed bare
+                // cb0[14]/cb0[15].  Coverage is therefore decided per row, below.
                 if (col == 0 && !m.IsMatrix && MatrixNames.Contains(m.Name))
                 {
                     int next = mi + 1 < members.Count ? members[mi + 1].Offset : cb.Size;
                     int n = (next - m.Offset) / 16;
                     if (n is >= 2 and <= 4)
                     {
+                        int used = 0;
                         for (int k = 0; k < n; k++)
                         {
+                            if (!rows.Contains(row + k)) continue;
+                            if (fillOnly && RowTaken(row + k)) continue;
                             RowExpr[(d.Register, row + k)] = MatrixColumn(m.Name, k, n);
                             RowWidth[(d.Register, row + k)] = 4;
+                            used++;
                         }
-                        decls.Add((m.Name, n == 2 ? "float2x2" : n == 3 ? "float3x3" : "float4x4"));
+                        if (used == 0) continue;
+                        if (!fillOnly || !Declared(m.Name))
+                            decls.Add((m.Name, n == 2 ? "float2x2" : n == 3 ? "float3x3" : "float4x4"));
                         mapped++;
                         continue;
                     }
@@ -550,16 +637,23 @@ namespace ShaderRipper.Cg
                 {
                     if (col != 0) continue;
                     int n = Math.Max(1, m.RowCount);
+                    int used = 0;
                     for (int k = 0; k < n; k++)
                     {
+                        if (!rows.Contains(row + k)) continue;
+                        if (fillOnly && RowTaken(row + k)) continue;
                         RowExpr[(d.Register, row + k)] = MatrixColumn(m.Name, k, n);
                         RowWidth[(d.Register, row + k)] = 4;
+                        used++;
                     }
-                    decls.Add((m.Name, n == 2 ? "float2x2" : n == 3 ? "float3x3" : "float4x4"));
+                    if (used == 0) continue;
+                    if (!fillOnly || !Declared(m.Name))
+                        decls.Add((m.Name, n == 2 ? "float2x2" : n == 3 ? "float3x3" : "float4x4"));
                     mapped++;
                     continue;
                 }
 
+                if (!rows.Contains(row)) continue;
                 int w = m.Dim switch { 4 => 4, 3 => 3, 2 => 2, _ => 1 };
                 if (m.ArraySize > 1) w = 4;
                 if (col + w > 4) continue;
@@ -576,22 +670,34 @@ namespace ShaderRipper.Cg
 
                 if (w == 4 && col == 0)
                 {
+                    if (fillOnly && RowTaken(row)) continue;
                     RowExpr[(d.Register, row)] = m.Name;
                     RowWidth[(d.Register, row)] = 4;
-                    decls.Add((m.Name, Ty(4)));
+                    if (!fillOnly || !Declared(m.Name)) decls.Add((m.Name, Ty(4)));
                 }
                 else
                 {
+                    bool any = false;
                     for (int k = 0; k < w; k++)
+                    {
+                        if (fillOnly && CompExpr.ContainsKey((d.Register, row, col + k))) continue;
                         CompExpr[(d.Register, row, col + k)] =
                             w == 1 ? m.Name : m.Name + "." + "xyzw"[k];
-                    decls.Add((m.Name, Ty(w)));
+                        any = true;
+                    }
+                    if (!any) continue;
+                    if (!fillOnly || !Declared(m.Name)) decls.Add((m.Name, Ty(w)));
                 }
                 mapped++;
             }
 
             if (mapped == 0) return false;
-            GlobalsDecl[(int)d.Register] = decls;
+            if (fillOnly && GlobalsDecl.TryGetValue((int)d.Register, out var exist))
+            {
+                var have = new HashSet<string>(exist.Select(x => x.name), StringComparer.Ordinal);
+                exist.AddRange(decls.Where(x => have.Add(x.name)));
+            }
+            else GlobalsDecl[(int)d.Register] = decls;
             if (rows.All(r => RowFullyNamed(d.Register, r)) && !_dynamicIndex.Contains(d.Register))
                 FullyMapped.Add(d.Register);
             Notes.Add($"// $Globals cb{d.Register}: {mapped} member(s) named from the asset's own "
@@ -608,7 +714,12 @@ namespace ShaderRipper.Cg
             int need = d.Count > 0 ? d.Count * 16 : (rows.Count > 0 ? (rows.Max() + 1) * 16 : 0);
             var pool = all.Where(x => x.Size >= need).ToList();
             if (pool.Count == 0) pool = all;
-            var cb = pool.OrderBy(x => x.Size).First();
+            // Several programs of one pass compile to the same $Globals size but
+            // record different subsets of members (a 624-byte block appears with
+            // 16, 23 and 36 members).  Picking the first by size alone can land on
+            // the 16-member one, which has no _EnvMatrix and therefore no way to
+            // learn that rows 18/19 belong to it.  Same size, richest table.
+            var cb = pool.OrderBy(x => x.Size).ThenByDescending(x => x.Members.Count).First();
 
             var seenOffsets = new HashSet<int>();
             var merged = new List<(string name, int offset, int dim)>();
@@ -626,7 +737,7 @@ namespace ShaderRipper.Cg
             var ordered = merged.OrderBy(m => m.offset).ToList();
             if (Environment.GetEnvironmentVariable("SHADERRIP_CBDBG") == "1")
                 Console.Error.WriteLine($"[cbparam] size={cb.Size} merged={ordered.Count} members=" +
-                    string.Join(" ", ordered.Select(x => $"{x.name}@{x.offset}")));
+                    string.Join(" ", ordered.Select(x => $"{x.name}@{x.offset}(d{x.dim})")));
             int Width(string name, int index)
             {
                 int start = ordered[index].offset;
@@ -640,6 +751,12 @@ namespace ShaderRipper.Cg
                 return Math.Max(1, w);
             }
 
+            bool RowTaken(int row) =>
+                RowExpr.ContainsKey((d.Register, row)) ||
+                Enumerable.Range(0, 4).Any(c => CompExpr.ContainsKey((d.Register, row, c)));
+            bool Declared(string name) =>
+                GlobalsDecl.TryGetValue((int)d.Register, out var gd) && gd.Any(x => x.name == name);
+
             int mapped = 0;
             var decls = new List<(string name, string type)>();
             for (int i = 0; i < ordered.Count; i++)
@@ -650,20 +767,41 @@ namespace ShaderRipper.Cg
                 if (!rows.Contains(row)) continue;
                 int col = (moff % 16) / 4;
 
-                if (col == 0 && MatrixNames.Contains(mname))
+                // Whether a member is a matrix is a property of the shader, not of
+                // this variant's buffer: _EnvMatrix is float4x4 everywhere, even
+                // though the 624-byte layout of the additive-light variants puts it
+                // at a different offset than the 560-byte one.  The asset's own
+                // reflection records that fact, so consult it before falling back to
+                // span arithmetic, which cannot recognise a member whose neighbours
+                // are far away (here _EnvMatrix is 176 bytes from the next member and
+                // was therefore read as a single float4, leaving its other rows bare).
+                int declaredRows = 0;
+                if (MatrixRows != null) MatrixRows.TryGetValue(mname, out declaredRows);
+                if (declaredRows == 0 && AssetGlobals != null)
+                    foreach (var am in AssetGlobals.Members)
+                        if (am.Name == mname && am.IsMatrix) { declaredRows = Math.Max(declaredRows, am.RowCount); break; }
+                if (col == 0 && (declaredRows is >= 2 and <= 4 || MatrixNames.Contains(mname)))
                 {
                     int span = (i + 1 < ordered.Count ? ordered[i + 1].offset : cb.Size) - moff;
-                    int n = span >= 32 ? span / 16 : 0;
+                    int n = declaredRows is >= 2 and <= 4 ? declaredRows : (span >= 32 ? span / 16 : 0);
                     if (n is >= 2 and <= 4)
                     {
+                        int used = 0;
                         for (int k = 0; k < n; k++)
                         {
+                            if (!rows.Contains(row + k)) continue;
+                            if (RowTaken(row + k)) continue;
                             RowExpr[(d.Register, row + k)] = MatrixColumn(mname, k, n);
                             RowWidth[(d.Register, row + k)] = 4;
+                            used++;
                         }
-                        decls.Add((mname, n == 2 ? "float2x2" : n == 3 ? "float3x3" : "float4x4"));
-                        mapped++;
-                        continue;
+                        if (used > 0)
+                        {
+                            if (!Declared(mname))
+                                decls.Add((mname, n == 2 ? "float2x2" : n == 3 ? "float3x3" : "float4x4"));
+                            mapped++;
+                            continue;
+                        }
                     }
                 }
 
@@ -720,7 +858,14 @@ namespace ShaderRipper.Cg
                                AssetGlobals.Size >= (d.Count > 0 ? d.Count * 16 : 0) &&
                                AssetGlobals.Size >= blobSpan;
             bool fromBlob = MapGlobalsFromParamBlob(d, rows, props);
-            bool fromAsset = !fromBlob && assetUsable && MapGlobalsFromAssetReflection(d, rows);
+            // The two tables are complementary, not alternatives: whichever one
+            // ran first, the asset reflection still fills the rows it left
+            // nameless (it knows _LightColor0 and the true extent of matrix
+            // members).  Without this the parameter blob alone decides, and its
+            // omissions surface as bare cb0[2] / cb0[14] references.
+            bool fromAsset = assetUsable &&
+                             (fromBlob ? MapGlobalsFromAssetReflection(d, rows, fillOnly: true)
+                                       : MapGlobalsFromAssetReflection(d, rows));
 
             bool fromTable = (fromAsset || fromBlob) ? false : ApplyCuratedNames(d, rows);
 

@@ -82,6 +82,27 @@ namespace ShaderRipper
                 sb.AppendLine("\t// NOTE: this build contains no passes for this shader — Unity 6 "
                     + "strips pass/program data for SRP-managed and ray-tracing shaders at build time.");
 
+            // Which $Globals members are matrices is a property of the shader, not
+            // of one pass.  Only the base-light pass of a surface shader records
+            // _EnvMatrix as float4x4; the additive pass compiles to a different
+            // $Globals layout whose reflection lists two members and cannot say so.
+            // Collecting here lets every pass know the span.
+            var shaderMatrixRows = new Dictionary<string, int>(StringComparer.Ordinal);
+            foreach (var ssm in sh.ParsedForm.SubShaders)
+                foreach (var pm in ssm.Passes)
+                    foreach (var spm in pm.SubPrograms)
+                        foreach (var cbm in spm.ConstantBuffers)
+                        {
+                            if (!cbm.IsGlobals) continue;
+                            foreach (var mm in cbm.Members)
+                            {
+                                if (string.IsNullOrEmpty(mm.Name) || !mm.IsMatrix) continue;
+                                if (mm.RowCount is < 2 or > 4) continue;
+                                shaderMatrixRows.TryGetValue(mm.Name, out int had);
+                                if (mm.RowCount > had) shaderMatrixRows[mm.Name] = mm.RowCount;
+                            }
+                        }
+
             foreach (var ss in sh.ParsedForm.SubShaders)
             {
                 sb.AppendLine();
@@ -163,8 +184,10 @@ namespace ShaderRipper
 
                             string Body(string src)
                             {
-                                string cg = Cg.GlslToCg.Translate(src).Cg;
-                                return hlsl ? Cg.CgSyntax.ToHlsl(cg) : cg;
+                                // 两个产码器都按目标方言直接产出，不再事后遍历文本改写。
+                                return hlsl
+                                    ? Cg.GlslToCg.Translate(src, true).Cg
+                                    : Cg.GlslToCg.Translate(src).Cg;
                             }
 
                             for (int vi = 0; vi < keys.Count; vi++)
@@ -209,8 +232,8 @@ namespace ShaderRipper
                         sb.AppendLine("\t\t\t#include \"UnityCG.cginc\"");
 
                         string body = Cg.CgProgramWriter.Build(pass, progs, pass.Tags, sh.ParsedForm.Props,
-                                                               sh.ParsedForm.KeywordNames, paramBlobs, shaderKey);
-                        if (hlsl) body = Cg.CgSyntax.ToHlsl(body);
+                                                               sh.ParsedForm.KeywordNames, paramBlobs, shaderKey, hlsl,
+                                                               shaderMatrixRows);
 
                         bool usesLight = body.Contains("_LightColor0") ||
                                          body.Contains("_SpecColor");

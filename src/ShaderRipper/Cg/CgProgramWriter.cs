@@ -25,7 +25,8 @@ namespace ShaderRipper.Cg
                                    IReadOnlyList<Property> props,
                                    IReadOnlyList<string> keywordNames,
                                    Dictionary<int, List<BlobTool.CbInfo>> paramBlobs,
-                                   string shaderKey = null){
+                                   string shaderKey = null, bool hlsl = false,
+                                   Dictionary<string, int> shaderMatrixRows = null){
             var names = GlobalsNames.For(shaderKey);
             bool tmpLayout = shaderKey != null &&
                              shaderKey.StartsWith("TextMeshPro", StringComparison.OrdinalIgnoreCase);
@@ -71,6 +72,110 @@ namespace ShaderRipper.Cg
             sb.AppendLine($"// {allKeys.Count} keyword variant(s), {groups.Count} multi_compile line(s)");
             foreach (var note in vanalysis.Notes) sb.AppendLine($"// variants: {note}");
 
+            // ---- constant-buffer name consensus across variants ----
+            // Each variant's programs carry their own reflection; a row named in
+            // one compile can be missed in another (the cb0[5] vs _Color split).
+            // Resolve every variant once, keep resolvers in a cache, and build an
+            // overlay of row names that all resolving stages agree on.  Variants
+            // missing a row then inherit the consensus name; conflicting evidence
+            // is never overlaid.
+            // How many rows each $Globals member spans, collected across every
+            // program of this shader.  A member's type belongs to the shader, not
+            // to one variant's buffer: the additive-light variants compile to a
+            // 624-byte $Globals whose reflection lists only _LightColor0 and
+            // _SpecColor, so _EnvMatrix there looks like a lone float4 at row 17
+            // even though the 560-byte layouts record it as float4x4.  Without
+            // this table the extra rows stay bare cb0[18]/cb0[19].
+            var matrixRows = new Dictionary<string, int>(StringComparer.Ordinal);
+            // Start from the shader-wide table: this pass may have compiled to a
+            // $Globals layout whose reflection omits the matrix members entirely.
+            if (shaderMatrixRows != null)
+                foreach (var kv in shaderMatrixRows) matrixRows[kv.Key] = kv.Value;
+            foreach (var sp in vsByKey.Values.Concat(psByKey.Values))
+            {
+                if (sp?.ConstantBuffers == null) continue;
+                foreach (var cb in sp.ConstantBuffers)
+                {
+                    if (!cb.IsGlobals) continue;
+                    foreach (var m in cb.Members)
+                        if (!string.IsNullOrEmpty(m.Name) && m.IsMatrix && m.RowCount is >= 2 and <= 4)
+                        {
+                            matrixRows.TryGetValue(m.Name, out int have);
+                            if (m.RowCount > have) matrixRows[m.Name] = m.RowCount;
+                        }
+                }
+            }
+
+            var cbCache = new Dictionary<string, (CbResolver VsCb, CbResolver PsCb)>(StringComparer.Ordinal);
+            // Clusters of cbuffer layouts that agree on every shared named row
+            // ("anchors").  Variants of one pass can compile to different $Globals
+            // layouts (112/128/176/256 bytes), so the same row index holds
+            // different uniforms across them; a name may only move between
+            // layouts whose anchors prove the rows align.
+            var cbClusters = new List<CbCluster>();
+            if (allKeys.Count > 0)
+            {
+                foreach (var key in allKeys)
+                {
+                    vsByKey.TryGetValue(key, out var vsSp0);
+                    psByKey.TryGetValue(key, out var psSp0);
+                    var vs0 = Lookup(progs, vsSp0);
+                    var ps0 = Lookup(progs, psSp0);
+                    if (vs0 == null && ps0 == null) continue;
+                    var assetGlobals0 = BestGlobals(vsSp0, psSp0);
+                    var allParamCbs0 = paramBlobs?.Values.SelectMany(x => x).ToList();
+                    var v = CbResolver.Resolve(vs0, nameTable, props, ParamFor(paramBlobs, vsSp0), -1,
+                        names, assetGlobals0, identityHint, allParamCbs0, tmpLayout, null, vsSp0?.TextureParams, matrixRows);
+                    var p = CbResolver.Resolve(ps0, nameTable, props, ParamFor(paramBlobs, psSp0), -1,
+                        names, assetGlobals0, identityHint, allParamCbs0, tmpLayout, v?.ChosenLayout, psSp0?.TextureParams, matrixRows);
+                    cbCache[key] = (v, p);
+                    foreach (var cb in new[] { v, p })
+                    {
+                        if (cb == null) continue;
+                        foreach (var regKv in cb.CbName)
+                        {
+                            int extent = cb.CbSize.TryGetValue(regKv.Key, out int bytes) ? bytes / 16 : int.MaxValue;
+                            var rows = new Dictionary<int, string>();
+                            var lanes = new Dictionary<(int row, int comp), string>();
+                            foreach (var kv in cb.RowExpr)
+                                if (kv.Key.cb == regKv.Key && kv.Key.row < extent)
+                                    rows[kv.Key.row] = kv.Value;
+                            foreach (var kv in cb.CompExpr)
+                                if (kv.Key.cb == regKv.Key && kv.Key.row < extent)
+                                    lanes[(kv.Key.row, kv.Key.comp)] = kv.Value;
+                            if (rows.Count == 0 && lanes.Count == 0) continue;
+
+                            // rich-first: the cluster with the most evidence that is
+                            // consistent with every shared row AND shares at least
+                            // one named row with it ("anchor").  Merging on absence
+                            // of conflict alone would glue unrelated layouts
+                            // together (a 256-byte layout sharing no rows with the
+                            // 112-byte one must not inherit the 112's row names).
+                            CbCluster best = null;
+                            int bestCount = -1;
+                            foreach (var c in cbClusters)
+                            {
+                                if (c.Name != regKv.Value) continue;
+                                bool anchored = rows.Keys.Any(c.Rows.ContainsKey)
+                                             || lanes.Keys.Any(c.Lanes.ContainsKey);
+                                if (!anchored) continue;
+                                bool ok = rows.All(kv => !c.Rows.TryGetValue(kv.Key, out var n) || SameMember(n, kv.Value))
+                                       && lanes.All(kv => !c.Lanes.TryGetValue(kv.Key, out var n) || SameMember(n, kv.Value));
+                                int count = c.Rows.Count + c.Lanes.Count;
+                                if (ok && count > bestCount) { best = c; bestCount = count; }
+                            }
+                            if (best == null)
+                            {
+                                best = new CbCluster { Name = regKv.Value };
+                                cbClusters.Add(best);
+                            }
+                            foreach (var kv in rows) KeepRicher(best.Rows, kv.Key, kv.Value);
+                            foreach (var kv in lanes) best.Lanes[kv.Key] = kv.Value;
+                        }
+                    }
+                }
+            }
+
             int emitted = 0;
             string fallbackKey = allKeys.Count > 0 ? allKeys[0] : null;
             for (int vi = 0; vi < allKeys.Count; vi++)
@@ -98,7 +203,7 @@ namespace ShaderRipper.Cg
                 sb.AppendLine(emitted == 0 ? (guard.Length > 0 ? $"#if {guard}" : "#if 1")
                                            : $"#elif {guard}");
 
-                EmitVariant(sb, vs, ps, props, nameTable, vsSp, psSp, paramBlobs, names, identityHint, tmpLayout);
+                EmitVariant(sb, vs, ps, props, nameTable, vsSp, psSp, paramBlobs, names, identityHint, tmpLayout, hlsl, cbClusters, cbCache, key, matrixRows);
                 emitted++;
             }
 
@@ -109,7 +214,7 @@ namespace ShaderRipper.Cg
                 sb.AppendLine("#else");
                 vsByKey.TryGetValue(fallbackKey, out var vsSp);
                 psByKey.TryGetValue(fallbackKey, out var psSp);
-                EmitVariant(sb, Lookup(progs, vsSp), Lookup(progs, psSp), props, nameTable, vsSp, psSp, paramBlobs, names, identityHint, tmpLayout);
+                EmitVariant(sb, Lookup(progs, vsSp), Lookup(progs, psSp), props, nameTable, vsSp, psSp, paramBlobs, names, identityHint, tmpLayout, hlsl, cbClusters, cbCache, null, matrixRows);
                 sb.AppendLine("#endif");
             }
 
@@ -210,20 +315,175 @@ namespace ShaderRipper.Cg
             return hint;
         }
 
+        /// <summary>
+        /// A group of cbuffer layouts whose shared named rows all agree ("anchor
+        /// rows").  Names may move between layouts of one cluster: the anchors
+        /// prove the row indices line up.  Conflicting layouts land in separate
+        /// clusters and never exchange names.
+        /// </summary>
+        private sealed class CbCluster
+        {
+            public string Name;
+            public Dictionary<int, string> Rows = new();
+            public Dictionary<(int row, int comp), string> Lanes = new();
+        }
+
+        /// <summary>
+        /// One member can be written several ways in the emitted text: a matrix row
+        /// arrives either as the bare name (<c>_EnvMatrix</c>, the whole-row form) or
+        /// as an explicit column (<c>(_EnvMatrix._m00_m10_m20_m30)</c>).  Those name
+        /// the same uniform at the same row, so cluster conflict detection must
+        /// compare members, not literal strings -- otherwise one layout written in
+        /// the column form and another in the whole-row form look like disagreeing
+        /// evidence and get split into separate clusters, which blocks all name
+        /// inheritance between them (that split is what left _LightColor0 numeric).
+        /// </summary>
+        private static string MemberBase(string expr)
+        {
+            if (string.IsNullOrEmpty(expr)) return expr;
+            string s = expr.Trim();
+            while (s.Length > 1 && s[0] == '(' && s[s.Length - 1] == ')')
+                s = s.Substring(1, s.Length - 2).Trim();
+            int i = s.IndexOfAny(new[] { '.', '[' });
+            return i > 0 ? s.Substring(0, i) : s;
+        }
+
+        private static bool SameMember(string a, string b) =>
+            string.Equals(MemberBase(a), MemberBase(b), StringComparison.Ordinal);
+
+        /// <summary>Rank a spelling so the explicit column form wins over the bare name.</summary>
+        private static int Specificity(string expr) =>
+            string.Equals(expr, MemberBase(expr), StringComparison.Ordinal) ? 0 : 1;
+
+        /// <summary>Keep whichever spelling says more about the member.</summary>
+        private static void KeepRicher(Dictionary<int, string> rows, int key, string expr)
+        {
+            if (!rows.TryGetValue(key, out var cur) || Specificity(expr) > Specificity(cur))
+                rows[key] = expr;
+        }
+
+        /// <summary>
+        /// True when this variant already has a name for the row, either as a whole
+        /// row or as every lane the stage reads.  Used to decide what a cluster can
+        /// still contribute without a cluster-level veto.
+        /// </summary>
+        private static bool RowSettled(CbResolver cb, int reg, int row)
+        {
+            if (cb.RowExpr.ContainsKey((reg, row))) return true;
+            int mask = 0xF;
+            if (cb.RowUse.TryGetValue(reg, out var ru) && ru.TryGetValue(row, out int m)) mask = m;
+            for (int c = 0; c < 4; c++)
+                if ((mask & (1 << c)) != 0 && !cb.CompExpr.ContainsKey((reg, row, c)))
+                    return false;
+            return true;
+        }
+
         private static void EmitVariant(StringBuilder sb, AsmParser.Program vs, AsmParser.Program ps,
                                         IReadOnlyList<Property> props, List<string> nameTable,
                                         SubProgram vsSp, SubProgram psSp, Dictionary<int, List<BlobTool.CbInfo>> paramBlobs,
                                         GlobalsNames names, Dictionary<int, string> identityHint,
-                                        bool tmpLayout)
+                                        bool tmpLayout, bool hlsl = false,
+                                        List<CbCluster> cbClusters = null,
+                                        Dictionary<string, (CbResolver VsCb, CbResolver PsCb)> cbCache = null,
+                                        string variantKey = null,
+                                        Dictionary<string, int> matrixRows = null)
         {
             var iface = new ShaderInterface();
             iface.BuildAppdata(vs?.InputSig);
             iface.BuildV2f(vs?.OutputSig, ps?.InputSig);
 
-            var assetGlobals = BestGlobals(vsSp, psSp);
-            var allParamCbs = paramBlobs?.Values.SelectMany(x => x).ToList();
-            var vsCb = CbResolver.Resolve(vs, nameTable, props, ParamFor(paramBlobs, vsSp), -1, names, assetGlobals, identityHint, allParamCbs, tmpLayout, null, vsSp?.TextureParams);
-            var psCb = CbResolver.Resolve(ps, nameTable, props, ParamFor(paramBlobs, psSp), -1, names, assetGlobals, identityHint, allParamCbs, tmpLayout, vsCb?.ChosenLayout, psSp?.TextureParams);
+            // The pre-pass stores under the variant keyword string, so the read
+            // must use that same key.  A blob-index pair is a different key
+            // space and never matched, which silently disabled the cache and
+            // made every variant re-resolve from scratch.
+            var cacheKey = variantKey ?? ((vsSp?.BlobIndex ?? -1).ToString() + ":" + (psSp?.BlobIndex ?? -1));
+            CbResolver vsCb, psCb;
+            if (cbCache != null && cbCache.TryGetValue(cacheKey, out var cached))
+            {
+                vsCb = cached.VsCb;
+                psCb = cached.PsCb;
+            }
+            else
+            {
+                var assetGlobals = BestGlobals(vsSp, psSp);
+                var allParamCbs = paramBlobs?.Values.SelectMany(x => x).ToList();
+                vsCb = CbResolver.Resolve(vs, nameTable, props, ParamFor(paramBlobs, vsSp), -1, names, assetGlobals, identityHint, allParamCbs, tmpLayout, null, vsSp?.TextureParams, matrixRows);
+                psCb = CbResolver.Resolve(ps, nameTable, props, ParamFor(paramBlobs, psSp), -1, names, assetGlobals, identityHint, allParamCbs, tmpLayout, vsCb?.ChosenLayout, psSp?.TextureParams, matrixRows);
+                if (cbCache != null) cbCache[cacheKey] = (vsCb, psCb);
+            }
+
+            // inherit row/lane names that sibling variants proved, when this
+            // compile missed them.  Names only move between layouts whose
+            // anchor rows agree, and never past the target's own extent.
+            if (cbClusters != null)
+            {
+                foreach (var (tag, cb) in new[] { ("vs", vsCb), ("ps", psCb) })
+                {
+                    if (cb == null) continue;
+                    foreach (var regKv in cb.CbName)
+                    {
+                        int extent = cb.CbSize.TryGetValue(regKv.Key, out int bytes) ? bytes / 16 : int.MaxValue;
+                        // Collect every compatible cluster, not just the richest.
+                        // Variants of one pass disagree on which rows they happened
+                        // to name: the base light variant may pin rows 14/15 while
+                        // the cookie variant pins 18/19, and each such variant is
+                        // its own cluster.  Picking a single "best" cluster throws
+                        // away exactly the evidence the others hold, which left
+                        // cb0[2] and cb0[18] numeric in different variants.
+                        var compat = new List<CbCluster>();
+                        foreach (var c in cbClusters)
+                        {
+                            if (c.Name != regKv.Value) continue;
+                            // A cluster is a candidate when it can still contribute
+                            // at least one row this variant has not named.  Rows it
+                            // reads differently are simply not taken from it --
+                            // conflict is decided per row inside the fill loop.
+                            // Rejecting the whole cluster on a single disagreement
+                            // threw away every other row it knew: one layout that
+                            // spells row 14 differently blocked row 2 (_LightColor0)
+                            // as well, which is what left cb0[2] numeric.
+                            if (c.Rows.Keys.Any(r => r < extent && !RowSettled(cb, regKv.Key, r)))
+                                compat.Add(c);
+                        }
+                        CbCluster cl = compat.OrderByDescending(c => c.Rows.Count + c.Lanes.Count).FirstOrDefault();
+                        if (cl == null) continue;
+                        if (!cb.RowUse.TryGetValue(regKv.Key, out var ru)) continue;
+                        int filled = 0;
+                        foreach (var rowKv in ru)
+                        {
+                            int row = rowKv.Key;
+                            if (row >= extent) continue;
+                            // Ask every compatible cluster for this row; the richest
+                            // answers first and later ones only fill what is still open.
+                            foreach (var cc in compat.OrderByDescending(x => x.Rows.Count + x.Lanes.Count))
+                            {
+                                if (!cb.RowExpr.ContainsKey((regKv.Key, row)) && cc.Rows.TryGetValue(row, out var rn))
+                                { cb.RowExpr[(regKv.Key, row)] = rn; filled++; }
+                                for (int c = 0; c < 4; c++)
+                                    if (!cb.CompExpr.ContainsKey((regKv.Key, row, c)) && cc.Lanes.TryGetValue((row, c), out var ln))
+                                        cb.CompExpr[(regKv.Key, row, c)] = ln;
+                            }
+
+                            // A row named only in part (a matrix row is usually
+                            // pinned lane by lane) still leaves the unnamed lanes
+                            // as bare cbN[row].x references.  When a cluster knows
+                            // the whole row, derive the missing lanes from it so
+                            // the access becomes a member swizzle instead.
+                            if (cb.RowExpr.TryGetValue((regKv.Key, row), out var whole))
+                            {
+                                string bas = whole;
+                                bool swizzleable = bas.Length > 0 && bas.IndexOf('[') < 0
+                                                   && bas[bas.Length - 1] != ')';
+                                if (swizzleable)
+                                    for (int c = 0; c < 4; c++)
+                                        if ((rowKv.Value & (1 << c)) != 0 &&
+                                            !cb.CompExpr.ContainsKey((regKv.Key, row, c)))
+                                            cb.CompExpr[(regKv.Key, row, c)] = bas + "." + "xyzw"[c];
+                            }
+                        }
+                    }
+                }
+            }
 
             bool hasVs = vs != null;
             bool hasPs = ps != null;
@@ -244,14 +504,14 @@ namespace ShaderRipper.Cg
             int variantStart = sb.Length;
             sb.AppendLine();
             int declStart = sb.Length;
-            DeclareResources(sb, variantStart, vs, ps, vsCb, psCb, props);
+            DeclareResources(sb, variantStart, vs, ps, vsCb, psCb, props, hlsl);
             sb.AppendLine();
 
             int bodyStart = sb.Length;
-            if (hasVs) EmitVertex(sb, vs, iface, vsCb);
-            if (hasPs) EmitFragment(sb, ps, iface, hasVs, psCb);
+            if (hasVs) EmitVertex(sb, vs, iface, vsCb, hlsl);
+            if (hasPs) EmitFragment(sb, ps, iface, hasVs, psCb, hlsl);
 
-            DeclareMissed(sb, declStart, bodyStart, props);
+            DeclareMissed(sb, declStart, bodyStart, props, hlsl);
         }
 
         /// <summary>
@@ -263,7 +523,7 @@ namespace ShaderRipper.Cg
         /// Properties block, which states the type, for any such name.
         /// </summary>
         private static void DeclareMissed(StringBuilder sb, int declStart, int bodyStart,
-                                          IReadOnlyList<Property> props)
+                                          IReadOnlyList<Property> props, bool hlsl = false)
         {
             if (props == null || props.Count == 0) return;
             if (bodyStart <= declStart || bodyStart > sb.Length) return;
@@ -273,7 +533,7 @@ namespace ShaderRipper.Cg
 
             var have = new HashSet<string>(StringComparer.Ordinal);
             foreach (System.Text.RegularExpressions.Match m in System.Text.RegularExpressions.Regex.Matches(
-                         declText, @"\b(?:(?:float|int|uint|bool)[234]?(?:x[234])?|sampler2D|samplerCUBE|sampler3D|SamplerState)\s+(\w+)"))
+                         declText, @"\b(?:(?:float|int|uint|bool)[234]?(?:x[234])?|sampler1D|sampler2D|sampler3D|samplerCUBE|sampler2DArray|Texture1D|Texture2D|Texture3D|TextureCube|Texture2DArray|SamplerState)\s+(\w+)"))
                 have.Add(m.Groups[1].Value);
 
             var extra = new StringBuilder();
@@ -283,9 +543,18 @@ namespace ShaderRipper.Cg
                 if (!System.Text.RegularExpressions.Regex.IsMatch(bodyText,
                         @"\b" + System.Text.RegularExpressions.Regex.Escape(pr.Name) + @"\b"))
                     continue;
-                string ty = pr.Type switch { 0 or 1 => "float4", 2 or 3 => "float", _ => "sampler2D" };
-                extra.Append('\t').Append(ty).Append(' ').Append(pr.Name)
-                     .Append(";  // from the Properties block (this variant's reflection did not name it)\n");
+                if (pr.Type >= 4)
+                {
+                    foreach (var line in CgSyntax.DeclareTexture(SamplerType(pr), pr.Name, hlsl, "\t"))
+                        extra.Append(line)
+                             .Append("  // from the Properties block (this variant's reflection did not name it)\n");
+                }
+                else
+                {
+                    string ty = pr.Type is 0 or 1 ? "float4" : "float";
+                    extra.Append('\t').Append(ty).Append(' ').Append(pr.Name)
+                         .Append(";  // from the Properties block (this variant's reflection did not name it)\n");
+                }
                 have.Add(pr.Name);
             }
 
@@ -294,7 +563,7 @@ namespace ShaderRipper.Cg
 
         private static void DeclareResources(StringBuilder sb, int variantStart, AsmParser.Program vs,
                                              AsmParser.Program ps, CbResolver vsCb, CbResolver psCb,
-                                             IReadOnlyList<Property> props)
+                                             IReadOnlyList<Property> props, bool hlsl = false)
         {
             var seenTex = new HashSet<string>();
             var seenCb = new Dictionary<int, int>();
@@ -315,7 +584,9 @@ namespace ShaderRipper.Cg
                             1 => "sampler1D", 3 => "sampler3D", 4 => "samplerCUBE",
                             _ => "sampler2D"
                         };
-                        if (seenTex.Add(nm)) sb.AppendLine($"{ty} {nm};");
+                        if (seenTex.Add(nm))
+                            foreach (var line in CgSyntax.DeclareTexture(ty, nm, hlsl))
+                                sb.AppendLine(line);
                     }
                     else if (d.Kind == "structured")
                     {
@@ -358,7 +629,17 @@ namespace ShaderRipper.Cg
                         bytes = Math.Max(bytes, b);
                         size = Math.Max(size, b / 16);
                     }
-                bool full = IsFullyMapped(reg, vs, vsCb) && IsFullyMapped(reg, ps, psCb);
+                // The raw cbN[] array exists only to bind reads that have no name.  Ask the
+                // resolvers directly: cross-variant filling can name rows after the
+                // mapping pass recorded FullyMapped, and trusting that stale snapshot
+                // left a dead array (plus a duplicate of the whole buffer) in front of
+                // fully named code.
+                bool needRaw = NeedsRawArrayMerged(reg, size, vsCb, psCb);
+                // "Fully mapped" means exactly "no read lane lacks a name", which is
+                // what needRaw answers now.  The FullyMapped set is a snapshot taken
+                // before cross-variant filling ran, so combining it here re-introduced
+                // the very stale verdict the check above exists to avoid.
+                bool full = !needRaw;
                 string vsName = vs != null && vsCb.CbName.TryGetValue(reg, out var vsn) ? vsn : null;
                 string psName = ps != null && psCb.CbName.TryGetValue(reg, out var psn) ? psn : null;
                 bool globalsHere = vsName == "$Globals" || psName == "$Globals";
@@ -405,7 +686,7 @@ namespace ShaderRipper.Cg
             var declared = new HashSet<string>(StringComparer.Ordinal);
             foreach (System.Text.RegularExpressions.Match m in System.Text.RegularExpressions.Regex.Matches(
                          sb.ToString(variantStart, sb.Length - variantStart),
-                         @"(?m)^\s*(?:(?:float|int|uint|bool)[234]?|sampler1D|sampler2D|sampler3D|samplerCUBE)\s+(\w+)"))
+                         @"(?m)^\s*(?:(?:float|int|uint|bool)[234]?|sampler1D|sampler2D|sampler3D|samplerCUBE|sampler2DArray|Texture1D|Texture2D|Texture3D|TextureCube|Texture2DArray)\s+(\w+)"))
                 declared.Add(m.Groups[1].Value);
             foreach (var p in props ?? new List<Property>())
             {
@@ -413,7 +694,9 @@ namespace ShaderRipper.Cg
                 bool tex = p.Type >= 4;
                 if (declared.Add(p.Name))
                 {
-                    if (tex) sb.AppendLine($"{SamplerType(p)} {p.Name};");
+                    if (tex)
+                        foreach (var line in CgSyntax.DeclareTexture(SamplerType(p), p.Name, hlsl))
+                            sb.AppendLine(line);
                     else sb.AppendLine((p.Type is 0 or 1 ? "float4 " : "float ") + p.Name + ";");
                 }
                 if (!tex) continue;
@@ -539,6 +822,53 @@ namespace ShaderRipper.Cg
             return null;
         }
 
+        /// <summary>
+        /// Whether the shared <c>cbN[]</c> declaration is still needed.
+        ///
+        /// The two stages emit into one HLSL unit and the declaration is shared, so
+        /// a lane is covered when <em>either</em> resolver named it -- the same
+        /// rule <see cref="EmitGlobalsNote"/> uses when it reports "N row(s) read,
+        /// M named".  Asking each resolver on its own reported the array as needed
+        /// even though the other stage had already named every lane, which left a
+        /// dead <c>float4 cb0[35];</c> duplicating the buffer in two passes.
+        /// </summary>
+        private static bool NeedsRawArrayMerged(int reg, int extent, CbResolver vsCb, CbResolver psCb)
+        {
+            if ((vsCb == null || vsCb.RowUse.Count == 0) && (psCb == null || psCb.RowUse.Count == 0))
+                return false;
+            // A dynamic index has no named form at all, so it always needs the array.
+            if (vsCb != null && vsCb.NeedsRawArray(reg, extent) && vsCb.HasDynamicIndex(reg)) return true;
+            if (psCb != null && psCb.NeedsRawArray(reg, extent) && psCb.HasDynamicIndex(reg)) return true;
+
+            var rows = new SortedSet<int>();
+            foreach (var res in new[] { vsCb, psCb })
+                if (res != null && res.RowUse.TryGetValue(reg, out var ru))
+                    foreach (var kv in ru)
+                        if (kv.Key < extent) rows.Add(kv.Key);
+
+            foreach (int row in rows)
+            {
+                int mask = 0;
+                foreach (var res in new[] { vsCb, psCb })
+                    if (res != null && res.RowUse.TryGetValue(reg, out var ru) && ru.TryGetValue(row, out int m))
+                        mask |= m;
+                if (mask == 0) mask = 0xF;
+                for (int c = 0; c < 4; c++)
+                {
+                    if ((mask & (1 << c)) == 0) continue;
+                    bool named = false;
+                    foreach (var res in new[] { vsCb, psCb })
+                    {
+                        if (res == null) continue;
+                        if (res.RowExpr.ContainsKey((reg, row)) || res.CompExpr.ContainsKey((reg, row, c)))
+                        { named = true; break; }
+                    }
+                    if (!named) return true;
+                }
+            }
+            return false;
+        }
+
         private static bool IsFullyMapped(int reg, AsmParser.Program p, CbResolver res)
         {
             if (p == null) return true;
@@ -593,7 +923,8 @@ namespace ShaderRipper.Cg
             return f.ToString("0.0######", System.Globalization.CultureInfo.InvariantCulture);
         }
 
-        private static void EmitVertex(StringBuilder sb, AsmParser.Program p, ShaderInterface iface, CbResolver cb)
+        private static void EmitVertex(StringBuilder sb, AsmParser.Program p, ShaderInterface iface, CbResolver cb,
+                                       bool hlsl = false)
         {
             string inStruct = iface.AppdataFields.Count > 0 ? "appdata" : "v2f";
             string args = iface.V2fFields.Count > 0 ? $"in {inStruct} v" : $"{inStruct} v";
@@ -612,7 +943,7 @@ namespace ShaderRipper.Cg
 
             string vret = "new v2f { " + string.Join(", ", iface.BindOutputs(iface.VsOutReg, "o")
                 .Select(l => l.Trim().TrimEnd(';').Replace("o.", ""))) + " }";
-            sb.Append(CollapseMvp(new CgTranslator(p, 1) { Cb = cb, AnnotateAsm = AnnotateAsm, ReturnExpr = vret }.TranslateBody(),
+            sb.Append(CollapseMvp(new CgTranslator(p, 1) { Cb = cb, AnnotateAsm = AnnotateAsm, ReturnExpr = vret, Hlsl = hlsl }.TranslateBody(),
                                   string.Join("\n", binds)));
 
             sb.AppendLine();
@@ -624,7 +955,7 @@ namespace ShaderRipper.Cg
         }
 
         private static void EmitFragment(StringBuilder sb, AsmParser.Program p, ShaderInterface iface,
-                                         bool hasVs, CbResolver cb)
+                                         bool hasVs, CbResolver cb, bool hlsl = false)
         {
             string inStruct = hasVs ? "v2f" : "appdata";
             sb.AppendLine($"float4 frag (in {inStruct} i) : SV_Target");
@@ -640,7 +971,7 @@ namespace ShaderRipper.Cg
             DeclareRegisters(sb, p);
             sb.AppendLine();
 
-            sb.Append(new CgTranslator(p, 1) { Cb = cb, AnnotateAsm = AnnotateAsm, ReturnExpr = $"o{outReg}" }.TranslateBody());
+            sb.Append(new CgTranslator(p, 1) { Cb = cb, AnnotateAsm = AnnotateAsm, ReturnExpr = $"o{outReg}", Hlsl = hlsl }.TranslateBody());
 
             sb.AppendLine($"\treturn o{outReg};");
             sb.AppendLine("}");

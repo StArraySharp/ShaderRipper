@@ -6,52 +6,37 @@ using System.Text.RegularExpressions;
 namespace ShaderRipper.Cg
 {
     /// <summary>
-    /// Second stage of the two-stage translation to HLSL.
+    /// Shared spelling rules for the two translation dialects.
     ///
-    /// Translation here is a straight-line transliteration, not a re-optimisation:
+    /// Translation is a straight-line transliteration, not a re-optimisation:
     /// instructions are rewritten one for one and nothing is reordered, folded or
-    /// regenerated.  The two stages exist only because DXBC and GLSL both describe
-    /// samplers the Cg way, not because the first stage is unfaithful -- its output
-    /// is already the right program, merely written in Cg's combined-sampler
-    /// dialect.
+    /// regenerated.
     ///
-    /// Both input paths first produce <em>Cg text</em>, and only then is that text
-    /// turned into HLSL: the DXBC path goes assembly -> <see cref="CgTranslator"/> ->
-    /// Cg, the GLSL path goes source -> <see cref="GlslToCg"/> -> Cg
-    /// (<c>GlslToCg.Translate(...).Cg</c>).  That Cg text uses the combined-sampler
-    /// dialect (<c>sampler2D t; tex2D(t, uv)</c>), while <c>HLSLPROGRAM</c> wants the
-    /// separated form (<c>Texture2D t; SamplerState sampler_t; t.Sample(sampler_t, uv)</c>),
-    /// so this class rewrites the finished body once at the writer rather than
-    /// teaching each translator to emit HLSL directly.  <c>--syntax cg</c> stops
-    /// after the first stage and emits the intermediate Cg verbatim; the default
-    /// (<c>hlsl</c>) runs this pass on top of it.
+    /// Both producers read a source that describes samplers the Cg way and write
+    /// straight into the requested dialect: the DXBC path goes assembly ->
+    /// <see cref="CgTranslator"/> -> text, the GLSL path goes source ->
+    /// <see cref="GlslToCg"/> -> text.  Each decides the sampler spelling as it
+    /// writes, because it already knows the dimension -- <see cref="CgTranslator"/>
+    /// reads it to fix the coordinate width, <see cref="GlslToCg"/> has the uniform
+    /// declarations in hand.  The helpers here hold that decision in one place so
+    /// both paths spell a declaration and a sampling call identically.
     ///
-    /// That the second stage is a pass over text, not a mode of the translators,
-    /// has three consequences worth knowing:
-    ///   * it runs per finished variant body -- once per GLSL slot
-    ///     (<c>ShaderLabWriter</c>:157), once per DXBC pass (:203) -- so a texture's
-    ///     dimension is resolved only against declarations inside the preprocessor
-    ///     branch that makes them (see <c>ScopeBoundary</c>);
-    ///   * it is line-oriented: the body is split on newlines, and a call is matched
-    ///     and paren-balanced inside a single one of them.  That is sound only
-    ///     because both producers put one statement per line -- <see cref="CgTranslator"/>
-    ///     appends statement by statement, and <see cref="GlslToCg"/> maps one input
-    ///     line to one output line (<c>TranslateBody</c>); its only multi-line edit,
-    ///     <c>CollapseMvp</c>, merges eight whole lines into one and so cannot split
-    ///     a statement.  A call whose arguments straddle a newline is not rewritten
-    ///     and nothing reports it: the rewrite backs off as soon as the parentheses
-    ///     do not close on the line it is looking at (<c>RewriteCode</c>).  hlslcc
-    ///     output is in practice strictly one statement per line, so this is an
-    ///     assumption about the input rather than a property the pass enforces;
-    ///   * it adds no instruction and reorders nothing, though three local
-    ///     deviations are deliberate and are documented where they happen: an
-    ///     over-wide coordinate swizzle is truncated to the components the texture
-    ///     type consumes (<c>ClampCoord</c> -- what the hardware does anyway, and
-    ///     what <c>tex2D</c> refuses to accept); the lod packed into a lod-sampling
-    ///     call is re-derived from whichever trailing component is not a literal
-    ///     zero, because the two producers pack it at different indices
-    ///     (<c>Lod</c>); and <c>SamplerState sN;</c> declarations the rewrite left
-    ///     unused are dropped (<c>DropUnusedSamplerStates</c>).
+    /// <c>--syntax cg</c> selects the combined-sampler dialect
+    /// (<c>sampler2D t; tex2D(t, uv)</c>), which is what the historic output looked
+    /// like.  <c>--syntax hlsl</c>, the default, selects the separated form
+    /// <c>HLSLPROGRAM</c> wants (<c>Texture2D t; SamplerState sampler_t;
+    /// t.Sample(sampler_t, uv)</c>).  Neither is a pass over a finished body: a
+    /// name's type never has to be rediscovered from text, and no variant body is
+    /// re-read after it is written.
+    ///
+    /// Emitting directly costs three local deviations, all documented where they
+    /// happen and none of them introduced here: an over-wide coordinate swizzle is
+    /// truncated to the components the texture type consumes (<c>ClampCoord</c> --
+    /// what the hardware does anyway, and what <c>tex2D</c> refuses to accept); a
+    /// constant LOD collapses to <c>0</c> (<c>Lod</c>, and the note in
+    /// <see cref="CgTranslator"/> -- both producers in this corpus only ever pack
+    /// zero); and a raw <c>SamplerState sN;</c> register that nothing samples
+    /// through is never declared.
     ///
     /// Verified against UnityShaderCompiler 6000.3.10f1 by compiling probes on
     /// d3d11, gles3 and openglcore:
@@ -129,66 +114,48 @@ namespace ShaderRipper.Cg
         public static string SamplerField(string tex) =>
             tex.StartsWith("_", StringComparison.Ordinal) ? "sampler" + tex : "sampler_" + tex;
 
-        private static readonly Regex DeclRe = new(
-            @"^([ \t]*)(sampler\w+)[ \t]+([A-Za-z_]\w*(?:[ \t]*,[ \t]*[A-Za-z_]\w*)*)[ \t]*;([ \t]*//.*)?$");
-
-        private static readonly Regex SamplerStateDecl = new(
-            @"^[ \t]*SamplerState[ \t]+(s\d+)[ \t]*;[ \t]*$");
-
         /// <summary>
-        /// Scope boundaries: a declaration's type only holds inside the variant
-        /// (or preprocessor branch) that declares it.  The same name can be a
-        /// different texture dimension per variant -- a light cookie is a
-        /// <c>Texture2D</c> in the forward pass and a <c>TextureCube</c> in the
-        /// reflection pass, both spelled <c>_LightTexture0</c> -- so a single
-        /// whole-body type table would let the last declaration win and clamp the
-        /// first variant's coordinate to the wrong width.
-        /// </summary>
-        private static readonly Regex ScopeBoundary = new(
-            @"^[ \t]*(?://\s*----\s*variant\b.*|#if\b.*|#elif\b.*|#else\b.*)$");
-
-        /// <summary>
-        /// Converts one finished CGPROGRAM body into HLSLPROGRAM form.
+        /// One texture declaration in the selected dialect.
         ///
-        /// Single streaming pass: declarations are recorded as they are met and
-        /// each later line is rewritten against the texture types in force at
-        /// that point, so a use can never be resolved against a sibling variant's
-        /// declaration.
+        /// <c>hlsl</c> gives the two lines Unity actually binds -- a typed texture
+        /// plus its <see cref="SamplerField"/> state, the shape
+        /// <c>UNITY_DECLARE_TEX2D</c> expands to.  <c>cg</c> gives the historic
+        /// single combined sampler.  Both are emitted with the caller's indent so
+        /// a variant body can be assembled without a later rewrite pass.
         /// </summary>
-        public static string ToHlsl(string body)
+        public static IEnumerable<string> DeclareTexture(string cgType, string name, bool hlsl,
+                                                          string indent = "")
         {
-            if (string.IsNullOrEmpty(body)) return body;
-
-            var lines = body.Replace("\r\n", "\n").Split('\n');
-            var result = new List<string>(lines.Length + 8);
-            var textures = new Dictionary<string, string>(StringComparer.Ordinal);
-            var samplerDecls = new List<string>();
-
-            foreach (var line in lines)
+            if (!hlsl)
             {
-                if (ScopeBoundary.IsMatch(line)) textures.Clear();
-
-                var m = DeclRe.Match(line);
-                if (m.Success && TexType.TryGetValue(m.Groups[2].Value, out var texType))
-                {
-                    string indent = m.Groups[1].Value;
-                    string note = m.Groups[4].Success ? m.Groups[4].Value : "";
-                    foreach (var nm in m.Groups[3].Value.Split(',').Select(x => x.Trim())
-                                                       .Where(x => x.Length > 0))
-                    {
-                        textures[nm] = texType;
-                        result.Add($"{indent}{texType} {nm};{note}");
-                        result.Add($"{indent}SamplerState {SamplerField(nm)};");
-                    }
-                    continue;
-                }
-                if (SamplerStateDecl.IsMatch(line)) samplerDecls.Add(SamplerStateDecl.Match(line).Groups[1].Value);
-                result.Add(RewriteLine(line, textures));
+                yield return $"{indent}{cgType} {name};";
+                yield break;
             }
 
-            string text = string.Join("\n", result);
-            return DropUnusedSamplerStates(text, samplerDecls);
+            string texType = TexType.TryGetValue(cgType, out var t) ? t : "Texture2D";
+            yield return $"{indent}{texType} {name};";
+            yield return $"{indent}SamplerState {SamplerField(name)};";
         }
+
+        /// <summary>The HLSL texture type a Cg sampler type maps to.</summary>
+        public static string TexTypeOf(string cgType) =>
+            TexType.TryGetValue(cgType, out var t) ? t : "Texture2D";
+
+        /// <summary>A plain sample (no explicit LOD) in the selected dialect.</summary>
+        public static string Sample(string tex, string coord, bool hlsl) =>
+            hlsl ? $"{tex}.Sample({SamplerField(tex)}, {coord})" : $"tex2D({tex}, {coord})";
+
+        /// <summary>An explicit-LOD sample in the selected dialect.</summary>
+        public static string SampleLevel(string tex, string coord, string lod, bool hlsl) =>
+            hlsl
+                ? $"{tex}.SampleLevel({SamplerField(tex)}, {coord}, {lod})"
+                : $"tex2Dlod({tex}, float4({coord}, 0, {lod}))";
+
+        /// <summary>A bias sample (DXBC <c>sample_b</c>) in the selected dialect.</summary>
+        public static string SampleBias(string tex, string coord, string bias, bool hlsl) =>
+            hlsl
+                ? $"{tex}.SampleBias({SamplerField(tex)}, {coord}, {bias})"
+                : $"tex2Dbias({tex}, float4({coord}, 0, {bias}))";
 
         /// <summary>
         /// Rewrites every sampling call on one line.  Balancing parentheses needs
@@ -200,8 +167,12 @@ namespace ShaderRipper.Cg
         /// line -- but it is a property of the input, not something enforced here.
         /// A trailing <c>//</c> comment is split off first so text inside it is
         /// never rewritten.
+        ///
+        /// Both producers call this on each line as they write it, passing the
+        /// texture table they already know, so no pass has to re-read a finished
+        /// body to rediscover which names are what.
         /// </summary>
-        private static string RewriteLine(string line, Dictionary<string, string> textures)
+        public static string RewriteLine(string line, IReadOnlyDictionary<string, string> textures)
         {
             int c = line.IndexOf("//", StringComparison.Ordinal);
             string code = c < 0 ? line : line[..c];
@@ -217,7 +188,7 @@ namespace ShaderRipper.Cg
             return code + tail;
         }
 
-        private static string Sample(List<string> a, Dictionary<string, string> textures)
+        private static string Sample(List<string> a, IReadOnlyDictionary<string, string> textures)
         {
             if (a.Count < 2) return null;
             string tex = a[0].Trim();
@@ -234,7 +205,7 @@ namespace ShaderRipper.Cg
         /// <c>float4(coord, lod, 0)</c> -- so the LOD is whichever trailing
         /// component is not a literal zero, not a fixed index.
         /// </summary>
-        private static string Lod(List<string> a, Dictionary<string, string> textures)
+        private static string Lod(List<string> a, IReadOnlyDictionary<string, string> textures)
         {
             if (a.Count < 2) return null;
             string tex = a[0].Trim();
@@ -307,19 +278,5 @@ namespace ShaderRipper.Cg
             return res;
         }
 
-        /// <summary>
-        /// Removes <c>SamplerState sN;</c> declarations the rewrite left unused.
-        /// A raw sampler register has no material binding, so keeping one that
-        /// nothing samples through is pure noise.
-        /// </summary>
-        private static string DropUnusedSamplerStates(string text, List<string> names)
-        {
-            foreach (var name in names)
-            {
-                if (Regex.Matches(text, @"\b" + name + @"\b").Count != 1) continue;
-                text = Regex.Replace(text, @"(?m)^[ \t]*SamplerState[ \t]+" + name + @"[ \t]*;[ \t]*\r?\n?", "");
-            }
-            return text;
-        }
     }
 }

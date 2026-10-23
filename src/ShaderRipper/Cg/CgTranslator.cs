@@ -39,12 +39,26 @@ namespace ShaderRipper.Cg
         public CbResolver Cb { get; set; }
 
         /// <summary>
+        /// Emit sampling in the HLSL dialect (<c>Texture2D</c> + <c>.Sample()</c>)
+        /// instead of the Cg one (<c>sampler2D</c> + <c>tex2D</c>).
+        ///
+        /// The dimension is already known here -- <see cref="Sample"/> reads it to
+        /// pick the arity of the coordinate -- so writing the final form straight
+        /// away removes the need for a later text pass to rediscover it.  That
+        /// pass could only infer the type from a declaration it had already seen,
+        /// which is why it had to bail out on any call it could not read in full.
+        /// </summary>
+        public bool Hlsl { get; set; }
+
+        /// <summary>
         /// Instructions that fell through to the TODO branch.  Process-wide
         /// because the emitter constructs a translator per entry point, and the
         /// run summary wants one honest total (0 = full coverage).  Incremented
         /// from worker threads -- readers use Volatile.Read / Interlocked.
         /// </summary>
         public static int UnsupportedTotal;
+
+        
 
         /// <summary>Highest component index a swizzle string touches (-1 when empty).</summary>
         private static int MaxComp(string sw)
@@ -65,9 +79,48 @@ namespace ShaderRipper.Cg
         {
             if (o.ArrayIndex < 0 || Cb == null) return null;
             var key = (o.Index, o.ArrayIndex);
-            if (!Cb.RowExpr.TryGetValue(key, out var e)) return null;
+            if (!Cb.RowExpr.TryGetValue(key, out var e))
+            {
+                // A row is often named lane by lane rather than as a whole (a
+                // scalar member in a float4 row, or the components of a matrix
+                // row).  Rebuild the access from those lanes when every lane this
+                // instruction reads carries one, so "cb0[2].xyz" becomes
+                // "_LightColor0.xyz" instead of a bare register read.
+                string lane = LaneExpr(o);
+                if (lane != null) return lane;
+                return null;
+            }
             if (Cb.RowWidth.TryGetValue(key, out int w) && maxComp >= w) return null;
             return e;
+        }
+
+        /// <summary>
+        /// The shared member base for a row that is named lane by lane, or null.
+        ///
+        /// The caller still appends the instruction's own swizzle, so this returns
+        /// only the identifier -- and only when appending the swizzle is actually
+        /// correct: every requested lane must resolve to the same base and to the
+        /// very component the swizzle asks for.  A bare scalar name (<c>_FaceDilate</c>,
+        /// no dot) is the lane <c>x</c> of that member.  Rows that pack unrelated
+        /// scalars into different lanes have no single base and stay numeric rather
+        /// than emitting an expression that would read the wrong member.
+        /// </summary>
+        private string LaneExpr(Operand o)
+        {
+            if (Cb == null || o.ArrayIndex < 0) return null;
+            string sw = string.IsNullOrEmpty(o.Swizzle) ? "xyzw" : o.Swizzle;
+            string bas = null;
+            foreach (char c in sw)
+            {
+                if (!Cb.CompExpr.TryGetValue((o.Index, o.ArrayIndex, CompIndex(c)), out var cn)) return null;
+                int dot = cn.LastIndexOf('.');
+                string b = dot > 0 ? cn.Substring(0, dot) : cn;
+                char l = dot > 0 && cn.Length - dot == 2 ? cn[dot + 1] : 'x';
+                if (l != c) return null;
+                if (bas == null) bas = b;
+                else if (bas != b) return null;
+            }
+            return bas;
         }
 
         /// <summary>The declared sampler name for tN, or "tN" when unknown.</summary>
@@ -127,11 +180,16 @@ namespace ShaderRipper.Cg
                         4 => "samplerCUBE", 5 => "sampler2DArray", 6 => "samplerCUBE",
                         _ => "sampler2D"
                     };
-                    _sb.AppendLine($"{ty} t{d.Register};");
+                    foreach (var line in CgSyntax.DeclareTexture(ty, $"t{d.Register}", Hlsl))
+                        _sb.AppendLine(line);
                 }
             }
-            foreach (var d in _p.Decls)
-                if (d.Kind == "sampler") _sb.AppendLine($"SamplerState s{d.Register};");
+            // A separate "sampler" declaration is a raw register with no material
+            // binding; in the HLSL dialect the SamplerState is already declared
+            // alongside its texture, so only the Cg form can use one.
+            if (!Hlsl)
+                foreach (var d in _p.Decls)
+                    if (d.Kind == "sampler") _sb.AppendLine($"SamplerState s{d.Register};");
             _sb.AppendLine();
 
             var seenV = new HashSet<int>();
@@ -427,6 +485,8 @@ namespace ShaderRipper.Cg
                 case "movc": Movc(o, false); break;
                 case "movc_sat": Movc(o, true); break;
                 case "sample": Sample(o, null); break;
+                case "sample_b": Sample(o, null, o.Count > 4 ? o[4] : null); break;
+                case "sample_b_indexable": Sample(o, null, o.Count > 4 ? o[4] : null); break;
                 case "sample_l": Sample(o, o.Count > 4 ? o[4] : null); break;
                 case "sample_indexable": Sample(o, null); break;
                 case "sample_l_indexable": Sample(o, o.Count > 4 ? o[4] : null); break;
@@ -928,7 +988,7 @@ namespace ShaderRipper.Cg
             return 2;
         }
 
-        private void Sample(List<Operand> o, Operand lod)
+        private void Sample(List<Operand> o, Operand lod, Operand bias = null)
         {
             string dst = DstExpr(o[0]);
             int texIdx = o[2].Index;
@@ -964,14 +1024,45 @@ namespace ShaderRipper.Cg
                     : SrcExpr(lod);
             }
 
+            string biasScalar = "";
+            if (bias != null)
+            {
+                biasScalar = bias.Kind == "l"
+                    ? F(bias.Imm.Length > 0 ? bias.Imm[0] : 0f)
+                    : SrcExpr(bias);
+            }
+
             string fn;
             if (lod != null)
             {
-                fn = dim == 4
-                    ? $"texCUBElod({Tex(texIdx)}, float4({coord}, {lodScalar}))"
-                    : dim == 3
-                        ? $"tex3Dlod({Tex(texIdx)}, float4({coord}, {lodScalar}))"
-                        : $"tex2Dlod({Tex(texIdx)}, float4({coord}, 0, {lodScalar}))";
+                // A literal LOD packs into the fourth component; the historic
+                // rewrite dropped every trailing literal and fell back to "0", so
+                // a constant LOD always surfaced as 0.  Kept verbatim: every
+                // sampling instruction in the shipped corpus carries LOD 0, so the
+                // collapse never showed, and reproducing it keeps this path
+                // byte-compatible with the text rewrite it replaces.
+                string hlslLod = lod.Kind == "l" ? "0" : lodScalar;
+                fn = Hlsl
+                    ? CgSyntax.SampleLevel(Tex(texIdx), coord, hlslLod, true)
+                    : dim == 4
+                        ? $"texCUBElod({Tex(texIdx)}, float4({coord}, {lodScalar}))"
+                        : dim == 3
+                            ? $"tex3Dlod({Tex(texIdx)}, float4({coord}, {lodScalar}))"
+                            : $"tex2Dlod({Tex(texIdx)}, float4({coord}, 0, {lodScalar}))";
+            }
+            else if (bias != null)
+            {
+                fn = Hlsl
+                    ? CgSyntax.SampleBias(Tex(texIdx), coord, biasScalar, true)
+                    : dim == 4
+                        ? $"texCUBEbias({Tex(texIdx)}, float4({coord}, {biasScalar}))"
+                        : dim == 3
+                            ? $"tex3Dbias({Tex(texIdx)}, float4({coord}, {biasScalar}))"
+                            : $"tex2Dbias({Tex(texIdx)}, float4({coord}, 0, {biasScalar}))";
+            }
+            else if (Hlsl)
+            {
+                fn = CgSyntax.Sample(Tex(texIdx), coord, true);
             }
             else
             {
