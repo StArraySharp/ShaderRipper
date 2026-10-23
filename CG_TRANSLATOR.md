@@ -240,6 +240,45 @@ DXBC → HLSL，是 DXBC 路径最直接的替代候选。拿本项目的真实 
 本项目的目标是「产物能作为 Unity 工程资产编译运行」，必须保住属性名、语义与常量缓冲
 绑定。目标不同，不能互换。
 
+## ANTLR 语法（产物自检）
+
+`src/ShaderRipper/Antlr/` 下有五份语法，各对应这条流水线读或写的一种语言：
+
+| 语法 | 语言 | 位置 |
+|---|---|---|
+| `DxbcAsm.g4` | DXBC 汇编（fxc / D3DDisassemble 文本） | 输入：d3d11 唯一残留形态 |
+| `Glsl.g4` | GLSL（Unity 的 HLSLcc 输出方言） | 输入：GLES3 / OpenGLCore 程序 |
+| `Dxil.g4` | DXIL（LLVM IR 文本） | 输入：D3D12 / SM6 |
+| `Hlsl.g4` | HLSL | 输出：`HLSLPROGRAM` 里的语言 |
+| `ShaderLab.g4` | ShaderLab | 输出容器 |
+
+方向就是 **DXBC / GLSL / DXIL → ShaderLab + HLSL**。五份语法都在本仓真实语料上
+逐文件验证过（DXBC 75,919；GLSL 74,592；DXIL 300；ShaderLab 20,231；HLSL 462），
+零语法错误，数字与依据见 `Antlr/README.md`。
+
+接进产品的是 `--validate`：逐个产物用 `ShaderLab.g4` 重解析，再把里面每个
+`HLSLPROGRAM` 块交给 `Hlsl.g4`，把语法不成立的产物报出来。
+
+```sh
+ShaderRipper.exe --data "<game>_Data" --out <dir> --validate
+# ...
+# done: shaders=403, skipped built-in=11
+# // validate: 403 shader(s) checked, 0 bad ShaderLab, 0 bad HLSL body
+```
+
+它不是装饰：文本产出器看不见自己的产物是否成立。早期版本曾把 swizzle 的
+分量名写丢，产出 `_FaceTex_ST.`（809 个程序块），产出器照写不误，
+`UnityShaderCompiler` 也没被问过 —— `--validate` 直接判死：
+
+```
+BAD  tmp_sdf-surface.shader
+    hlsl@line 77: line 148:41 no viable alternative at input 'float2(mad(r3.x,_FaceTex_ST.,' [,]
+```
+
+**当前边界**：翻译本身仍由 `CgTranslator`（DXBC）与 `GlslToCg`（GLSL）的文本
+改写完成，ANTLR 这一层目前是**校验**而非**替换**。把产码也改成走语法树是下一步，
+语法与语料基线已经就位。
+
 ## 已知限制（如实说明）
 
 1. **第二段假设「每行一条语句」** —— `CgSyntax.ToHlsl` 按行匹配调用并按行配平括号。
@@ -250,9 +289,13 @@ DXBC → HLSL，是 DXBC 路径最直接的替代候选。拿本项目的真实 
 2. **翻译是逐指令直译，不是优化还原** —— 结果等价但冗长：
    寄存器复用、常量折叠、共同子表达式都保留原样。若要接近人手写的 HLSL，
    需要额外的 SSA/表达式树优化（未做）。
-3. **`cb#[]` 常量缓冲未命名** —— Unity 的 CBuffer 成员名（如 `unity_ObjectToWorld`）
-   在 DXBC 里只是个索引，需结合 Shader 的 `m_ConstantBuffers` 元数据才能映射；
-   当前保留了 `cb3[9]` 这种原始形式。
+3. **`cb#[]` 常量缓冲只做到「有证据的行才命名」** —— Unity 的 CBuffer 成员名
+   （如 `unity_ObjectToWorld`）在 DXBC 里只是个索引，要结合 Shader 的
+   `m_ConstantBuffers` 元数据、布局表和跨变体共识才能还原。现在能确认的逐 lane
+   写实名（`CbResolver` + `CgProgramWriter` 的 lane/clusters），确认不了的
+   行仍退回 `cb3[9]` 这种原始形式：现网 660 个产物里还有 546 处数字引用，
+   产物里以 `// $Globals cb0[8] = 8 row(s); 5 row(s) read, 5 named.` 标注比例。
+   早期版本的「全部保留数字」说法已不成立。
 4. **类型系统是弱化的** —— 一律用 `float4` 临时寄存器 + `(int)` 强制转换，
    没有区分 int/uint/half。
 5. **验证范围限于单文件编译** —— 产物已用真实 Unity 的 `UnityShaderCompiler`

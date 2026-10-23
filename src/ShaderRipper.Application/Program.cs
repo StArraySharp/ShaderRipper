@@ -149,6 +149,8 @@ namespace ShaderRipper
                 global::ShaderRipper.Cg.GlslToCg.AnnotateSource = true;
             }
 
+            global::ShaderRipper.Antlr.AntlrCheck.Enabled = cli.Has("--validate");
+
             int indexCount = BuiltinIndex.Load(cli.Value("--builtin-index"));
 
             int matrixCount = MatrixNames.Load(cli.Value("--matrix-names"));
@@ -943,6 +945,11 @@ namespace ShaderRipper
                         ? "dxil" : mainInfo.Format;
                     string lab = ShaderLabWriter.Write(sh, name, progs, paramBlobs, safe,
                                                        writerFormat, mainPlatId, srcByBlob, syntax);
+                    // --validate: re-parse the emitted text with the ANTLR
+                    // grammars, so a malformed product is reported instead of
+                    // silently written.
+                    if (global::ShaderRipper.Antlr.AntlrCheck.Enabled)
+                        global::ShaderRipper.Antlr.AntlrCheck.CheckEmitted(name, lab);
                     string outPath;
                     {
                         // Prefer the asset's real container path from the bundle
@@ -1033,6 +1040,12 @@ namespace ShaderRipper
             int unsupported = global::ShaderRipper.Cg.CgTranslator.UnsupportedTotal;
             Console.WriteLine();
             Console.WriteLine(Strings.F("DistinctOpcodes", opStats.Count, unsupported));
+
+            if (global::ShaderRipper.Antlr.AntlrCheck.Enabled)
+            {
+                string validation = global::ShaderRipper.Antlr.AntlrCheck.Summary();
+                if (validation != null) Console.WriteLine(validation);
+            }
             return 0;
         }
 

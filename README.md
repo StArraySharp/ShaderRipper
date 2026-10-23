@@ -133,6 +133,7 @@ For more readable output, prefer game data that includes **GLES3 / OpenGLCore** 
 | `--platform <id\|name>` | Force backend: `d3d11` / `d3d9` / `d3d12` / `gles3` / `gles20` / `openglcore` / `metal` / `vulkan`; d3d11 preferred, otherwise auto-picks a GLSL platform |
 | `--syntax <hlsl\|cg>` | Program-block dialect: `hlsl` (default, `HLSLPROGRAM` + `Texture2D`/`SamplerState` + `.Sample()`) or `cg` (legacy `CGPROGRAM` + `sampler2D` + `tex2D`) |
 | `--asm` | Emit per-instruction disassembly comments (d3d11=DXBC, glsl=original GLSL lines, d3d9/12=native assembly) |
+| `--validate` | Re-parse each emitted shader with the bundled ANTLR grammars (ShaderLab + HLSL) and report any that is not well-formed |
 | `--only <substr>` | Only process shaders whose name contains the substring |
 | `--dedup` | Keep one copy per shader when several data files ship the same shader; the copy with a fixed container path wins, ties break on the lowest path id |
 | `--bundles [dir]` | Also scan asset bundles (defaults to the same directory as --data) |
@@ -156,6 +157,7 @@ For more readable output, prefer game data that includes **GLES3 / OpenGLCore** 
 | [AssetRipper.Tpk](https://github.com/AssetRipper/Tpk) / [AssetRipper.IO.Endian](https://github.com/AssetRipper/IO.Endian) / [AssetRipper.Primitives](https://github.com/AssetRipper/Primitives) | Unity type-tree parsing / serialized file reading | LGPL-3.0 |
 | [K4os.Compression.LZ4](https://github.com/MiloszKrajewski/K4os.Compression.LZ4) | Unity LZ4 blob decompression | MIT |
 | [DXDecompiler-ly](https://github.com/AssetRipper/DXDecompiler) | Fully managed SM4/5 DXBC disassembly (cross-platform fallback) | MIT |
+| [Antlr4.Runtime.Standard](https://github.com/antlr/antlr4) | Runtime for the grammars in [`src/ShaderRipper/Antlr/`](src/ShaderRipper/Antlr/) (`--validate`) | BSD-3-Clause |
 | d3dcompiler_47.dll (Microsoft, shipped with Windows, embedded) | SM4/5 DXBC disassembly on Windows | Windows SDK license |
 | dxcompiler / dxil ([Microsoft DirectXShaderCompiler](https://github.com/microsoft/DirectXShaderCompiler), Linux builds embedded) | DXIL (D3D12/SM6) disassembly | Apache-2.0 (with LLVM exception) |
 
