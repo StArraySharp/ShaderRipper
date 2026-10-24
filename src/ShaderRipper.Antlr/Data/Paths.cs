@@ -45,7 +45,7 @@ namespace ShaderRipper.Antlr.Data
             var asm = typeof(Paths).Assembly;
             foreach (var sep in new[] { '/', '\\' })
             {
-                string name = "ShaderRipper.Embed." + relative.Replace('/', sep);
+                string name = "ShaderRipper.Antlr.Embed." + relative.Replace('/', sep);
                 using var src = asm.GetManifestResourceStream(name);
                 if (src == null) continue;
                 try
@@ -68,7 +68,7 @@ namespace ShaderRipper.Antlr.Data
         public static string ExtractEmbeddedDir(string relative)
         {
             relative = relative.Replace('\\', '/').TrimEnd('/');
-            string prefix = "ShaderRipper.Embed." + relative + "/";
+            string prefix = "ShaderRipper.Antlr.Embed." + relative + "/";
             var asm = typeof(Paths).Assembly;
             string dir = EmbedDir;
             if (dir == null) return null;

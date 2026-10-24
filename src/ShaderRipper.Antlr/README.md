@@ -20,7 +20,12 @@ run and compared without either one constraining the other.
 | Generated parser | `Grammar/DxbcAsm{Lexer,Parser,Visitor,BaseVisitor}.cs` | ANTLR 4.13.1 output, checked in (no JVM needed to build) |
 | AST | `Ast/DxbcModule.cs` | typed view of the tree: profile, declarations, instructions, operands |
 | Emitter | `Emit/HlslEmitter.cs` | tree -> HLSL, register-level |
-| CLI | `Program.cs` | `--asm <file>` / `--stats <dir>` |
+| Cb layout | `Emit/CbLayout.cs` | resolver names -> a constant-buffer declaration HLSL accepts |
+| Resolver | `Resolve/CbResolver.cs` | which Unity buffer a `cbN` is, and what each row is called |
+| Tables | `Resolve/{UnityCbuffers,GlobalsNames,TmpLayouts,MatrixNames}.cs` | the shipped layouts the resolver names from |
+| Data layer | `Data/` | SerializedFile, typetree database, BlobTool, Models, Paths |
+| Game reader | `Game/GameExport.cs` | `--game <dataDir> <outDir>` |
+| CLI | `Program.cs` | `--asm` / `--stats` / `--emit` / `--glsl` / `--game` |
 
 ```sh
 dotnet build src/ShaderRipper.Antlr/ShaderRipper.Antlr.csproj -c Release
@@ -32,8 +37,63 @@ ShaderRipper.Antlr --stats Disassembly
 The emitted HLSL is deliberately **register-level** — `float4 r0`, one statement
 per instruction, `Texture2D` + `SamplerState` — because that is what makes the
 slice checkable: `D3DCompile` either accepts it or names the line that is wrong.
-Pretty names (`_Color`, `unity_ObjectToWorld`) are a later layer; they need the
-constant-buffer reflection, not the instruction stream.
+Pretty names (`_Color`, `unity_ObjectToWorld`) come from a second layer: the
+constant-buffer analysis, which reads the asset rather than the instruction
+stream (the disassembly carries no RDEF at all).
+
+## The constant-buffer layer
+
+A `cbN[row]` read has no name in the disassembly. Unity strips the reflection, so
+the name can only come from the asset, and the main tool already works out how —
+so that whole layer was ported (namespace `Resolve`) rather than re-invented:
+
+* the pass's name table (`m_NameIndices`) says which names the shader uses;
+* `UnityCbuffers` knows the row layout of every buffer Unity defines;
+* the program's parameter blob and `m_Parameters` give byte sizes and members
+  when the build kept them;
+* `GlobalsNames` / `TmpLayouts` carry the curated `$Globals` layouts.
+
+`Emit/CbLayout.cs` is the new part, and it exists because the resolver's answer
+cannot be copied into a declaration verbatim: a constant buffer is laid out
+member after member, so the declaration must cover every row from zero, in
+order. It emits one of two shapes per register:
+
+```hlsl
+// named: the layout of the buffer Unity defines, rows this program never read included
+cbuffer UnityPerDraw : register(b1)
+{
+    float4 unity_ObjectToWorld[4];
+    float4 unity_WorldToObject[4];
+}
+
+// array: only when the row index is a runtime value, which no member name can express
+cbuffer CB3 : register(b3) { float4 cb3[21]; }
+```
+
+A matrix or array row arrives spelled `name[i]`; the consecutive run becomes one
+`float4 name[n]`, which is both the correct layout and the spelling the body's
+references already use. A member that shares its row with another (a scalar
+packed beside something else) keeps a positional `float4` — naming it would move
+every member after it.
+
+Measured on a real game build (2,977 programs, 425 shaders):
+
+| Buffer | Blocks | Named rows | Positional rows |
+|---|---|---|---|
+| UnityPerDraw / PerFrame / Lighting / ReflectionProbes | 3,215 | 18,390 | 0 |
+| UnityGlobals (`$Globals`) | 2,084 | 3,100 | 10,399 |
+| UnityPerCamera | 632 | 3,394 | 604 |
+
+Every buffer Unity defines is fully named. `$Globals` stays partly positional for
+a reason that is in the data, not in the code: this Unity version writes an empty
+`m_ConstantBuffers` array, and the parameter blob records a single member for
+`$Globals`, so nothing pins the rows. The main tool has the same hole on the same
+build; a curated table (`data/globals_names/<shader>.json`) or a TMP layout closes
+it per shader.
+
+Compile rate with the layer in place is unchanged: 216/217 on the small test build
+and 397/400 on a 400-program sample of the real game (the remainder are singular
+syntax cases, not declarations).
 
 ## Where it stands, measured
 

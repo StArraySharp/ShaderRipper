@@ -69,12 +69,17 @@ namespace ShaderRipper.Antlr.Ast
         public List<Instruction> Code = new();
 
         /// <summary>
-        /// Names recovered from Unity's parameter blob, keyed by (cbuffer slot,
-        /// row).  Populated by the game reader before emission: the disassembly
-        /// carries no RDEF data (Unity strips it), so a numeric `cb1[7]` can only
-        /// be named from the asset's own constant-buffer reflection.
+        /// The constant-buffer analysis for this program, when the game reader ran
+        /// one.  Null for a bare <c>--asm</c> file, where nothing outside the
+        /// disassembly is known and every buffer stays numeric.
+        ///
+        /// The disassembly carries no RDEF (Unity strips it), so the identity of
+        /// <c>cb1</c> and the name of each of its rows can only come from the
+        /// asset: the pass's name table, the program's parameter blob and the
+        /// shader's Properties block.  <see cref="Resolve.CbResolver"/> combines
+        /// those; this field is where the answer travels to the emitter.
         /// </summary>
-        public Dictionary<(int cb, int row), string> CbNames = new();
+        public Resolve.CbResolver Cb;
 
         public static readonly Module Empty = new();
 

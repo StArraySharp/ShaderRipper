@@ -4,6 +4,7 @@ using System.IO;
 using System.Linq;
 using ShaderRipper.Antlr.Data;
 using ShaderRipper.Antlr.Emit;
+using ShaderRipper.Antlr.Resolve;
 
 namespace ShaderRipper.Antlr.Game
 {
@@ -94,7 +95,27 @@ namespace ShaderRipper.Antlr.Game
                     + string.Join(",", paramCbs.Keys.Take(6))
                     + $" firstMembers={(paramCbs.Count > 0 ? paramCbs.Values.First()[0].Members.Count : -1)}");
             string frag = null;
-            int slotNo = 0;
+
+            // Which pass and sub-program each blob belongs to.  The name table and
+            // the asset's own reflection hang off those, and a blob index is the
+            // only thing the decoded slot tells us.
+            var passOf = new Dictionary<int, Pass>();
+            var spOf = new Dictionary<int, SubProgram>();
+            foreach (var ss in sh.ParsedForm?.SubShaders ?? new List<SubShader>())
+                foreach (var p in ss.Passes)
+                    foreach (var sp in p.SubPrograms)
+                    {
+                        passOf[sp.BlobIndex] = p;
+                        // Two passes can share a blob index; the one that declares the
+                        // reflection is the useful entry, so keep the richer one.
+                        if (!spOf.TryGetValue(sp.BlobIndex, out var have) ||
+                            sp.ConstantBuffers.Count > have.ConstantBuffers.Count)
+                            spOf[sp.BlobIndex] = sp;
+                    }
+
+            var props = sh.ParsedForm?.Props ?? new List<Property>();
+            var allParamCbs = paramCbs.Values.SelectMany(x => x).ToList();
+            var globals = GlobalsNames.For(name);
 
             foreach (var slot in slots)
             {
@@ -110,19 +131,10 @@ namespace ShaderRipper.Antlr.Game
 
                 var module = Ast.Module.Read(asm);
                 if (module.Code.Count == 0) { s.Skipped++; continue; }
-                // The blob table is keyed by the blob index the *asset* records,
-                // which does not always equal the slot's index (Unity renumbers
-                // the kept programs).  Exact key first, then position: the table
-                // covers only the kept programs, in register order, which is also
-                // the order the decoded slots come out in.
-                if (paramCbs.TryGetValue(slot.BlobIndex, out var cbs))
-                    ApplyCbNames(module, cbs);
-                else if (paramCbs.Count > 0)
-                {
-                    int at = slotNo++;
-                    var ordered = paramCbs.OrderBy(k => k.Key).Select(k => k.Value).ToList();
-                    if (at < ordered.Count) ApplyCbNames(module, ordered[at]);
-                }
+
+                spOf.TryGetValue(slot.BlobIndex, out var sub);
+                passOf.TryGetValue(slot.BlobIndex, out var pass);
+                module.Cb = NameConstantBuffers(module, name, pass, sub, props, paramCbs, allParamCbs, globals);
 
                 var r = HlslEmitter.Emit(module);
                 s.Translated++;
@@ -143,29 +155,58 @@ namespace ShaderRipper.Antlr.Game
         }
 
         /// <summary>
-        /// Name constant-buffer rows from the reflection.
+        /// Run the constant-buffer analysis for one program.
         ///
-        /// The blob lists the buffers this program kept, in register order, and
-        /// the disassembly declares them in the same order, so the two pair up by
-        /// position.  Only whole-row float4 members are taken: a member that
-        /// shares a row with another cannot be spelled as a float4 and would
-        /// change the arithmetic if it were.
+        /// Everything it needs comes from the asset and none of it from the
+        /// disassembly, which carries no RDEF: the pass names its buffers
+        /// (<c>m_NameIndices</c>), the program's parameter blob gives each buffer's
+        /// byte size and members, the shader's Properties block says which of those
+        /// names are material properties, and the program's own reflection
+        /// (<c>m_Parameters.m_ConstantBuffers</c>) is the authoritative $Globals
+        /// member list when Unity kept it.
         /// </summary>
-        private static void ApplyCbNames(Ast.Module m, List<BlobTool.CbInfo> cbs)
+        private static Resolve.CbResolver NameConstantBuffers(
+            Ast.Module m, string shaderName, Pass pass, SubProgram sub,
+            List<Property> props, Dictionary<int, List<BlobTool.CbInfo>> paramCbs,
+            List<BlobTool.CbInfo> allParamCbs, GlobalsNames globals)
         {
-            var decls = m.Decls.Where(d => d.Kind == "cbuffer").OrderBy(d => d.Register).ToList();
-            if (Environment.GetEnvironmentVariable("SHADERRIP_CBDBG") == "1")
-                Console.Error.WriteLine($"[cb] decls={decls.Count} reflect={cbs.Count} "
-                    + string.Join("; ", cbs.Select(c => $"{c.Name}({c.Members.Count}m,{c.Size}B)")));
-            if (decls.Count != cbs.Count) return;
+            var nameTable = pass?.NameIndices != null
+                ? new HashSet<string>(pass.NameIndices.Keys, StringComparer.Ordinal)
+                : new HashSet<string>(StringComparer.Ordinal);
 
-            for (int i = 0; i < decls.Count; i++)
-                foreach (var mem in cbs[i].Members)
-                {
-                    if (string.IsNullOrEmpty(mem.name)) continue;
-                    if (mem.offset % 16 != 0 || mem.dim != 4) continue;
-                    m.CbNames[(decls[i].Register, mem.offset / 16)] = mem.name;
-                }
+            List<BlobTool.CbInfo> own = null;
+            if (sub != null && sub.ParameterBlobIndex >= 0)
+                paramCbs.TryGetValue(sub.ParameterBlobIndex, out own);
+            if (own == null && paramCbs.TryGetValue(sub?.BlobIndex ?? -1, out var byBlob))
+                own = byBlob;
+
+            var r = Resolve.CbResolver.Resolve(
+                m, nameTable, props, own, -1, globals, BestGlobals(sub), null,
+                allParamCbs, true, null, sub?.TextureParams);
+
+            if (Environment.GetEnvironmentVariable("SHADERRIP_CBDBG") == "1")
+                Console.Error.WriteLine($"[cb] {shaderName}/{sub?.BlobIndex}: "
+                    + $"buffers={r.CbName.Count} table={nameTable.Count} rows={r.RowExpr.Count} "
+                    + string.Join("; ", r.CbName.Select(kv => $"b{kv.Key}={kv.Value}")));
+            return r;
+        }
+
+        /// <summary>
+        /// The most complete $Globals reflection available for this program.
+        ///
+        /// Each stage's block lists only the members that stage references, so the
+        /// longest list is the closest thing to a whole layout.
+        /// </summary>
+        private static AssetConstantBuffer BestGlobals(SubProgram sub)
+        {
+            AssetConstantBuffer best = null;
+            if (sub?.ConstantBuffers == null) return null;
+            foreach (var cb in sub.ConstantBuffers)
+            {
+                if (!cb.IsGlobals || cb.Members.Count == 0) continue;
+                if (best == null || cb.Members.Count > best.Members.Count) best = cb;
+            }
+            return best;
         }
 
         private static int PickPlatform(Shader sh)

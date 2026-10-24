@@ -40,7 +40,13 @@ namespace ShaderRipper.Antlr.Emit
         private int _temps;
         private int _loops;
 
-        private HlslEmitter(Module m) { _m = m; }
+        private readonly CbLayout _lay;
+
+        private HlslEmitter(Module m)
+        {
+            _m = m;
+            _lay = CbLayout.Build(m, m.Cb);
+        }
 
         public static Result Emit(Module m)
         {
@@ -82,22 +88,22 @@ namespace ShaderRipper.Antlr.Emit
                               .OrderBy(d => d.Register).ToList();
             foreach (var d in cbs)
             {
-                // Rows the reflection named are declared as members; the rest keep
-                // a positional name.  A whole row per member is what makes
-                // `cb1[7].xy` become `_WorldSpaceLightPos0.xy` without changing
-                // meaning -- HLSL has no partial-row access to a named member.
-                int rows = Math.Max(d.Count, 1);
-                foreach (var kv in _m.CbNames.Keys.Where(k => k.cb == d.Register))
-                    rows = Math.Max(rows, kv.row + 1);
+                int reg = d.Register;
+                int extent = _lay.Extent.TryGetValue(reg, out int e) ? e : Math.Max(d.Count, 1);
+                string name = CbLayout.BufferName(_m.Cb, reg);
 
-                _sb.Append($"cbuffer CB{d.Register} : register(b{d.Register})\n{{\n");
-                for (int row = 0; row < rows; row++)
+                _sb.Append($"cbuffer {name} : register(b{reg})\n{{\n");
+                if (_lay.Fallback.TryGetValue(reg, out string why))
+                    _sb.Append($"    // {why}: kept as an array\n");
+                if (_lay.IsArray(reg))
                 {
-                    string name = _m.CbNames.TryGetValue((d.Register, row), out var n)
-                        ? n
-                        : $"_cb{d.Register}_row{row}";
-                    _sb.Append($"    float4 {name};\n");
+                    _sb.Append($"    float4 cb{reg}[{extent}];\n}};\n\n");
+                    continue;
                 }
+                foreach (var mem in _lay.For(reg))
+                    _sb.Append(mem.IsArray
+                        ? $"    float4 {mem.Name}[{mem.Rows}];\n"
+                        : $"    float4 {mem.Name};\n");
                 _sb.Append("};\n\n");
             }
         }
@@ -193,15 +199,26 @@ namespace ShaderRipper.Antlr.Emit
                 RegKind.R => $"r{o.Index}",
                 RegKind.V => $"v{o.Index}",
                 RegKind.O => $"o{o.Index}",
-                RegKind.Cb => o.Row >= 0 && _m.CbNames.TryGetValue((o.Index, o.Row), out var nm)
-                    ? nm
-                    : o.Row >= 0 ? $"_cb{o.Index}_row{o.Row}" : $"_cb{o.Index}_row0",
+                RegKind.Cb => CbCore(o),
                 RegKind.Null => "float4(0, 0, 0, 0)",
                 RegKind.Literal => Literal(o),
                 // Indexable temps: x0[a0.x] indexes an array of float4.
                 RegKind.X => $"_x[{o.Index}]",
                 _ => null,
             };
+        }
+
+        /// <summary>
+        /// How to spell a constant-buffer read.  Three cases, in the order the
+        /// declaration allows: the raw array when the buffer kept that shape, the
+        /// member the resolver named, and the positional member the declaration
+        /// emitted for a row nothing pinned.
+        /// </summary>
+        private string CbCore(Operand o)
+        {
+            int row = Math.Max(o.Row, 0);
+            if (_lay.IsArray(o.Index)) return $"cb{o.Index}[{row}]";
+            return _lay.Row(o.Index, row) ?? $"_cb{o.Index}_row{row}";
         }
 
         /// <summary>

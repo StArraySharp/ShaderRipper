@@ -4,6 +4,8 @@ using System.IO;
 using System.Linq;
 using ShaderRipper.Antlr.Ast;
 using ShaderRipper.Antlr.Emit;
+using ShaderRipper.Antlr.Resolve;
+using ShaderRipper.Antlr.Data;
 
 namespace ShaderRipper.Antlr
 {
@@ -31,6 +33,13 @@ namespace ShaderRipper.Antlr
                     "  ShaderRipper.Antlr --stats <dir-with-asm-files>");
                 return 2;
             }
+
+            // The name tables the constant-buffer analysis reads: the curated
+            // $Globals member lists and the TMP layout rows.  Both are embedded in
+            // the binary and unpacked to a temp directory on first use, so a single
+            // file is self-contained; a checkout picks up the files directly.
+            GlobalsNames.TableDir = Paths.FindDir(Path.Combine("data", "globals_names"));
+            TmpLayouts.Load(null);
 
             switch (args[0])
             {

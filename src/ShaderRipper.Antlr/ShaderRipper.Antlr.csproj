@@ -31,6 +31,8 @@
     <EmbeddedResource Include="schema/*.json" LogicalName="ShaderRipper.Antlr.Embed.%(Identity)" />
     <EmbeddedResource Include="data/*.tpk" LogicalName="ShaderRipper.Antlr.Embed.%(Identity)" />
     <EmbeddedResource Include="data/*.txt" LogicalName="ShaderRipper.Antlr.Embed.%(Identity)" />
+    <EmbeddedResource Include="data/tmp_layouts/*.txt" LogicalName="ShaderRipper.Antlr.Embed.%(Identity)" />
+    <EmbeddedResource Include="data/globals_names/*.json" LogicalName="ShaderRipper.Antlr.Embed.%(Identity)" />
     <EmbeddedResource Include="NativeLibs/*.dll" LogicalName="ShaderRipper.Antlr.Embed.%(Identity)" />
     <EmbeddedResource Include="NativeLibs/win-x64/*.dll" LogicalName="ShaderRipper.Antlr.Embed.%(Filename)%(Extension)" />
   </ItemGroup>
