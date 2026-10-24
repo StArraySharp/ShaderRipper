@@ -162,6 +162,26 @@ namespace ShaderRipper.Antlr.Emit
         /// </summary>
         private static void Declare(CbLayout layout, int reg, int extent, Dictionary<int, string> names)
         {
+            var (members, rows) = DeclareMembers(reg, extent, names);
+            layout.Members[reg] = members;
+            layout.RowName[reg] = rows;
+        }
+
+        /// <summary>
+        /// The declaration for a row -> name map, as lines.  Public so the ShaderLab
+        /// wrapper can rebuild one buffer from two stages' copies of it.
+        /// </summary>
+        public static List<string> DeclareLines(int reg, int extent, Dictionary<int, string> names)
+        {
+            var (members, _) = DeclareMembers(reg, extent, names);
+            return members.Select(m => m.IsArray
+                ? $"    {m.Type} {m.Name}[{m.Rows}];"
+                : $"    {m.Type} {m.Name};").ToList();
+        }
+
+        private static (List<Member> members, Dictionary<int, string> rows) DeclareMembers(
+            int reg, int extent, Dictionary<int, string> names)
+        {
             var members = new List<Member>();
             var rows = new Dictionary<int, string>();
             var used = new HashSet<string>(StringComparer.Ordinal);
@@ -214,8 +234,7 @@ namespace ShaderRipper.Antlr.Emit
                 row++;
             }
 
-            layout.Members[reg] = members;
-            layout.RowName[reg] = rows;
+            return (members, rows);
         }
 
         private static void AddPositional(List<Member> members, Dictionary<int, string> rows, int reg, int row)

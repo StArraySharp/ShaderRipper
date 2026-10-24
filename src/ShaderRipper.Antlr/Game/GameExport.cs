@@ -94,7 +94,9 @@ namespace ShaderRipper.Antlr.Game
                 Console.Error.WriteLine($"[cbblob] {name}: blobs={paramCbs.Count} "
                     + string.Join(",", paramCbs.Keys.Take(6))
                     + $" firstMembers={(paramCbs.Count > 0 ? paramCbs.Values.First()[0].Members.Count : -1)}");
-            string frag = null;
+            // Programs by pass, so the ShaderLab wrapper can put both stages of a
+            // pass in one program block.  Keyed by the pass object itself.
+            var perPass = new Dictionary<Pass, (string vs, string ps)>();
 
             // Which pass and sub-program each blob belongs to.  The name table and
             // the asset's own reflection hang off those, and a blob index is the
@@ -142,16 +144,91 @@ namespace ShaderRipper.Antlr.Game
                 Directory.CreateDirectory(dir);
                 string file = Path.Combine(dir, $"{slot.BlobIndex}_{module.Stage}.hlsl");
                 File.WriteAllText(file, r.Hlsl);
-                if (module.Stage is "ps") frag = r.Hlsl;
+                if (pass != null)
+                {
+                    perPass.TryGetValue(pass, out var pair);
+                    if (module.Stage is "ps") pair.ps = r.Hlsl;
+                    else if (module.Stage is "vs") pair.vs = r.Hlsl;
+                    perPass[pass] = pair;
+                }
             }
 
-            if (shaderLab && frag != null)
+            if (shaderLab)
             {
-                string text = Emit.ShaderLab.Wrap(name, frag, true);
+                var text = Emit.ShaderLab.Wrap(name, sh.ParsedForm?.FallbackName,
+                                               PassTree(sh, perPass), props);
                 var errs = Emit.ShaderLab.Check(text);
                 if (errs.Count == 0) File.WriteAllText(Path.Combine(outDir, dirName + ".shader"), text);
                 else s.Notes.Add($"{name}: shaderlab not well-formed: {errs[0]}");
             }
+        }
+
+        /// <summary>
+        /// The shader's own structure, translated into what the wrapper needs:
+        /// SubShaders with their tags, Passes with their names, tags and the render
+        /// state that differs from ShaderLab's default, and both stages' programs.
+        /// </summary>
+        private static List<Emit.ShaderLab.SubShaderText> PassTree(
+            Shader sh, Dictionary<Pass, (string vs, string ps)> programs)
+        {
+            var list = new List<Emit.ShaderLab.SubShaderText>();
+            foreach (var ss in sh.ParsedForm?.SubShaders ?? new List<SubShader>())
+            {
+                var text = new Emit.ShaderLab.SubShaderText { LOD = ss.LOD };
+                text.Tags.AddRange(ss.Tags);
+
+                foreach (var p in ss.Passes)
+                {
+                    var pt = new Emit.ShaderLab.PassText { Name = p.StateName };
+                    pt.Tags.AddRange(p.Tags);
+                    if (p.ZWrite != 1) pt.States.Add(p.ZWrite == 0 ? "ZWrite Off" : "ZWrite On");
+                    if (p.ZTest != 4) pt.States.Add($"ZTest {StateName("ZTest", p.ZTest)}");
+                    if (p.Culling != 2) pt.States.Add($"Cull {StateName("Cull", p.Culling)}");
+                    if (p.Blends.Count > 0 && !(p.Blends[0].SrcBlend == 1 && p.Blends[0].DestBlend == 0))
+                        pt.States.Add($"Blend {StateName("Blend", p.Blends[0].SrcBlend)} "
+                                      + StateName("Blend", p.Blends[0].DestBlend));
+
+                    if (programs.TryGetValue(p, out var pair))
+                    {
+                        if (pair.vs != null) pt.Vertex = new Emit.ShaderLab.Stage { Hlsl = pair.vs, Entry = "vert" };
+                        if (pair.ps != null) pt.Fragment = new Emit.ShaderLab.Stage { Hlsl = pair.ps, Entry = "frag" };
+                    }
+                    text.Passes.Add(pt);
+                }
+                list.Add(text);
+            }
+            return list;
+        }
+
+        private static readonly Dictionary<float, string> ZTestNames = new()
+        {
+            [0] = "Off", [1] = "Never", [2] = "Less", [3] = "Equal", [4] = "LEqual",
+            [5] = "Greater", [6] = "NotEqual", [7] = "GEqual", [8] = "Always",
+        };
+
+        private static readonly Dictionary<float, string> BlendNames = new()
+        {
+            [0] = "Zero", [1] = "One", [2] = "DstColor", [3] = "SrcColor",
+            [4] = "OneMinusDstColor", [5] = "SrcAlpha", [6] = "OneMinusSrcColor",
+            [7] = "DstAlpha", [8] = "OneMinusDstAlpha", [9] = "SrcAlphaSaturate",
+            [10] = "OneMinusSrcAlpha",
+        };
+
+        private static readonly Dictionary<float, string> CullNames = new()
+        {
+            [0] = "Off", [1] = "Front", [2] = "Back",
+        };
+
+        /// <summary>ShaderLab's name for a numeric state value, or the number itself.</summary>
+        private static string StateName(string kind, float value)
+        {
+            var table = kind switch
+            {
+                "ZTest" => ZTestNames,
+                "Cull" => CullNames,
+                _ => BlendNames,
+            };
+            return table.TryGetValue(value, out var n) ? n : value.ToString(System.Globalization.CultureInfo.InvariantCulture);
         }
 
         /// <summary>

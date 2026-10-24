@@ -92,7 +92,19 @@ namespace ShaderRipper.Antlr
             string text = r.Hlsl;
             if (shaderLab)
             {
-                text = Emit.ShaderLab.Wrap(Path.GetFileNameWithoutExtension(path), r.Hlsl, true);
+                // A standalone GLSL payload has no asset behind it: no properties,
+                // no pass tags.  One pass, both entry points it defines.
+                var pass = new Emit.ShaderLab.PassText
+                {
+                    Vertex = r.Hlsl.Contains("float4 vert()", StringComparison.Ordinal)
+                        ? new Emit.ShaderLab.Stage { Hlsl = r.Hlsl, Entry = "vert" } : null,
+                    Fragment = r.Hlsl.Contains("float4 frag()", StringComparison.Ordinal)
+                        ? new Emit.ShaderLab.Stage { Hlsl = r.Hlsl, Entry = "frag" } : null,
+                };
+                var sub = new Emit.ShaderLab.SubShaderText();
+                sub.Passes.Add(pass);
+                text = Emit.ShaderLab.Wrap(Path.GetFileNameWithoutExtension(path), null,
+                                           new[] { sub }, Array.Empty<ShaderRipper.Antlr.Data.Property>());
                 var errs = Emit.ShaderLab.Check(text);
                 Console.Error.WriteLine(errs.Count == 0
                     ? "shaderlab: well-formed"
