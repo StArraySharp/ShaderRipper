@@ -142,7 +142,9 @@ namespace ShaderRipper.Antlr.Emit
             for (int row = 0; row < Math.Min(tableRows, extent); row++)
             {
                 var m = UnityCbuffers.Find(cbname, row);
-                if (m == null || m.Row != row) continue;
+                // A matrix covers several rows and is found by each of them; only a
+                // plain member has to start exactly here.
+                if (m == null || (!m.IsMatrix && m.Row != row)) continue;
                 if (m.IsMatrix) names[row] = $"{m.Name}[{row - m.Row}]";
                 else if (m.FillsRow) names[row] = m.Name;
             }
