@@ -45,7 +45,12 @@ namespace ShaderRipper.Antlr.Game
 
                 foreach (var sh in sf.Shaders)
                 {
-                    string name = string.IsNullOrEmpty(sh.Name) ? $"pathId_{sh.PathId}" : sh.Name;
+                    // The shader's name lives in three places depending on how
+                    // Unity stored it; take the first that is not empty, so the
+                    // output tree is named after the shader rather than a path id.
+                    string name = !string.IsNullOrEmpty(sh.Name) ? sh.Name
+                                : !string.IsNullOrEmpty(sh.ParsedForm?.Name) ? sh.ParsedForm.Name
+                                : $"pathId_{sh.PathId}";
                     if (only != null && !name.Contains(only, StringComparison.OrdinalIgnoreCase)) continue;
                     s.Shaders++;
                     try { ExportShader(sh, name, outDir, used, shaderLab, s); }
