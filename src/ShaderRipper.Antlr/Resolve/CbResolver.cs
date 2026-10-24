@@ -59,7 +59,15 @@ namespace ShaderRipper.Antlr.Resolve
         {
             if (_nameTable.Contains(name)) return true;
             int i = name.IndexOf('[');
-            return i > 0 && _nameTable.Contains(name.Substring(0, i));
+            if (i > 0 && _nameTable.Contains(name.Substring(0, i))) return true;
+            // Unity's own runtime falls back to its hard-coded built-in tables
+            // when a name index is not in the pass table (see
+            // ReconstructParamNamesFromTable / GetBuiltinVectorParamName in
+            // UnityPlayer).  Engine members (unity_OcclusionMaskSelector,
+            // unity_SHAr, ...) are exactly the ones game builds leave out of
+            // m_NameIndices, so the official list is the authority for them.
+            if (UnityBuiltinParams.IsBuiltin(name)) return true;
+            return false;
         }
 
         /// <summary>Constant-buffer layout recorded in this program's parameter blob.</summary>
@@ -116,11 +124,19 @@ namespace ShaderRipper.Antlr.Resolve
         /// <summary>Bitmask of the components a swizzle touches (bit 0 = x).</summary>
         private static int ComponentMask(string sw)
         {
+            // The grammar's SWIZZLE token carries its own dot (`.xyxx`), so only the
+            // component letters count.  Reading the dot as component 0 marked lane x
+            // as read on every swizzled operand, and a row a program only touched in
+            // .y then arrived at the declaration layer as "x is read too" -- which is
+            // where the `_cbN_rowK_x` placeholders came from.
             if (string.IsNullOrEmpty(sw)) return 0xF;
             int m = 0;
             foreach (char c in sw)
-                m |= 1 << (c switch { 'x' => 0, 'y' => 1, 'z' => 2, 'w' => 3, _ => 0 });
-            return m;
+            {
+                int bit = c switch { 'x' => 0, 'y' => 1, 'z' => 2, 'w' => 3, _ => -1 };
+                if (bit >= 0) m |= 1 << bit;
+            }
+            return m == 0 ? 0xF : m;
         }
 
         /// <summary>register -> row -> component mask this stage reads.</summary>
@@ -303,7 +319,7 @@ namespace ShaderRipper.Antlr.Resolve
                     Console.Error.WriteLine(
                         $"[cbdbg] cb{d.Register} name={r.CbName.GetValueOrDefault(d.Register, "?")} "
                         + $"asset={(r.AssetGlobals == null ? "null" : r.AssetGlobals.Members.Count.ToString())} "
-                        + $"param={(r.ParamCbs == null ? "null" : string.Join("/", r.ParamCbs.Select(c => c.Name + ":" + c.Size + ":" + c.Members.Count)))} "
+                        + $"param={(r.ParamCbs == null ? "null" : string.Join("/", r.ParamCbs.Select(c => c.Name + ":" + c.Size + ":" + c.Members.Count + "@" + c.Register)))} "
                         + $"dcl={d.Count} rows=[{rows}] rowExpr=[{rex}] compExpr=[{cex}] "
                         + $"names=[{string.Join(",", r._nameTable.OrderBy(x => x, StringComparer.Ordinal))}]");
                 }
@@ -361,17 +377,23 @@ namespace ShaderRipper.Antlr.Resolve
         {
             if (ParamCbs == null || ParamCbs.Count == 0) return null;
             bool dbg = Environment.GetEnvironmentVariable("SHADERRIP_TMPDBG") == "1";
-            if (ParamCbs.Count != decls.Count)
+
+            // The blob's buffer list is the shader's, not the program's: it keeps a
+            // record for every constant buffer the pass compiled, including the
+            // Unity ones this particular program never declares, and in the asset's
+            // own order.  `MatchBySize` pairs them by the register the asset
+            // recorded where it can, and only falls back to order when there is no
+            // register evidence at all.
+            var pairs = MatchBySize(decls, ParamCbs);
+            if (pairs == null)
             {
                 if (dbg) Console.Error.WriteLine($"[blobmiss] count {ParamCbs.Count} != dcl {decls.Count}");
                 return null;
             }
 
             var res = new Dictionary<int, string>();
-            for (int i = 0; i < decls.Count; i++)
+            foreach (var (d, cb) in pairs)
             {
-                var d = decls[i];
-                var cb = ParamCbs[i];
                 if (cb.Name == null || cb.Size <= 0) return null;
                 if (Math.Max(1, d.Count) * 16 > cb.Size)
                 {
@@ -382,6 +404,8 @@ namespace ShaderRipper.Antlr.Resolve
                 CbSize[d.Register] = cb.Size;
                 ConfirmedCb.Add(d.Register);
             }
+
+            if (res.Count == 0) return null;
 
             if (res.Values.Distinct().Count() != res.Count)
             {
@@ -397,6 +421,81 @@ namespace ShaderRipper.Antlr.Resolve
                     ? "// cbuffer order confirmed by the asset's own register index"
                     : "// cbuffer order taken from the blob's declaration order;"
                       + " the asset's index list disagrees, so it was ignored");
+            }
+            return res;
+        }
+
+        /// <summary>
+        /// Pair each `dcl_constantbuffer` with the blob record that describes it.
+        ///
+        /// The blob's trailing register map names the slot each buffer was bound
+        /// to (`UnityLighting@2`), and that is the program's own `dcl_constantbuffer`
+        /// register, so it identifies the buffer outright.  Falling back to list
+        /// position is what the old code did for every program whose blob kept a
+        /// buffer the program dropped, and the shift then mislabelled every buffer
+        /// after it -- a 46-row block read as 7 under another buffer's name.
+        /// </summary>
+        private static List<(Ast.Decl d, BlobTool.CbInfo cb)> MatchBySize(
+            List<Ast.Decl> decls, List<BlobTool.CbInfo> cbs)
+        {
+            var res = new List<(Ast.Decl, BlobTool.CbInfo)>(decls.Count);
+
+            // A record smaller than one constant-buffer row is a parse artefact of
+            // the record scan, not a buffer: nothing can be pinned inside it.
+            var real = cbs.Where(c => c.Size >= 16).ToList();
+            if (real.Count == 0) return null;
+            cbs = real;
+
+            // Registers the asset itself recorded come first: they identify a buffer
+            // outright, and equal counts do not make the two lists parallel -- the
+            // blob keeps the pass's buffers in its own order, which need not be the
+            // declaration order.  Anything the map leaves out ($Globals carries no
+            // register) is matched by size afterwards.
+            if (cbs.Any(c => c.Register >= 0))
+            {
+                var used = new HashSet<BlobTool.CbInfo>();
+                var byReg = new Dictionary<int, BlobTool.CbInfo>();
+                foreach (var c in cbs)
+                    if (c.Register >= 0) byReg[c.Register] = c;
+
+                var pending = new List<Ast.Decl>();
+                foreach (var d in decls)
+                {
+                    if (byReg.TryGetValue(d.Register, out var hit) && used.Add(hit))
+                    {
+                        res.Add((d, hit));
+                        continue;
+                    }
+                    pending.Add(d);
+                }
+                foreach (var d in pending)
+                {
+                    int need = Math.Max(1, d.Count) * 16;
+                    var pick = cbs.FirstOrDefault(c => !used.Contains(c) && c.Size >= need);
+                    // No record left that can hold it: this declaration has no entry
+                    // in the blob at all.  Leaving it unnamed is correct; failing the
+                    // whole table would throw away the buffers the map did identify.
+                    if (pick == null) continue;
+                    used.Add(pick);
+                    res.Add((d, pick));
+                }
+                return res;
+            }
+
+            if (decls.Count == cbs.Count)
+            {
+                for (int i = 0; i < decls.Count; i++) res.Add((decls[i], cbs[i]));
+                return res;
+            }
+
+            int at = 0;
+            foreach (var d in decls)
+            {
+                int need = Math.Max(1, d.Count) * 16;
+                while (at < cbs.Count && cbs[at].Size < need) at++;
+                if (at >= cbs.Count) return null;
+                res.Add((d, cbs[at]));
+                at++;
             }
             return res;
         }
@@ -716,6 +815,19 @@ namespace ShaderRipper.Antlr.Resolve
             int need = d.Count > 0 ? d.Count * 16 : (rows.Count > 0 ? (rows.Max() + 1) * 16 : 0);
             var pool = all.Where(x => x.Size >= need).ToList();
             if (pool.Count == 0) pool = all;
+
+            // The program's own `$Globals` is the first choice: its identity pass
+            // recorded that size, and a table of a different size describes a
+            // different packing of the same properties, with every member after the
+            // first discrepancy at another offset.  Only when this program kept no
+            // size -- or its own table cannot hold the declaration -- does the
+            // search widen to the neighbouring sizes.
+            if (CbSize.TryGetValue((int)d.Register, out int own) && own > 0)
+            {
+                var exact = pool.Where(x => x.Size == own).ToList();
+                if (exact.Count > 0) pool = exact;
+            }
+
             // Several programs of one pass compile to the same $Globals size but
             // record different subsets of members (a 624-byte block appears with
             // 16, 23 and 36 members).  Picking the first by size alone can land on

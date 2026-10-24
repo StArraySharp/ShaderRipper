@@ -1,0 +1,181 @@
+using System;
+using System.Collections.Generic;
+
+namespace ShaderRipper.Antlr.Data
+{
+    /// <summary>
+    /// The official built-in shader parameter names, extracted from the shipped
+    /// development player's <c>GetBuiltinMatrixParamName</c> /
+    /// <c>GetBuiltinVectorParamName</c> tables (the same lists Unity's own
+    /// runtime consults when a parameter's name index points at a built-in).
+    /// A member carrying one of these names is authoritative even when the
+    /// pass's name table was stripped -- which is exactly the case for the
+    /// engine members (unity_OcclusionMaskSelector, unity_SHAr, ...) that
+    /// game builds leave out of m_NameIndices.
+    /// </summary>
+    internal static class UnityBuiltinParams
+    {
+        public static readonly HashSet<string> Names = new(StringComparer.Ordinal)
+        {
+            "glstate_matrix_projection",
+            "unity_MatrixV",
+            "unity_MatrixInvV",
+            "unity_MatrixVP",
+            "unity_WorldToCamera",
+            "unity_CameraToWorld",
+            "unity_WorldToShadow0",
+            "unity_WorldToShadow1",
+            "unity_WorldToShadow2",
+            "unity_WorldToShadow3",
+            "unity_LightmapMatrix",
+            "unity_Projector",
+            "unity_ProjectorDistance",
+            "unity_ProjectorClip",
+            "unity_GUIClipTextureMatrix",
+            "unity_WorldToLight",
+            "unity_CameraProjection",
+            "unity_CameraInvProjection",
+            "unity_ProbeVolumeWorldToObject",
+            "unity_MatrixPreviousM",
+            "unity_MatrixPreviousMI",
+            "unity_LightColor0",
+            "unity_LightColor1",
+            "unity_LightColor2",
+            "unity_LightColor3",
+            "unity_LightColor4",
+            "unity_LightColor5",
+            "unity_LightColor6",
+            "unity_LightColor7",
+            "unity_LightPosition0",
+            "unity_LightPosition1",
+            "unity_LightPosition2",
+            "unity_LightPosition3",
+            "unity_LightPosition4",
+            "unity_LightPosition5",
+            "unity_LightPosition6",
+            "unity_LightPosition7",
+            "unity_SpotDirection0",
+            "unity_SpotDirection1",
+            "unity_SpotDirection2",
+            "unity_SpotDirection3",
+            "unity_SpotDirection4",
+            "unity_SpotDirection5",
+            "unity_SpotDirection6",
+            "unity_SpotDirection7",
+            "unity_LightAtten0",
+            "unity_LightAtten1",
+            "unity_LightAtten2",
+            "unity_LightAtten3",
+            "unity_LightAtten4",
+            "unity_LightAtten5",
+            "unity_LightAtten6",
+            "unity_LightAtten7",
+            "unity_VertexLightParams",
+            "glstate_lightmodel_ambient",
+            "_WorldSpaceLightPos0",
+            "_LightColor0",
+            "_WorldSpaceCameraPos",
+            "unity_WorldTransformParams",
+            "_ProjectionParams",
+            "_ScreenParams",
+            "_ZBufferParams",
+            "unity_OrthoParams",
+            "_LightPositionRange",
+            "_LightProjectionParams",
+            "unity_Ambient",
+            "unity_LightmapFade",
+            "unity_OcclusionMaskSelector",
+            "unity_ProbesOcclusion",
+            "_ShadowOffsets0",
+            "_ShadowOffsets1",
+            "_ShadowOffsets2",
+            "_ShadowOffsets3",
+            "_LightShadowData",
+            "unity_LightShadowBias",
+            "_LightSplitsNear",
+            "_LightSplitsFar",
+            "unity_ShadowSplitSpheres0",
+            "unity_ShadowSplitSpheres1",
+            "unity_ShadowSplitSpheres2",
+            "unity_ShadowSplitSpheres3",
+            "unity_ShadowSplitSqRadii",
+            "unity_ShadowCascadeScales",
+            "unity_ShadowFadeCenterAndType",
+            "unity_ShadowColor",
+            "unity_LODFade",
+            "unity_RenderingLayer",
+            "unity_LightmapST",
+            "unity_DynamicLightmapST",
+            "unity_SHAr",
+            "unity_SHAg",
+            "unity_SHAb",
+            "unity_SHBr",
+            "unity_SHBg",
+            "unity_SHBb",
+            "unity_SHC",
+            "_Time",
+            "_LastTime",
+            "_SinTime",
+            "_CosTime",
+            "_PiTime",
+            "unity_DeltaTime",
+            "unity_4LightPosX0",
+            "unity_4LightPosY0",
+            "unity_4LightPosZ0",
+            "unity_4LightAtten0",
+            "unity_FogStart",
+            "unity_FogEnd",
+            "unity_FogDensity",
+            "unity_FogColor",
+            "unity_FogParams",
+            "unity_CameraWorldClipPlanes0",
+            "unity_CameraWorldClipPlanes1",
+            "unity_CameraWorldClipPlanes2",
+            "unity_CameraWorldClipPlanes3",
+            "unity_CameraWorldClipPlanes4",
+            "unity_CameraWorldClipPlanes5",
+            "unity_AmbientSky",
+            "unity_AmbientEquator",
+            "unity_AmbientGround",
+            "unity_IndirectSpecColor",
+            "unity_SpecCube0_HDR",
+            "unity_SpecCube0_BoxMax",
+            "unity_SpecCube0_BoxMin",
+            "unity_SpecCube0_ProbePosition",
+            "unity_SpecCube0_Rotation",
+            "unity_SpecCube1_HDR",
+            "unity_SpecCube1_BoxMax",
+            "unity_SpecCube1_BoxMin",
+            "unity_SpecCube1_ProbePosition",
+            "unity_SpecCube1_Rotation",
+            "unity_BillboardNormal",
+            "unity_BillboardTangent",
+            "unity_BillboardCameraParams",
+            "unity_ProbeVolumeMin",
+            "unity_ProbeVolumeSizeInv",
+            "unity_ProbeVolumeParams",
+            "unity_StereoEyeIndex",
+            "unity_LightData",
+            "unity_LightIndices0",
+            "unity_LightIndices1",
+            "unity_ReflectionProbeData",
+            "unity_MotionVectorsParams",
+            "unity_HalfStereoSeparation",
+            "unity_RendererBounds_Min",
+            "unity_RendererBounds_Max",
+        };
+
+        /// <summary>Is <paramref name="name"/> an official built-in parameter?
+        /// Accepts matrix-column forms (`unity_ObjectToWorld[2].y`) by checking
+        /// the base identifier.</summary>
+        public static bool IsBuiltin(string name)
+        {
+            if (name == null) return false;
+            int dot = name.IndexOf('.');
+            var baseName = dot > 0 ? name[..dot] : name;
+            int br = baseName.IndexOf('[');
+            if (br > 0) baseName = baseName[..br];
+            return Names.Contains(baseName);
+        }
+    }
+}

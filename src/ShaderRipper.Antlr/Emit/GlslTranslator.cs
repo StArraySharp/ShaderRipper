@@ -41,9 +41,26 @@ namespace ShaderRipper.Antlr.Emit
         private readonly List<(string type, string name)> _ins = new();
         private readonly List<(string type, string name)> _outs = new();
         private readonly List<string> _locals = new();
+        private readonly List<string> _buffers = new();
         private GlslParser.TranslationUnitContext _unit;
 
-        private GlslTranslator(string src, bool vertex) { _src = src; _vertex = vertex; }
+        private GlslTranslator(string src, bool vertex)
+        {
+            _src = src;
+            _vertex = vertex;
+            // GPU-instancing built-ins need real entry parameters (SV_InstanceID
+            // / SV_VertexID); a static global cannot be seeded from a parameter,
+            // so the entry grows arguments and the prologue aliases them.
+            _usesInstance = src.Contains("gl_InstanceID", StringComparison.Ordinal);
+            _usesVertex = src.Contains("gl_VertexID", StringComparison.Ordinal);
+            // gl_FragCoord is rewritten to sv_position (see the identifier map),
+            // and that rewritten reference needs the SV_Position input.
+            _usesSvPosition = !_vertex && src.Contains("gl_FragCoord", StringComparison.Ordinal);
+        }
+
+        private readonly bool _usesInstance;
+        private readonly bool _usesVertex;
+        private readonly bool _usesSvPosition;
 
         /// <summary>
         /// Translate a whole payload: both stages into one HLSL block, which is
@@ -78,7 +95,12 @@ namespace ShaderRipper.Antlr.Emit
                 foreach (var line in g)
                 {
                     string key = line.Trim();
-                    if (key.Length == 0 || !seen.Add(key)) continue;
+                    // Structural lines ({, }, };, preprocessor) repeat legally --
+                    // a struct block and a function body both open a brace.  Only
+                    // declaration lines are deduplicated.
+                    bool structural = key.Length == 0 || key is "{" or "}" or "};"
+                                      || key.StartsWith("#", StringComparison.Ordinal);
+                    if (!structural && !seen.Add(key)) continue;
                     globals.Add(line);
                 }
                 functions.Add(fn);
@@ -99,12 +121,12 @@ namespace ShaderRipper.Antlr.Emit
         {
             string text = Emit();
             var lines = text.Split('\n').ToList();
-            int at = lines.FindIndex(l => l.StartsWith("float4 main()", StringComparison.Ordinal));
+            int at = lines.FindIndex(l => l.StartsWith("float4 main(", StringComparison.Ordinal));
             if (at < 0) return (lines, "");
 
             var globals = lines.Take(at).ToList();
             var fn = lines.Skip(at).ToList();
-            fn[0] = fn[0].Replace("main()", _vertex ? "vert()" : "frag()");
+            fn[0] = fn[0].Replace("main(", _vertex ? "vert(" : "frag(");
             return (globals, string.Join('\n', fn));
         }
 
@@ -161,12 +183,114 @@ namespace ShaderRipper.Antlr.Emit
             {
                 var decl = item.declaration();
                 if (decl is GlslParser.VariableDeclContext v) { ReadVariables(v); continue; }
+                if (decl is GlslParser.StructDeclContext sd) { ReadStructDecl(sd); continue; }
+                if (decl is GlslParser.InterfaceBlockContext ib) { ReadBufferBlock(ib); continue; }
                 var fn = item.functionDefinition();
-                if (fn?.IDENT()?.GetText() == "main") _main = fn;
+                if (fn == null) continue;
+                if (fn.IDENT()?.GetText() == "main") _main = fn;
+                else _helpers.Add(fn);          // HLSLcc emits bitfieldExtract and friends
             }
         }
 
         private GlslParser.FunctionDefinitionContext _main;
+        private readonly List<GlslParser.FunctionDefinitionContext> _helpers = new();
+
+        /// <summary>
+        /// An SSBO / UBO interface block (`readonly buffer name { members };`).
+        /// SSBOs become HLSL StructuredBuffers over a synthesized struct -- the
+        /// body references `name[i].member[...]`, which StructuredBuffer gives
+        /// verbatim.  Uniform blocks become plain cbuffers; the binding slot is
+        /// a compile-time non-issue because HLSL assigns registers itself.
+        /// </summary>
+        private void ReadBufferBlock(GlslParser.InterfaceBlockContext ib)
+        {
+            string name = ib.IDENT(0)?.GetText() ?? "";
+            if (string.IsNullOrEmpty(name)) return;
+            bool isSsbo = ib.BUFFER() != null;
+
+            // `buffer name { T inst[]; }` -- the common HLSLcc shape: one
+            // unsized array of a (usually previously declared) struct.  That
+            // maps straight to `StructuredBuffer<T> name;`, the body's
+            // `name[i].member` accesses carrying over untouched.
+            var members = new List<string>();
+            foreach (var sm in ib.structBody().structMember())
+            {
+                // GLSL also writes sized arrays type-first (`uint[14] value`),
+                // so the array suffix can ride on the type; move it to the name.
+                string type0 = TypeText(sm.fullySpecifiedType());
+                string tarr = "";
+                int tb = type0.IndexOf('[');
+                if (tb >= 0) { tarr = type0[tb..]; type0 = type0[..tb]; }
+                string type = MapType(type0);
+                foreach (var sd in sm.structDeclaratorList().structDeclarator())
+                {
+                    string raw = sd.GetText();
+                    string nm = sd.IDENT()?.GetText() ?? raw;
+                    string arr = raw.Contains(nm) ? raw[(raw.IndexOf(nm, StringComparison.Ordinal) + nm.Length)..] : "";
+                    members.Add($"{type}|{nm}{tarr}{arr}");
+                }
+            }
+            if (members.Count == 0) return;
+
+            // `buffer block { T inst[]; }` -- the common HLSLcc shape: one
+            // unsized array whose element type is usually a declared struct.
+            // The body indexes the MEMBER name, so the StructuredBuffer takes it.
+            if (isSsbo && members.Count == 1)
+            {
+                int bar = members[0].IndexOf('|');
+                string elem = members[0][..bar];
+                string inst = members[0][(bar + 1)..];
+                if (inst.EndsWith("[]", StringComparison.Ordinal))
+                {
+                    _buffers.Add($"StructuredBuffer<{elem}> {inst[..^2]};");
+                    return;
+                }
+            }
+
+            var body = new List<string>();
+            foreach (var m in members.Distinct())
+            {
+                int bar = m.IndexOf('|');
+                body.Add($"    {m[..bar]} {m[(bar + 1)..]};");
+            }
+            if (isSsbo)
+            {
+                _buffers.Add($"struct {name}_t\n{{\n{string.Join("\n", body)}\n}};");
+                _buffers.Add($"StructuredBuffer<{name}_t> {name};");
+            }
+            else
+            {
+                _buffers.Add($"cbuffer {name} : register(b{_cbIndex++})\n{{\n{string.Join("\n", body)}\n}};");
+            }
+        }
+
+        /// <summary>GLSL `struct X { members };` -> HLSL struct with mapped types.</summary>
+        private void ReadStructDecl(GlslParser.StructDeclContext sd)
+        {
+            string name = sd.IDENT(0)?.GetText() ?? "";
+            if (string.IsNullOrEmpty(name) || !_structs.Add(name)) return;
+            var body = new List<string>();
+            foreach (var sm in sd.structBody().structMember())
+            {
+                string type0 = TypeText(sm.fullySpecifiedType());
+                string tarr = "";
+                int tb = type0.IndexOf('[');
+                if (tb >= 0) { tarr = type0[tb..]; type0 = type0[..tb]; }
+                string type = MapType(type0);
+                foreach (var sdel in sm.structDeclaratorList().structDeclarator())
+                {
+                    string raw = sdel.GetText();
+                    string nm = sdel.IDENT()?.GetText() ?? raw;
+                    string arr = raw.Contains(nm) ? raw[(raw.IndexOf(nm, StringComparison.Ordinal) + nm.Length)..] : "";
+                    body.Add($"    {type} {nm}{tarr}{arr};");
+                }
+            }
+            if (body.Count > 0)
+                _buffers.Add($"struct {name}\n{{\n{string.Join("\n", body)}\n}};");
+        }
+
+        private readonly HashSet<string> _structs = new(StringComparer.Ordinal);
+        private int _cbIndex;
 
         private void ReadVariables(GlslParser.VariableDeclContext v)
         {
@@ -228,6 +352,10 @@ namespace ShaderRipper.Antlr.Emit
         {
             _sb.Append("// ---- ").Append(_vertex ? "VERTEX" : "FRAGMENT").Append(" ----\n");
 
+            foreach (var b in _buffers)
+                _sb.Append(b).Append('\n');
+            if (_buffers.Count > 0) _sb.Append('\n');
+
             var samplers = new HashSet<string>(StringComparer.Ordinal);
             foreach (var (type, name) in _uniforms)
             {
@@ -256,14 +384,72 @@ namespace ShaderRipper.Antlr.Emit
                 _sb.Append("static ").Append(type).Append(' ').Append(name).Append(";\n");
             _sb.Append('\n');
 
-            _sb.Append(_vertex ? "float4 main() : SV_Position\n{\n" : "float4 main() : SV_Target\n{\n");
+            // Helper functions the GLSL payload defines (HLSLcc's
+            // uint_bitfieldExtract and friends): same statement renderer, but
+            // `return expr;` keeps its operand -- only main's bare `return`
+            // is rewritten to the output variable.
+            foreach (var h in _helpers)
+            {
+                var ps = new List<string>();
+                if (h.parameterList() != null)
+                    foreach (var p in h.parameterList().parameterDeclaration())
+                    {
+                        string pt = MapType(TypeText(p.fullySpecifiedType()));
+                        string pn = p.IDENT()?.GetText() ?? "";
+                        if (pn.Length > 0) ps.Add($"{pt} {pn}");
+                        else ps.Add(pt);
+                    }
+                _sb.Append(MapType(TypeText(h.fullySpecifiedType())))
+                   .Append(' ').Append(h.IDENT().GetText())
+                   .Append('(').Append(string.Join(", ", ps)).Append(")\n{\n");
+                if (h.compoundStatement() != null)
+                    foreach (var st in h.compoundStatement().statement())
+                    {
+                        string text = Render(st)?.Trim();
+                        if (string.IsNullOrEmpty(text)) continue;
+                        foreach (var line in text.Split('\n'))
+                        {
+                            string l = line.Trim();
+                            if (l.Length == 0) continue;
+                            _sb.Append("    ").Append(l).Append('\n');
+                        }
+                    }
+                _sb.Append("}\n\n");
+            }
+
+            _sb.Append(_vertex ? "float4 main(" : "float4 main(");
+            if (_vertex)
+            {
+                var ps = new List<string>();
+                if (_usesInstance) ps.Add("uint sv_instance : SV_InstanceID");
+                if (_usesVertex) ps.Add("uint sv_vertex : SV_VertexID");
+                if (ps.Count > 0) _sb.Append(string.Join(", ", ps));
+            }
+            else if (_usesSvPosition)
+            {
+                _sb.Append("float4 sv_position : SV_Position");
+            }
+            _sb.Append(_vertex ? ") : SV_Position\n{\n" : ") : SV_Target\n{\n");
+            if (_vertex)
+            {
+                // Local aliases, not globals: a static global cannot be seeded
+                // from an entry parameter, and the GLSL body spells the built-in
+                // names directly.
+                if (_usesInstance) _sb.Append("    uint gl_InstanceID = sv_instance;\n");
+                if (_usesVertex) _sb.Append("    uint gl_VertexID = sv_vertex;\n");
+            }
 
             // Temporaries belong to the function, not the file: a global is
             // implicitly const in HLSL and every assignment to it is X3025.
             foreach (var l in _locals)
                 _sb.Append("    ").Append(l).Append(l.Contains('[') ? ";\n" : " = 0.0;\n");
             foreach (var (type, name) in _outs.Distinct())
+            {
+                // sv_position arrives as the entry parameter; a same-named
+                // local would shadow it and X3000s the compile.
+                if (_usesSvPosition && name == "sv_position") continue;
                 _sb.Append("    ").Append(type).Append(' ').Append(name).Append(" = 0.0;\n");
+            }
             if (_vertex && !_outs.Any(o => o.name == "o0"))
                 _sb.Append("    float4 o0 = 0.0;\n");
 

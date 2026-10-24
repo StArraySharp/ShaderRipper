@@ -3,6 +3,7 @@ using System.Collections.Generic;
 using System.Globalization;
 using System.Linq;
 using System.Text;
+using System.Text.RegularExpressions;
 using ShaderRipper.Antlr.Ast;
 
 namespace ShaderRipper.Antlr.Emit
@@ -41,6 +42,7 @@ namespace ShaderRipper.Antlr.Emit
         private int _loops;
 
         private readonly CbLayout _lay;
+        private ShaderInterface _iface;
 
         private HlslEmitter(Module m)
         {
@@ -101,9 +103,7 @@ namespace ShaderRipper.Antlr.Emit
                     continue;
                 }
                 foreach (var mem in _lay.For(reg))
-                    _sb.Append(mem.IsArray
-                        ? $"    {mem.Type} {mem.Name}[{mem.Rows}];\n"
-                        : $"    {mem.Type} {mem.Name};\n");
+                    _sb.Append(CbLayout.Line(mem)).Append('\n');
                 _sb.Append("};\n\n");
             }
         }
@@ -113,6 +113,11 @@ namespace ShaderRipper.Antlr.Emit
             var textures = _m.Decls.Where(d => d.Kind == "texture")
                                    .GroupBy(d => d.Register).Select(g => g.First())
                                    .OrderBy(d => d.Register).ToList();
+            // Unity binds a sampler to its texture by name: `SamplerState
+            // sampler_<texture>` is how the compiler knows which resource a sample
+            // refers to.  A bare `s0` is rejected outright ("Unrecognized sampler"),
+            // so the pair is named from the resource reflection where it is known
+            // and positionally where it is not.
             foreach (var d in textures)
             {
                 string ty = d.Dimension switch
@@ -121,10 +126,11 @@ namespace ShaderRipper.Antlr.Emit
                     5 => "Texture2DArray", 7 => "Buffer",
                     _ => "Texture2D",
                 };
-                _sb.Append($"{ty} t{d.Register} : register(t{d.Register});\n");
+                string name = TexName(d.Register);
+                _sb.Append($"{ty} {name} : register(t{d.Register});\n");
             }
             foreach (var d in textures)
-                _sb.Append($"SamplerState s{d.Register} : register(s{d.Register});\n");
+                _sb.Append($"SamplerState sampler_{TexName(d.Register)} : register(s{d.Register});\n");
             if (textures.Count > 0) _sb.Append('\n');
 
             // dcl_immediateConstantBuffer is a literal table in the program (a blur
@@ -152,23 +158,79 @@ namespace ShaderRipper.Antlr.Emit
                 _sb.Append("};\n\n");
             }
 
-            // Input registers are the vertex attributes / pixel inputs the
-            // signature table describes; at register level they are plain globals
-            // whose values the runtime supplies.
-            foreach (var d in _m.Decls.Where(x => x.Kind == "input")
-                                      .GroupBy(x => x.Register).Select(g => g.First())
-                                      .OrderBy(x => x.Register))
-                _sb.Append($"static float4 v{d.Register};\n");
-            if (_m.Decls.Any(x => x.Kind == "input")) _sb.Append('\n');
+            // Input registers become function locals bound to the struct fields when
+            // the signatures say what those fields are; only a program without
+            // signatures falls back to globals, which a real compiler treats as
+            // constants and dead-code-eliminates.
+            bool bound = (_m.Stage is "vs" ? _m.InputSig : _m.InputSig) is { Count: > 0 };
+            if (!bound)
+            {
+                foreach (var d in _m.Decls.Where(x => x.Kind == "input")
+                                          .GroupBy(x => x.Register).Select(g => g.First())
+                                          .OrderBy(x => x.Register))
+                    _sb.Append($"static float4 v{d.Register};\n");
+                if (_m.Decls.Any(x => x.Kind == "input")) _sb.Append('\n');
+            }
             if (_m.Code.SelectMany(i => i.Args).Any(a => a.Kind == RegKind.X))
                 _sb.Append("static float4 _x[512];\n\n");
         }
 
+        /// <summary>
+        /// The entry point, shaped by the program's signature tables when it has
+        /// them.
+        ///
+        /// Without signatures the program is register-level and the inputs are
+        /// globals: it compiles, but a real compiler sees constants and deletes the
+        /// whole body.  With them, the stage gets the appdata / interpolator struct
+        /// its semantics describe and the body is wired to those fields, which is
+        /// what makes the output a shader rather than a listing.
+        /// </summary>
         private void EmitEntry()
         {
-            bool frag = _m.Stage is "ps" or "fx";
-            _sb.Append(frag ? "float4 main() : SV_Target\n{\n" : "float4 main() : SV_Position\n{\n");
+            bool vert = _m.Stage is "vs";
+            _iface = new ShaderInterface();
+            if (vert)
+            {
+                _iface.BuildAppdata(_m.InputSig);
+                _iface.BuildV2f(_m.OutputSig, null);
+            }
+            else
+            {
+                _iface.BuildV2f(null, _m.InputSig);
+            }
+
+            bool hasIn = vert ? _iface.AppdataFields.Count > 0 : _iface.V2fFields.Count > 0;
+            bool hasOut = vert ? _iface.V2fFields.Count > 0 : _m.OutputSig != null && _m.OutputSig.Count > 0;
+
+            if (vert && _iface.AppdataFields.Count > 0)
+                _sb.Append(ShaderInterface.StructText("appdata", _iface.AppdataFields));
+            if (_iface.V2fFields.Count > 0)
+                _sb.Append(ShaderInterface.StructText(vert ? "v2f" : "stage_in", _iface.V2fFields, renumber: vert));
+
+            // The return type is whatever the stage actually hands over: the
+            // interpolator struct from a vertex shader, a target from a fragment.
+            string sig;
+            if (vert)
+                sig = _iface.V2fFields.Count > 0 ? "v2f vert(" + (hasIn ? "appdata v" : "") + ")"
+                                                : "float4 vert(" + (hasIn ? "appdata v" : "") + ") : SV_Position";
+            else
+                sig = "float4 frag(" + (hasIn ? "stage_in i" : "") + ") : SV_Target";
+
+            _sb.Append(sig).Append("\n{\n");
             _indent = 1;
+
+            // Inputs first: the body assumes vN exists and holds the register.
+            if (hasIn)
+            {
+                var map = vert ? _iface.VsInReg : _iface.PsInReg;
+                foreach (var line in _iface.BindInputs(map, vert ? "v" : "i", NeededInputComps))
+                    Line(line.Trim());
+                Line("");
+            }
+
+            // The struct is built in place at the `ret`, so it has to exist for the
+            // whole function: an early return path assigns it too.
+            if (vert && hasOut) Line("v2f o = (v2f)0;");
 
             _temps = Math.Max(_m.Temps,
                 _m.Code.SelectMany(i => i.Args).Where(a => a.Kind == RegKind.R)
@@ -185,6 +247,20 @@ namespace ShaderRipper.Antlr.Emit
                 _r.Instructions++;
                 int at = _sb.Length;
                 bool ok = Emit(ins);
+                // `_sat` is a result modifier, not an instruction: fxc spells it
+                // `mul_sat`, HLSL spells it `saturate(mul(...))`.  When the
+                // emission was a single assignment line, wrap its right-hand
+                // side; block-shaped emissions (if/loops) are left alone.
+                if (ok && ins.Saturate)
+                {
+                    string written = _sb.ToString(at, _sb.Length - at);
+                    var mm = Regex.Match(written, @"^(\s*)([^=\n]+)= (.+);\r?\n$");
+                    if (mm.Success)
+                    {
+                        _sb.Length = at;
+                        Line($"{mm.Groups[1].Value}{mm.Groups[2].Value}= saturate({mm.Groups[3].Value});");
+                    }
+                }
                 if (ok) _r.Translated++;
                 else
                 {
@@ -194,7 +270,51 @@ namespace ShaderRipper.Antlr.Emit
                 }
             }
 
-            _sb.Append("\n    return ").Append(ReturnValue()).Append(";\n}\n");
+            // `ret` already wrote the return; only a program whose last instruction
+            // is not one needs it here.
+            if (_m.Code.Count == 0 || _m.Code[^1].Opcode != "ret")
+            {
+                _sb.Append('\n');
+                ReturnStatement();
+            }
+            _sb.Append("}\n");
+        }
+
+        /// <summary>
+        /// The return this stage owes its caller: the interpolator struct filled from
+        /// the oN registers for a vertex program, the target register for a fragment.
+        /// Repeatable, because a program can return from more than one place.
+        /// </summary>
+        private void ReturnStatement()
+        {
+            bool vert = _m.Stage is "vs";
+            if (vert && _iface != null && _iface.VsOutReg.Count > 0)
+            {
+                foreach (var line in _iface.BindOutputs(_iface.VsOutReg, "o")) Line(line.Trim());
+                Line("return o;");
+                return;
+            }
+            Line("return " + ReturnValue() + ";");
+        }
+
+        /// <summary>
+        /// How many components the body reads from an input register, so a local can
+        /// be wide enough for a read that goes past the declaration mask.
+        /// </summary>
+        private int NeededInputComps(int reg)
+        {
+            int n = 0;
+            foreach (var ins in _m.Code)
+                foreach (var a in ins.Args)
+                    if (a.Kind == RegKind.V && a.Index == reg)
+                        n = Math.Max(n, SwizzleWidth(a.Swizzle));
+            return n;
+        }
+
+        private static int SwizzleWidth(string sw)
+        {
+            if (string.IsNullOrEmpty(sw)) return 4;
+            return Math.Min(4, sw.TrimStart('.').Length);
         }
 
         private string ReturnValue()
@@ -206,11 +326,28 @@ namespace ShaderRipper.Antlr.Emit
 
         // --------------------------------------------------------------- operands
 
-        private string Expr(Operand o)
+        private string Expr(Operand o, int comps = 0)
         {
             string core = Core(o);
             if (core == null) return null;
-            if (o.Swizzle != null) core += o.Swizzle;
+            string sw = o.Swizzle;
+            if (comps > 0)
+            {
+                // A dot over N components must see exactly N: the disassembly
+                // spells four-component masks (`v1.xyzx`) even for dp3, and
+                // feeding the trailing component to `dot` turns fxc's dp3 into
+                // a dp4 whose fourth product changes the value.
+                if (sw == null)
+                {
+                    if (o.Kind is RegKind.R or RegKind.V or RegKind.Cb or RegKind.X or RegKind.Icb)
+                        sw = ".xyzw";
+                }
+                else if (sw[0] == '.' && sw.Length > 1 + comps)
+                {
+                    sw = sw.Substring(0, 1 + comps).PadRight(1 + comps, sw[sw.Length - 1]);
+                }
+            }
+            if (sw != null) core += sw;
             if (o.Abs) core = $"abs({core})";
             if (o.Negate) core = "-" + core;
             return core;
@@ -232,6 +369,22 @@ namespace ShaderRipper.Antlr.Emit
                 RegKind.Icb => IcbRef(o),
                 _ => null,
             };
+        }
+
+        /// <summary>
+        /// The identifier of a texture: the name the shader's own reflection gives
+        /// it, or a positional one when the asset did not record it.
+        /// </summary>
+        private string TexName(int reg)
+        {
+            if (_m.Cb != null && _m.Cb.TexName.TryGetValue(reg, out var n) && !string.IsNullOrEmpty(n))
+            {
+                var sb = new System.Text.StringBuilder(n.Length + 1);
+                foreach (char c in n) sb.Append(char.IsLetterOrDigit(c) || c == '_' ? c : '_');
+                if (sb.Length > 0 && char.IsDigit(sb[0])) sb.Insert(0, '_');
+                if (sb.Length > 0) return sb.ToString();
+            }
+            return "t" + reg;
         }
 
         /// <summary>
@@ -275,6 +428,11 @@ namespace ShaderRipper.Antlr.Emit
         /// declaration allows: the raw array when the buffer kept that shape, the
         /// member the resolver named, and the positional member the declaration
         /// emitted for a row nothing pinned.
+        ///
+        /// A row that holds several scalars is named by a <c>float4(...)</c>
+        /// constructor of those scalars, which keeps one answer per row and still
+        /// lets a swizzle be applied to it -- `float4(a, b, c, d).zw` is a value,
+        /// just like `_Color.zw`.
         /// </summary>
         private string CbCore(Operand o)
         {
@@ -369,7 +527,7 @@ namespace ShaderRipper.Antlr.Emit
                 case "nop":
                     return true;
                 case "ret":
-                    Line("return " + ReturnValue() + ";");
+                    ReturnStatement();
                     return true;
                 case "discard":
                     Line("discard;");
@@ -415,16 +573,64 @@ namespace ShaderRipper.Antlr.Emit
             }
         }
 
+        /// <summary>Opcodes whose result is componentwise, so a partial
+        /// destination mask selects the same slots on every source operand.</summary>
+        private static readonly HashSet<string> Componentwise = new(StringComparer.Ordinal)
+        {
+            "add", "sub", "mul", "div", "mad", "min", "max", "mov", "movc",
+            "iadd", "imul", "imad", "iumin", "iumax", "imin", "imax",
+            "ieq", "ine", "ilt", "ige", "ult", "uge", "eq", "ne", "lt", "le", "gt", "ge",
+            "and", "or", "xor", "ishl", "ishr", "ushr",
+        };
+
+        /// <summary>The destination's write mask, "" when it writes all four.</summary>
+        private static string DestMask(Operand dst)
+        {
+            if (dst.Swizzle == null || dst.Swizzle.Length == 4) return "";
+            return dst.Swizzle[1..];
+        }
+
+        /// <summary>
+        /// Re-index an operand through the destination mask: DXBC
+        /// `div o4.zw, l(0,0,1,1), r0.xxxy` writes slots z,w -- 1/r0.x, 1/r0.y --
+        /// while a naive HLSL `o4.zw = l / r0.xxxy` truncates the right side to
+        /// x,y and divides by the wrong components.  Remapping every operand's
+        /// swizzle through the mask pairs the assignment component-for-component.
+        /// </summary>
+        private static Operand RemapForMask(Operand o, string mask)
+        {
+            // A scalar literal already broadcasts to every slot; remapping would
+            // spell `0.5f.z`, which is not HLSL.
+            if (o.Lit is { Length: <= 1 }) return o;
+            string src = (o.Swizzle ?? ".xyzw")[1..];   // strip the leading dot
+            if (!System.Text.RegularExpressions.Regex.IsMatch(src, @"^[xyzw]{1,4}$")) return o;
+            if (src.Length < 4) src = src.PadRight(4, src[^1]);
+            var clone = new Operand
+            {
+                Kind = o.Kind, Index = o.Index, Row = o.Row,
+                Swizzle = "." + string.Concat(mask.Select(c => src["xyzw".IndexOf(c)])),
+                Negate = o.Negate, Abs = o.Abs, Lit = o.Lit, Raw = o.Raw,
+            };
+            return clone;
+        }
+
         /// <summary>Emit one instruction; false when there is no handler.</summary>
         private bool Emit(Instruction ins)
         {
-            var a = ins.Args;
+            List<Operand> a = new List<Operand>(ins.Args);
             // Instructions that carry no operand are the block punctuation; they
             // have to be handled before any destination is looked at.
             if (a.Count == 0) return EmitNoOperand(ins.Opcode);
 
             // A `null` destination is a discard mask: there is nothing to assign.
             if (a[0].Kind == RegKind.Null) return true;
+
+            if (Componentwise.Contains(ins.Opcode))
+            {
+                string m = DestMask(a[0]);
+                if (m.Length > 0)
+                    a = a.Select((o, i) => i == 0 ? o : RemapForMask(o, m)).ToList();
+            }
 
             string d = Expr(a[0]);
             if (d == null) return false;
@@ -459,7 +665,8 @@ namespace ShaderRipper.Antlr.Emit
                     Line($"{d} = {Expr(a[1])};");
                     return true;
                 case "movc":
-                    Line($"{d} = {Scalar(a[3])} != 0.0 ? {Expr(a[1])} : {Expr(a[2])};");
+                    // movc dst, src0, src1, src2 -> dst = src0 != 0 ? src1 : src2
+                    Line($"{d} = {Expr(a[1])} != 0.0 ? {Expr(a[2])} : {Expr(a[3])};");
                     return true;
 
                 case "add": Line($"{d} = {Expr(a[1])} + {Expr(a[2])};"); return true;
@@ -467,8 +674,8 @@ namespace ShaderRipper.Antlr.Emit
                 case "mul": Line($"{d} = {Expr(a[1])} * {Expr(a[2])};"); return true;
                 case "div": Line($"{d} = {Expr(a[1])} / {Expr(a[2])};"); return true;
                 case "mad": Line($"{d} = {Expr(a[1])} * {Expr(a[2])} + {Expr(a[3])};"); return true;
-                case "dp2": Line($"{d} = dot({Expr(a[1])}, {Expr(a[2])});"); return true;
-                case "dp3": Line($"{d} = dot({Expr(a[1])}, {Expr(a[2])});"); return true;
+                case "dp2": Line($"{d} = dot({Expr(a[1], 2)}, {Expr(a[2], 2)});"); return true;
+                case "dp3": Line($"{d} = dot({Expr(a[1], 3)}, {Expr(a[2], 3)});"); return true;
                 case "dp4": Line($"{d} = dot({Expr(a[1])}, {Expr(a[2])});"); return true;
                 case "rcp": Line($"{d} = 1.0 / {Scalar(a[1])};"); return true;
                 case "sincos":
@@ -476,12 +683,16 @@ namespace ShaderRipper.Antlr.Emit
                     Line($"{d} = float4(cos({Scalar(a[2])}), sin({Scalar(a[2])}), 0.0, 0.0);");
                     return true;
 
-                case "lt": Line($"{d} = (float4)({Expr(a[1])} < {Expr(a[2])});"); return true;
-                case "le": Line($"{d} = (float4)({Expr(a[1])} <= {Expr(a[2])});"); return true;
-                case "gt": Line($"{d} = (float4)({Expr(a[1])} > {Expr(a[2])});"); return true;
-                case "ge": Line($"{d} = (float4)({Expr(a[1])} >= {Expr(a[2])});"); return true;
-                case "eq": Line($"{d} = (float4)({Expr(a[1])} == {Expr(a[2])});"); return true;
-                case "ne": Line($"{d} = (float4)({Expr(a[1])} != {Expr(a[2])});"); return true;
+                // A comparison produces a bool per component, and a bool vector
+                // does not convert to `float4` (X3017).  The ternary broadcasts a
+                // scalar over exactly the components the destination assigns, so
+                // it is correct for a masked write (`dst.zw`) as well as a full one.
+                case "lt": Line($"{d} = ({Expr(a[1])} < {Expr(a[2])}) ? 1.0 : 0.0;"); return true;
+                case "le": Line($"{d} = ({Expr(a[1])} <= {Expr(a[2])}) ? 1.0 : 0.0;"); return true;
+                case "gt": Line($"{d} = ({Expr(a[1])} > {Expr(a[2])}) ? 1.0 : 0.0;"); return true;
+                case "ge": Line($"{d} = ({Expr(a[1])} >= {Expr(a[2])}) ? 1.0 : 0.0;"); return true;
+                case "eq": Line($"{d} = ({Expr(a[1])} == {Expr(a[2])}) ? 1.0 : 0.0;"); return true;
+                case "ne": Line($"{d} = ({Expr(a[1])} != {Expr(a[2])}) ? 1.0 : 0.0;"); return true;
 
                 case "and": Line($"{d} = asfloat(asuint({Expr(a[1])}) & asuint({Expr(a[2])}));"); return true;
                 case "or": Line($"{d} = asfloat(asuint({Expr(a[1])}) | asuint({Expr(a[2])}));"); return true;
@@ -516,7 +727,13 @@ namespace ShaderRipper.Antlr.Emit
                     Line($"{d} = asfloat(-asint({Expr(a[1])}));");
                     return true;
                 case "udiv":
-                    Line($"{d} = asfloat(asuint({Expr(a[1])}) / asuint({Expr(a[2])}));");
+                    // fxc proves the divisor is zero from the constant paths above
+                    // and rejects the whole file (X4010) even when a ternary guards
+                    // the division -- it type-checks both arms.  Pinning the divisor
+                    // to at least 1 is what actually silences it, and the ternary
+                    // keeps D3D's answer for a real divide by zero (0xffffffff).
+                    Line($"{d} = asfloat(asuint({Expr(a[2])}) == 0u ? 0xffffffffu "
+                         + $": asuint({Expr(a[1])}) / max(asuint({Expr(a[2])}), 1u));");
                     return true;
                 case "ushr":
                     Line($"{d} = asfloat(asuint({Expr(a[1])}) >> asuint({Expr(a[2])}));");
@@ -534,10 +751,10 @@ namespace ShaderRipper.Antlr.Emit
                 case "sample":
                     return Sample(a, d, "Sample");
                 case "sample_l":
-                    Line($"{d} = t{a[2].Index}.SampleLevel(s{a[3].Index}, {Coord(a[1], a[2].Index)}, {Scalar(a[4])});");
+                    Line($"{d} = {TexName(a[2].Index)}.SampleLevel(sampler_{TexName(a[2].Index)}, {Coord(a[1], a[2].Index)}, {Scalar(a[4])});");
                     return true;
                 case "sample_d":
-                    Line($"{d} = t{a[2].Index}.SampleGrad(s{a[3].Index}, {Coord(a[1], a[2].Index)}, "
+                    Line($"{d} = {TexName(a[2].Index)}.SampleGrad(sampler_{TexName(a[2].Index)}, {Coord(a[1], a[2].Index)}, "
                          + $"{Coord(a[4], a[2].Index)}, {Coord(a[5], a[2].Index)});");
                     return true;
 
@@ -559,7 +776,7 @@ namespace ShaderRipper.Antlr.Emit
         private bool Sample(List<Operand> a, string d, string method)
         {
             if (a.Count < 4) return false;
-            Line($"{d} = t{a[2].Index}.{method}(s{a[3].Index}, {Coord(a[1], a[2].Index)});");
+            Line($"{d} = {TexName(a[2].Index)}.{method}(sampler_{TexName(a[2].Index)}, {Coord(a[1], a[2].Index)});");
             return true;
         }
 
@@ -575,9 +792,15 @@ namespace ShaderRipper.Antlr.Emit
             int comps = dim is 3 or 4 ? 3 : 2;
             string e = Expr(o);
             if (e == null) return null;
+            // The coordinate components come from the instruction's own swizzle,
+            // not the resource dimension: DXBC samples probe volumes with
+            // `r0.zwzz`-style sources, and forcing `.xy` there reads the wrong
+            // components -- and lets the compiler fold distinct taps together.
+            string src = (o.Swizzle ?? ".xyzw")[1..];
+            if (src.Length < comps) src = src.PadRight(comps, src[^1]);
             var m = System.Text.RegularExpressions.Regex.Match(e, @"^(\w[\w.\[\]]*)\.([xyzw]+)$");
-            if (m.Success) return $"({m.Groups[1].Value})." + (comps == 3 ? "xyz" : "xy");
-            return comps == 3 ? $"({e}).xyz" : $"({e}).xy";
+            if (m.Success) return $"({m.Groups[1].Value})." + src[..comps];
+            return $"({e}).{src[..comps]}";
         }
     }
 }

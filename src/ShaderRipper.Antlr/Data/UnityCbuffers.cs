@@ -252,6 +252,156 @@ namespace ShaderRipper.Antlr.Data
             Add("UnityTerrain", "_TreeBillboardCameraPos", 13, col: 0, span: 4);
             Add("UnityTerrain", "_TreeBillboardDistances", 14, col: 0, span: 4);
 
+            // ---- generated: full declaration-order layouts from the installed
+            // Unity's CGIncludes (see .temp/gen_layouts.py).  Merged, not
+            // replacing: a hand-curated anchor wins, the generator only fills
+            // rows nothing else claims.
+            void AddIfFree(string cb, string name, int row, int rows = 1,
+                           bool mat = false, bool scalar = false, bool vec = false,
+                           int col = 0, int span = 0)
+            {
+                if (m.Any(x => x.Cb == cb && row < x.Row + x.Rows && x.Row < row + rows))
+                    return;   // already covered (partially or fully) by an anchor
+                Add(cb, name, row, rows, mat, scalar, vec, col, span);
+            }
+
+            // UnityPerCamera
+            AddIfFree("UnityPerCamera", "_Time", 0);
+            AddIfFree("UnityPerCamera", "_SinTime", 1);
+            AddIfFree("UnityPerCamera", "_CosTime", 2);
+            AddIfFree("UnityPerCamera", "unity_DeltaTime", 3);
+            AddIfFree("UnityPerCamera", "_WorldSpaceCameraPos", 4, vec: true);
+            AddIfFree("UnityPerCamera", "_ProjectionParams", 5);
+            AddIfFree("UnityPerCamera", "_ScreenParams", 6);
+            AddIfFree("UnityPerCamera", "_ZBufferParams", 7);
+            AddIfFree("UnityPerCamera", "unity_OrthoParams", 8);
+            AddIfFree("UnityPerCamera", "unity_HalfStereoSeparation", 9);
+            // UnityPerCameraRare
+            AddIfFree("UnityPerCameraRare", "unity_CameraWorldClipPlanes[0]", 0);
+            AddIfFree("UnityPerCameraRare", "unity_CameraWorldClipPlanes[1]", 1);
+            AddIfFree("UnityPerCameraRare", "unity_CameraWorldClipPlanes[2]", 2);
+            AddIfFree("UnityPerCameraRare", "unity_CameraWorldClipPlanes[3]", 3);
+            AddIfFree("UnityPerCameraRare", "unity_CameraWorldClipPlanes[4]", 4);
+            AddIfFree("UnityPerCameraRare", "unity_CameraWorldClipPlanes[5]", 5);
+            AddIfFree("UnityPerCameraRare", "unity_CameraProjection", 6, rows: 4, mat: true);
+            AddIfFree("UnityPerCameraRare", "unity_CameraInvProjection", 10, rows: 4, mat: true);
+            AddIfFree("UnityPerCameraRare", "unity_WorldToCamera", 14, rows: 4, mat: true);
+            AddIfFree("UnityPerCameraRare", "unity_CameraToWorld", 18, rows: 4, mat: true);
+            // UnityLighting
+            AddIfFree("UnityLighting", "_WorldSpaceLightPos0", 0);
+            AddIfFree("UnityLighting", "_LightPositionRange", 1);
+            AddIfFree("UnityLighting", "_LightProjectionParams", 2);
+            AddIfFree("UnityLighting", "unity_4LightPosX0", 3);
+            AddIfFree("UnityLighting", "unity_4LightPosY0", 4);
+            AddIfFree("UnityLighting", "unity_4LightPosZ0", 5);
+            AddIfFree("UnityLighting", "unity_4LightAtten0", 6);
+            AddIfFree("UnityLighting", "unity_LightColor[0]", 7);
+            AddIfFree("UnityLighting", "unity_LightColor[1]", 8);
+            AddIfFree("UnityLighting", "unity_LightColor[2]", 9);
+            AddIfFree("UnityLighting", "unity_LightColor[3]", 10);
+            AddIfFree("UnityLighting", "unity_LightColor[4]", 11);
+            AddIfFree("UnityLighting", "unity_LightColor[5]", 12);
+            AddIfFree("UnityLighting", "unity_LightColor[6]", 13);
+            AddIfFree("UnityLighting", "unity_LightColor[7]", 14);
+            AddIfFree("UnityLighting", "unity_LightPosition[0]", 15);
+            AddIfFree("UnityLighting", "unity_LightPosition[1]", 16);
+            AddIfFree("UnityLighting", "unity_LightPosition[2]", 17);
+            AddIfFree("UnityLighting", "unity_LightPosition[3]", 18);
+            AddIfFree("UnityLighting", "unity_LightPosition[4]", 19);
+            AddIfFree("UnityLighting", "unity_LightPosition[5]", 20);
+            AddIfFree("UnityLighting", "unity_LightPosition[6]", 21);
+            AddIfFree("UnityLighting", "unity_LightPosition[7]", 22);
+            AddIfFree("UnityLighting", "unity_LightAtten[0]", 23);
+            AddIfFree("UnityLighting", "unity_LightAtten[1]", 24);
+            AddIfFree("UnityLighting", "unity_LightAtten[2]", 25);
+            AddIfFree("UnityLighting", "unity_LightAtten[3]", 26);
+            AddIfFree("UnityLighting", "unity_LightAtten[4]", 27);
+            AddIfFree("UnityLighting", "unity_LightAtten[5]", 28);
+            AddIfFree("UnityLighting", "unity_LightAtten[6]", 29);
+            AddIfFree("UnityLighting", "unity_LightAtten[7]", 30);
+            AddIfFree("UnityLighting", "unity_SpotDirection[0]", 31);
+            AddIfFree("UnityLighting", "unity_SpotDirection[1]", 32);
+            AddIfFree("UnityLighting", "unity_SpotDirection[2]", 33);
+            AddIfFree("UnityLighting", "unity_SpotDirection[3]", 34);
+            AddIfFree("UnityLighting", "unity_SpotDirection[4]", 35);
+            AddIfFree("UnityLighting", "unity_SpotDirection[5]", 36);
+            AddIfFree("UnityLighting", "unity_SpotDirection[6]", 37);
+            AddIfFree("UnityLighting", "unity_SpotDirection[7]", 38);
+            AddIfFree("UnityLighting", "unity_SHAr", 39);
+            AddIfFree("UnityLighting", "unity_SHAg", 40);
+            AddIfFree("UnityLighting", "unity_SHAb", 41);
+            AddIfFree("UnityLighting", "unity_SHBr", 42);
+            AddIfFree("UnityLighting", "unity_SHBg", 43);
+            AddIfFree("UnityLighting", "unity_SHBb", 44);
+            AddIfFree("UnityLighting", "unity_SHC", 45);
+            // UnityShadows
+            AddIfFree("UnityShadows", "unity_ShadowSplitSpheres[0]", 0);
+            AddIfFree("UnityShadows", "unity_ShadowSplitSpheres[1]", 1);
+            AddIfFree("UnityShadows", "unity_ShadowSplitSpheres[2]", 2);
+            AddIfFree("UnityShadows", "unity_ShadowSplitSpheres[3]", 3);
+            AddIfFree("UnityShadows", "unity_ShadowSplitSqRadii", 4);
+            AddIfFree("UnityShadows", "unity_LightShadowBias", 5);
+            AddIfFree("UnityShadows", "_LightSplitsNear", 6);
+            AddIfFree("UnityShadows", "_LightSplitsFar", 7);
+            AddIfFree("UnityShadows", "unity_WorldToShadow[0]", 8, rows: 4, mat: true);
+            AddIfFree("UnityShadows", "unity_WorldToShadow[1]", 12, rows: 4, mat: true);
+            AddIfFree("UnityShadows", "unity_WorldToShadow[2]", 16, rows: 4, mat: true);
+            AddIfFree("UnityShadows", "unity_WorldToShadow[3]", 20, rows: 4, mat: true);
+            AddIfFree("UnityShadows", "_LightShadowData", 24);
+            AddIfFree("UnityShadows", "unity_ShadowFadeCenterAndType", 25);
+            // UnityPerDraw
+            AddIfFree("UnityPerDraw", "unity_ObjectToWorld", 0, rows: 4, mat: true);
+            AddIfFree("UnityPerDraw", "unity_WorldToObject", 4, rows: 4, mat: true);
+            AddIfFree("UnityPerDraw", "unity_LODFade", 8);
+            AddIfFree("UnityPerDraw", "unity_WorldTransformParams", 9);
+            AddIfFree("UnityPerDraw", "unity_RenderingLayer", 10);
+            // UnityStereoGlobals
+            AddIfFree("UnityStereoGlobals", "unity_StereoMatrixP[0]", 0, rows: 4, mat: true);
+            AddIfFree("UnityStereoGlobals", "unity_StereoMatrixP[1]", 4, rows: 4, mat: true);
+            AddIfFree("UnityStereoGlobals", "unity_StereoMatrixV[0]", 8, rows: 4, mat: true);
+            AddIfFree("UnityStereoGlobals", "unity_StereoMatrixV[1]", 12, rows: 4, mat: true);
+            AddIfFree("UnityStereoGlobals", "unity_StereoMatrixInvV[0]", 16, rows: 4, mat: true);
+            AddIfFree("UnityStereoGlobals", "unity_StereoMatrixInvV[1]", 20, rows: 4, mat: true);
+            AddIfFree("UnityStereoGlobals", "unity_StereoMatrixVP[0]", 24, rows: 4, mat: true);
+            AddIfFree("UnityStereoGlobals", "unity_StereoMatrixVP[1]", 28, rows: 4, mat: true);
+            AddIfFree("UnityStereoGlobals", "unity_StereoCameraProjection[0]", 32, rows: 4, mat: true);
+            AddIfFree("UnityStereoGlobals", "unity_StereoCameraProjection[1]", 36, rows: 4, mat: true);
+            AddIfFree("UnityStereoGlobals", "unity_StereoCameraInvProjection[0]", 40, rows: 4, mat: true);
+            AddIfFree("UnityStereoGlobals", "unity_StereoCameraInvProjection[1]", 44, rows: 4, mat: true);
+            AddIfFree("UnityStereoGlobals", "unity_StereoWorldToCamera[0]", 48, rows: 4, mat: true);
+            AddIfFree("UnityStereoGlobals", "unity_StereoWorldToCamera[1]", 52, rows: 4, mat: true);
+            AddIfFree("UnityStereoGlobals", "unity_StereoCameraToWorld[0]", 56, rows: 4, mat: true);
+            AddIfFree("UnityStereoGlobals", "unity_StereoCameraToWorld[1]", 60, rows: 4, mat: true);
+            AddIfFree("UnityStereoGlobals", "unity_StereoWorldSpaceCameraPos[0]", 64, vec: true);
+            AddIfFree("UnityStereoGlobals", "unity_StereoWorldSpaceCameraPos[1]", 65, vec: true);
+            AddIfFree("UnityStereoGlobals", "unity_StereoScaleOffset[0]", 66);
+            AddIfFree("UnityStereoGlobals", "unity_StereoScaleOffset[1]", 67);
+            // UnityPerDrawRare
+            AddIfFree("UnityPerDrawRare", "glstate_matrix_transpose_modelview0", 0, rows: 4, mat: true);
+            // UnityPerFrame
+            AddIfFree("UnityPerFrame", "glstate_matrix_projection", 0, rows: 4, mat: true);
+            AddIfFree("UnityPerFrame", "unity_MatrixV", 4, rows: 4, mat: true);
+            AddIfFree("UnityPerFrame", "unity_MatrixInvV", 8, rows: 4, mat: true);
+            AddIfFree("UnityPerFrame", "unity_MatrixVP", 12, rows: 4, mat: true);
+            AddIfFree("UnityPerFrame", "unity_StereoEyeIndex", 16, scalar: true);
+            // UnityLightmaps
+            AddIfFree("UnityLightmaps", "unity_LightmapST", 0);
+            AddIfFree("UnityLightmaps", "unity_DynamicLightmapST", 1);
+            // UnityReflectionProbes
+            AddIfFree("UnityReflectionProbes", "unity_SpecCube0_BoxMax", 0);
+            AddIfFree("UnityReflectionProbes", "unity_SpecCube0_BoxMin", 1);
+            AddIfFree("UnityReflectionProbes", "unity_SpecCube0_ProbePosition", 2);
+            AddIfFree("UnityReflectionProbes", "unity_SpecCube0_HDR", 3);
+            AddIfFree("UnityReflectionProbes", "unity_SpecCube1_BoxMax", 4);
+            AddIfFree("UnityReflectionProbes", "unity_SpecCube1_BoxMin", 5);
+            AddIfFree("UnityReflectionProbes", "unity_SpecCube1_ProbePosition", 6);
+            AddIfFree("UnityReflectionProbes", "unity_SpecCube1_HDR", 7);
+            // UnityProbeVolume
+            AddIfFree("UnityProbeVolume", "unity_ProbeVolumeParams", 0);
+            AddIfFree("UnityProbeVolume", "unity_ProbeVolumeWorldToObject", 1, rows: 4, mat: true);
+            AddIfFree("UnityProbeVolume", "unity_ProbeVolumeSizeInv", 5, vec: true);
+            AddIfFree("UnityProbeVolume", "unity_ProbeVolumeMin", 6, vec: true);
+
             return m;
         }
 

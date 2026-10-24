@@ -76,6 +76,15 @@ namespace ShaderRipper.Antlr.Ast
         public List<float[]> Icb = new();
 
         /// <summary>
+        /// The stage's input and output signature tables, read from the leading
+        /// comments of the disassembly (see <see cref="SignatureReader"/>).  Null
+        /// when the program has none, which is what a synthetic or truncated
+        /// disassembly looks like.
+        /// </summary>
+        public List<SigEntry> InputSig;
+        public List<SigEntry> OutputSig;
+
+        /// <summary>
         /// The constant-buffer analysis for this program, when the game reader ran
         /// one.  Null for a bare <c>--asm</c> file, where nothing outside the
         /// disassembly is known and every buffer stays numeric.
@@ -117,6 +126,8 @@ namespace ShaderRipper.Antlr.Ast
                 var ins = content.instruction();
                 if (ins != null) m.ReadInstruction(ins);
             }
+
+            SignatureReader.Read(m.Source, m);
             return m;
         }
 

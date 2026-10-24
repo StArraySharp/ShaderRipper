@@ -35,11 +35,19 @@ namespace ShaderRipper.Antlr
             }
 
             // The name tables the constant-buffer analysis reads: the curated
-            // $Globals member lists and the TMP layout rows.  Both are embedded in
-            // the binary and unpacked to a temp directory on first use, so a single
-            // file is self-contained; a checkout picks up the files directly.
+            // $Globals member lists, the TMP layout rows, and the list of Unity's
+            // global matrices.  All three are embedded in the binary and unpacked
+            // to a temp directory on first use, so a single file is self-contained;
+            // a checkout picks up the files directly.
+            //
+            // The matrix list matters more than it looks: a global like
+            // `unity_WorldToLight` sits in `$Globals` beside material properties,
+            // and the parameter blob records only its first row.  Without the list
+            // the other three rows stay `_cb0_rowK` in every shader that lights
+            // something -- 438 declarations across one game alone.
             GlobalsNames.TableDir = Paths.FindDir(Path.Combine("data", "globals_names"));
             TmpLayouts.Load(null);
+            MatrixNames.Load(null);
 
             switch (args[0])
             {
@@ -48,7 +56,9 @@ namespace ShaderRipper.Antlr
                 case "--emit": return EmitAll(args[1], args[2]);
                 case "--glsl": return Glsl(args[1], args.Contains("--shaderlab"));
                 case "--game": return ExportGame(args[1], args.Length > 2 ? args[2] : args[1] + "_Ripped",
-                                           Only(args), args.Contains("--shaderlab"));
+                                           Only(args), args.Contains("--shaderlab"),
+                                           args.Contains("--orig-asm"),
+                                           args.Contains("--dedup"));
                 default:
                     Console.Error.WriteLine($"unknown option: {args[0]}");
                     return 2;
@@ -69,9 +79,10 @@ namespace ShaderRipper.Antlr
         }
 
         /// <summary>Read a game's data directory and translate every shader in it.</summary>
-        private static int ExportGame(string dataDir, string outDir, string only, bool shaderLab)
+        private static int ExportGame(string dataDir, string outDir, string only, bool shaderLab,
+                                      bool origAsm = false, bool dedup = false)
         {
-            var s = ShaderRipper.Antlr.Game.GameExport.Run(dataDir, outDir, only, shaderLab);
+            var s = ShaderRipper.Antlr.Game.GameExport.Run(dataDir, outDir, only, shaderLab, origAsm, dedup);
             Console.WriteLine($"files={s.Files} shaders={s.Shaders} programs={s.Programs} "
                               + $"disassembled={s.Disassembled} translated={s.Translated} "
                               + $"skipped={s.Skipped} failed={s.Failed}");
