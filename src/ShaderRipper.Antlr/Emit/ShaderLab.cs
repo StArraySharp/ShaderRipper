@@ -61,6 +61,13 @@ namespace ShaderRipper.Antlr.Emit
             public List<string> Notes = new();
             /// <summary>GLSL-derived bodies need the cginc includes and target 3.0.</summary>
             public bool GlslIncludes;
+            /// <summary>
+            /// Shader model the pass was compiled for, as <c>40</c> / <c>50</c>, or 0
+            /// when it is unknown.  Emitted as <c>#pragma target</c>: the translated
+            /// bodies are register level (SM4 syntax), and Unity's default target 2.5
+            /// does not accept them.
+            /// </summary>
+            public int Target;
         }
 
         public sealed class SubShaderText
@@ -158,6 +165,9 @@ namespace ShaderRipper.Antlr.Emit
             sb.Append("            HLSLPROGRAM\n");
             if (p.Vertex != null) sb.Append("            #pragma vertex ").Append(p.Vertex.Entry).Append('\n');
             if (p.Fragment != null) sb.Append("            #pragma fragment ").Append(p.Fragment.Entry).Append('\n');
+            AppendTarget(sb, p);
+            foreach (var pragma in p.Pragmas) sb.Append("            ").Append(pragma).Append('\n');
+            foreach (var note in p.Notes) sb.Append("            // ").Append(note).Append('\n');
             foreach (var line in merged) sb.Append("            ").Append(line).Append('\n');
             sb.Append("            ENDHLSL\n");
             sb.Append("        }\n\n");
@@ -171,6 +181,20 @@ namespace ShaderRipper.Antlr.Emit
         /// fallback for combinations Unity never compiled -- the same shape the
         /// original source had before Unity stripped its variants.
         /// </summary>
+        private static void AppendTarget(StringBuilder sb, PassText p)
+        {
+            // The translated body is register level: `Texture2D` + `SamplerState`
+            // declarations, `.Sample()` lookups, `asuint`/`asfloat` and `[loop]`.
+            // Unity compiles a program with no `#pragma target` as 2.5, which
+            // rejects every one of those, so the pass states the model the original
+            // program was built for -- and never less than 4.0, because the syntax
+            // itself requires it.
+            int model = Math.Max(p.Target, 40);
+            if (p.GlslIncludes) return;                 // that path already said 3.0
+            sb.Append("            #pragma target ").Append(model / 10).Append('.')
+              .Append(model % 10).Append('\n');
+        }
+
         private static void WriteVariantProgram(StringBuilder sb, PassText p)
         {
             sb.Append("            HLSLPROGRAM\n");
@@ -182,6 +206,7 @@ namespace ShaderRipper.Antlr.Emit
                 sb.Append("            #include \"HLSLSupport.cginc\"\n");
                 sb.Append("            #include \"UnityCG.cginc\"\n");
             }
+            AppendTarget(sb, p);
             foreach (var pragma in p.Pragmas) sb.Append("            ").Append(pragma).Append('\n');
             foreach (var note in p.Notes) sb.Append("            // ").Append(note).Append('\n');
 

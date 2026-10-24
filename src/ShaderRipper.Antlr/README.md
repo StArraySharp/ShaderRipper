@@ -41,6 +41,15 @@ Pretty names (`_Color`, `unity_ObjectToWorld`) come from a second layer: the
 constant-buffer analysis, which reads the asset rather than the instruction
 stream (the disassembly carries no RDEF at all).
 
+That register-level shape is SM4 syntax, so every pass declares
+`#pragma target` at the model its programs were compiled for (never below 4.0):
+Unity's default is 2.5, which rejects `Texture2D`, `.Sample()`, `asuint` and
+`[loop]` outright. The output also declares its own `cbuffer` blocks rather than
+including `UnityCG.cginc`: each member is pinned with `packoffset` to the exact
+row and lane the disassembly reads, and the include's `cbuffer UnityPerDraw`
+definitions would collide with them. The translated bodies are already
+register-level, so nothing in the include is referenced.
+
 ## The constant-buffer layer
 
 A `cbN[row]` read has no name in the disassembly. Unity strips the reflection, so

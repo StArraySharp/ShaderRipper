@@ -43,12 +43,38 @@ namespace ShaderRipper.Antlr.Game
             public readonly List<string> GKeys = new();
             public readonly Dictionary<string, (List<string> kw, string hlsl)> Glsl = new();
 
+            /// <summary>
+            /// Highest shader model any program of this pass was compiled for, as
+            /// <c>40</c> or <c>50</c>.  The translated HLSL is register level -- it
+            /// declares <c>Texture2D</c> + <c>SamplerState</c>, samples with
+            /// <c>.Sample()</c> and uses <c>asuint</c> -- so the pass has to ask for
+            /// at least the model the original was built with; Unity's default
+            /// target is 2.5, which rejects all of it.
+            /// </summary>
+            public int Target;
+
             public void Add(Dictionary<string, (List<string> kw, string hlsl)> into,
                             List<string> keys, string key, List<string> kw, string hlsl)
             {
-                if (!into.ContainsKey(key)) keys.Add(key);
+                // `keys` is the pass's order, shared by both stages, so it is the
+                // list the duplicate check has to be against: testing `into` (which
+                // is per stage) appended every key a second time when the fragment
+                // stage repeated a keyword combination the vertex stage already had,
+                // and the guard chain then emitted the same branch twice.
+                if (!keys.Contains(key)) keys.Add(key);
                 into[key] = (kw, hlsl);
             }
+        }
+
+        /// <summary>`vs_5_0` -> 50, `ps_4_0` -> 40, unreadable -> 0.</summary>
+        private static int ShaderModel(string profile)
+        {
+            int at = profile?.IndexOf('_') ?? -1;
+            if (at < 0 || at + 1 >= profile.Length) return 0;
+            string[] parts = profile[(at + 1)..].Split('_');
+            if (parts.Length < 2 || !int.TryParse(parts[0], out int major) ||
+                !int.TryParse(parts[1], out int minor)) return 0;
+            return major * 10 + minor;
         }
 
         public static Stats Run(string dataDir, string outDir, string only, bool shaderLab,
@@ -259,6 +285,7 @@ namespace ShaderRipper.Antlr.Game
 
                 if (pass == null) continue;
                 if (!perPass.TryGetValue(pass, out var build)) perPass[pass] = build = new PassBuild();
+                build.Target = Math.Max(build.Target, ShaderModel(r.Profile));
                 var kw = VariantPlan.KeywordsOf(sub, kwIndex);
                 var key = VariantPlan.Key(kw);
                 if (module.Stage is "ps") build.Add(build.Ps, build.Keys, key, kw, r.Hlsl);
@@ -344,6 +371,7 @@ namespace ShaderRipper.Antlr.Game
         private static void FillPass(Emit.ShaderLab.PassText pt, PassBuild pb)
         {
             bool hasKeywords = pb.Keys.Any(k => k.Length > 0) || pb.GKeys.Any(k => k.Length > 0);
+            pt.Target = pb.Target;
 
             // GLSL variants: one body per keyword combination, both stages inside.
             if (pb.GKeys.Count > 0)

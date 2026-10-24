@@ -27,6 +27,8 @@ namespace ShaderRipper.Antlr.Emit
         public sealed class Result
         {
             public string Hlsl = "";
+            /// <summary>The shader profile the program was compiled for (`ps_4_0`).</summary>
+            public string Profile = "";
             public int Instructions;
             public int Translated;
             public int Todo;
@@ -55,6 +57,7 @@ namespace ShaderRipper.Antlr.Emit
             var e = new HlslEmitter(m);
             e.Run();
             e._r.Hlsl = e._sb.ToString();
+            e._r.Profile = m.Profile;
             return e._r;
         }
 
