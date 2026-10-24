@@ -165,6 +165,13 @@ namespace ShaderRipper
             bool asmAntlr = !string.Equals(cli.Value("--asm-parser"), "regex",
                                            StringComparison.OrdinalIgnoreCase);
 
+            // Which route drives emission of a translated program.  "model" (the
+            // default) walks the flattened instruction list; "antlr" walks the
+            // parse tree and lets each instruction node call the translator.  Both
+            // write the same text -- the flag chooses the mechanism.
+            global::ShaderRipper.Cg.CgTranslator.TreeDriven = string.Equals(
+                cli.Value("--asm-translate"), "antlr", StringComparison.OrdinalIgnoreCase);
+
             int indexCount = BuiltinIndex.Load(cli.Value("--builtin-index"));
 
             int matrixCount = MatrixNames.Load(cli.Value("--matrix-names"));

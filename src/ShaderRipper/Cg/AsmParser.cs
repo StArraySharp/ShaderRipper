@@ -35,6 +35,20 @@ namespace ShaderRipper.Cg
             public string[] Signatures;
             public List<SigEntry> InputSig;
             public List<SigEntry> OutputSig;
+
+            /// <summary>
+            /// The parse tree this program was read from, when the grammar route
+            /// read it (null under <c>--asm-parser regex</c>).
+            ///
+            /// It is kept so translation can be driven from the tree itself
+            /// rather than from <see cref="Code"/>: <c>--asm-translate antlr</c>
+            /// walks the tree and emits per instruction node, while the default
+            /// route loops over the list.  Both produce the same text; the model
+            /// stays the carrier because declarations, signature tables and the
+            /// constant-buffer analysis are whole-program facts and are read from
+            /// it either way.
+            /// </summary>
+            public ShaderRipper.Antlr.DxbcAsmParser.ProgramContext Tree;
         }
 
         private static readonly System.Text.RegularExpressions.Regex SigRow = new(

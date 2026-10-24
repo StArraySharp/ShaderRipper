@@ -58,6 +58,21 @@ namespace ShaderRipper.Cg
         /// </summary>
         public static int UnsupportedTotal;
 
+        /// <summary>
+        /// Emit by walking the parse tree instead of looping over the flattened
+        /// instruction list.  Set by <c>--asm-translate antlr</c>.
+        ///
+        /// This is a second route to the same text, kept alongside the list walk
+        /// rather than replacing it: the list is what the constant-buffer
+        /// analysis, the signature reader and the opcode census all scan, and
+        /// those are whole-program questions that a single tree descent cannot
+        /// answer.  Emission, by contrast, is strictly one instruction after
+        /// another in document order, which is exactly what a visitor gives --
+        /// and when the tree is the source, no flattened list has to exist at
+        /// all for the emitter.
+        /// </summary>
+        public static bool TreeDriven;
+
         
 
         /// <summary>Highest component index a swizzle string touches (-1 when empty).</summary>
@@ -154,14 +169,49 @@ namespace ShaderRipper.Cg
 
         public string TranslateBody()
         {
-            foreach (var ins in _p.Code)
+            if (TreeDriven && _p.Tree != null)
             {
-                int at = _sb.Length;
-                Emit(ins);
-                if (AnnotateAsm && _sb.Length > at && !string.IsNullOrWhiteSpace(ins.Raw))
-                    _sb.Insert(at, new string('\t', _indent) + "// " + ins.Raw + Environment.NewLine);
+                // The grammar route: each instruction node drives its own
+                // emission, in the order the tree spells them.  Return false from
+                // the visit so operands are not descended into -- they carry no
+                // emission of their own.
+                new TreeEmitter(this).Visit(_p.Tree);
+                return _sb.ToString();
             }
+
+            foreach (var ins in _p.Code) EmitOne(ins);
             return _sb.ToString();
+        }
+
+        /// <summary>One instruction's worth of output, with its --asm comment.</summary>
+        internal void EmitOne(Instruction ins)
+        {
+            int at = _sb.Length;
+            Emit(ins);
+            if (AnnotateAsm && _sb.Length > at && !string.IsNullOrWhiteSpace(ins.Raw))
+                _sb.Insert(at, new string('\t', _indent) + "// " + ins.Raw + Environment.NewLine);
+        }
+
+        /// <summary>
+        /// The visitor that makes the grammar call the translator: ANTLR walks
+        /// the disassembly, and every <c>instruction</c> node is turned into the
+        /// same <see cref="Instruction"/> the list route holds and emitted on the
+        /// spot.  The node is the unit of work, so a line the grammar rejected
+        /// cannot reach the emitter at all.
+        /// </summary>
+        private sealed class TreeEmitter : ShaderRipper.Antlr.DxbcAsmBaseVisitor<bool>
+        {
+            private readonly CgTranslator _t;
+            public TreeEmitter(CgTranslator t) { _t = t; }
+
+            public override bool VisitInstruction(ShaderRipper.Antlr.DxbcAsmParser.InstructionContext ctx)
+            {
+                var content = ctx.Parent as ShaderRipper.Antlr.DxbcAsmParser.ContentContext;
+                if (content == null) return false;
+                var ins = ShaderRipper.Antlr.DxbcAsmReader.BuildInstruction(ctx, content);
+                if (ins != null) _t.EmitOne(ins);
+                return false;
+            }
         }
 
         private void EmitPreamble()

@@ -72,6 +72,7 @@ namespace ShaderRipper.Antlr
             lexer.RemoveErrorListeners();
             var tokens = new CommonTokenStream(lexer);
             var module = Program(tokens);
+            p.Tree = module;
 
             // Signature tables live in `//` comments, exactly as fxc writes them;
             // the grammar keeps comments as tokens so they are still reachable.
@@ -329,7 +330,7 @@ namespace ShaderRipper.Antlr
 
         // -------------------------------------------------------------- instructions
 
-        private static Instruction BuildInstruction(DxbcAsmParser.InstructionContext ins,
+        internal static Instruction BuildInstruction(DxbcAsmParser.InstructionContext ins,
                                                     DxbcAsmParser.ContentContext content)
         {
             var head = ins.opcodeHeader();
