@@ -69,6 +69,13 @@ namespace ShaderRipper.Antlr.Ast
         public List<Instruction> Code = new();
 
         /// <summary>
+        /// <c>dcl_immediateConstantBuffer</c> rows, in order: the constant table
+        /// fxc bakes into the program for things like a blur kernel.  Read from
+        /// the declaration itself, because it is the only place the values exist.
+        /// </summary>
+        public List<float[]> Icb = new();
+
+        /// <summary>
         /// The constant-buffer analysis for this program, when the game reader ran
         /// one.  Null for a bare <c>--asm</c> file, where nothing outside the
         /// disassembly is known and every buffer stays numeric.
@@ -168,6 +175,19 @@ namespace ShaderRipper.Antlr.Ast
                     d.Register = IndexOf(ctx.REG_CB().GetText());
                     var rows = ctx.number();
                     d.Count = rows != null && rows.Length > 0 ? Number(rows[0]) : 0;
+                    break;
+                case DxbcAsmParser.DCL_ICB:
+                    d.Kind = "icb";
+                    var body = ctx.icbBody();
+                    if (body != null)
+                        foreach (var row in body.icbRow())
+                        {
+                            var nums = row.number();
+                            var vals = new float[nums.Length];
+                            for (int i = 0; i < nums.Length; i++) vals[i] = Float(nums[i]);
+                            Icb.Add(vals);
+                        }
+                    d.Count = Icb.Count;
                     break;
                 case DxbcAsmParser.DCL_SAMPLER:
                     d.Kind = "sampler";

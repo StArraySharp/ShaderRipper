@@ -102,8 +102,8 @@ namespace ShaderRipper.Antlr.Emit
                 }
                 foreach (var mem in _lay.For(reg))
                     _sb.Append(mem.IsArray
-                        ? $"    float4 {mem.Name}[{mem.Rows}];\n"
-                        : $"    float4 {mem.Name};\n");
+                        ? $"    {mem.Type} {mem.Name}[{mem.Rows}];\n"
+                        : $"    {mem.Type} {mem.Name};\n");
                 _sb.Append("};\n\n");
             }
         }
@@ -126,6 +126,31 @@ namespace ShaderRipper.Antlr.Emit
             foreach (var d in textures)
                 _sb.Append($"SamplerState s{d.Register} : register(s{d.Register});\n");
             if (textures.Count > 0) _sb.Append('\n');
+
+            // dcl_immediateConstantBuffer is a literal table in the program (a blur
+            // kernel, a dither matrix).  Its values are in the declaration, so the
+            // table is emitted with them instead of approximated.
+            if (_m.Icb.Count > 0)
+            {
+                // Not `const`: a const array indexed by a runtime value makes fxc
+                // unroll the loop to fold the fetch, and it stops with X3504 the
+                // moment the index goes past the table.  A static with the same
+                // initializer is fetched at runtime, which is what the original
+                // program did.
+                _sb.Append($"static float4 _icb[{_m.Icb.Count}] =\n{{\n");
+                foreach (var row in _m.Icb)
+                {
+                    var v = row.Length switch
+                    {
+                        1 => $"float4({Number(row[0])}, 0.0f, 0.0f, 0.0f)",
+                        2 => $"float4({Number(row[0])}, {Number(row[1])}, 0.0f, 0.0f)",
+                        3 => $"float4({Number(row[0])}, {Number(row[1])}, {Number(row[2])}, 0.0f)",
+                        _ => $"float4({Number(row[0])}, {Number(row[1])}, {Number(row[2])}, {Number(row[3])})",
+                    };
+                    _sb.Append($"    {v},\n");
+                }
+                _sb.Append("};\n\n");
+            }
 
             // Input registers are the vertex attributes / pixel inputs the
             // signature table describes; at register level they are plain globals
@@ -204,8 +229,45 @@ namespace ShaderRipper.Antlr.Emit
                 RegKind.Literal => Literal(o),
                 // Indexable temps: x0[a0.x] indexes an array of float4.
                 RegKind.X => $"_x[{o.Index}]",
+                RegKind.Icb => IcbRef(o),
                 _ => null,
             };
+        }
+
+        /// <summary>
+        /// `icb[r0.w + 0].xyzx` reads the baked table at a computed index.  The
+        /// index is an integer kept in a register (the register holds floats), so
+        /// it is read back with <c>asint</c>; a plain numeric index is used as is.
+        /// </summary>
+        private string IcbRef(Operand o)
+        {
+            if (_m.Icb.Count == 0) return null;
+            string raw = o.Raw ?? "";
+            int a = raw.IndexOf('['), b = raw.IndexOf(']');
+            if (a < 0 || b <= a) return null;
+            string idx = raw.Substring(a + 1, b - a - 1).Trim();
+
+            // The index is taken modulo the table size.  fxc unrolls a loop whose
+            // body indexes a small table and rejects the whole file (X3504) the
+            // moment its counter walks past the end -- even though the program's own
+            // break branch makes that impossible at run time.  A modulo makes the
+            // index range provable, and since every index the original program can
+            // reach is already inside the table, it changes nothing it can execute.
+            int n = _m.Icb.Count;
+            var m = System.Text.RegularExpressions.Regex.Match(idx, @"^(\w+)\.([xyzw])(?:\s*\+\s*(\d+))?$");
+            if (m.Success)
+            {
+                string off = m.Groups[3].Success ? " + " + m.Groups[3].Value : "";
+                // abs() as well as the modulo: `%` keeps the sign of a negative
+                // operand, and a negative index is out of bounds again.  Every index
+                // the program can actually reach is non-negative, so this changes
+                // nothing it executes.
+                string e = $"abs(asint({m.Groups[1].Value}.{m.Groups[2].Value}){off})";
+                return n == 1 ? "_icb[0]" : $"_icb[{e} % {n}]";
+            }
+            if (System.Text.RegularExpressions.Regex.IsMatch(idx, @"^\d+$"))
+                return n == 1 ? "_icb[0]" : $"_icb[({idx}) % {n}]";
+            return null;
         }
 
         /// <summary>
@@ -232,6 +294,16 @@ namespace ShaderRipper.Antlr.Emit
         {
             string core = Core(o);
             if (core == null) return null;
+
+            // A literal has no components to swizzle: `-1.0f.x` is not HLSL, and
+            // the scalar reading of a literal is simply its component 0.
+            if (o.Kind == RegKind.Literal)
+            {
+                var lit = o.Lit ?? Array.Empty<float>();
+                string one = Number(lit.Length > 0 ? lit[0] : 0f);
+                return o.Negate ? "-" + one : one;
+            }
+
             // The SWIZZLE token carries its own dot (`.xyxx`), so the component
             // is the first character after it, not the first character of it.
             string sw = o.Swizzle?.TrimStart('.') ?? "";
@@ -242,15 +314,18 @@ namespace ShaderRipper.Antlr.Emit
             return e;
         }
 
+        /// <summary>A float literal as HLSL wants it: `1.0f`, never `1f`.</summary>
+        private static string Number(float f)
+        {
+            string s = f.ToString("R", CultureInfo.InvariantCulture);
+            if (!s.Contains('.') && !s.Contains('e') && !s.Contains('E')) s += ".0";
+            return s + "f";
+        }
+
         private string Literal(Operand o)
         {
             var v = o.Lit ?? Array.Empty<float>();
-            string N(float f)
-            {
-                string s = f.ToString("R", CultureInfo.InvariantCulture);
-                if (!s.Contains('.') && !s.Contains('e') && !s.Contains('E')) s += ".0";
-                return s + "f";
-            }
+            string N(float f) => Number(f);
             return v.Length switch
             {
                 1 => N(v[0]),
@@ -315,6 +390,11 @@ namespace ShaderRipper.Antlr.Emit
                     // of these loops non-terminating (an `ige` on raw float bits
                     // can wrap past its bound) and refuses to compile them at all
                     // (X4029).  The bound does not change any loop that exits.
+                    // `[loop]` keeps fxc from unrolling: without it the constant
+                    // bound invites a full unroll, and a table fetch inside the
+                    // body then trips X3504 ("literal loop terminated early") the
+                    // moment the unroller walks past the table's end.
+                    Line("[loop]");
                     Line($"for (int _guard{_loops} = 0; _guard{_loops} < 4096; ++_guard{_loops})");
                     _loops++;
                     Line("{");

@@ -37,6 +37,7 @@ namespace ShaderRipper.Antlr.Emit
         public sealed class Member
         {
             public string Name = "";
+            public string Type = "float4";
             public int Rows = 1;
             public bool IsArray;
         }
@@ -102,21 +103,15 @@ namespace ShaderRipper.Antlr.Emit
                 // the shipped table does.  Only trusted when it covers every read
                 // row and starts at zero -- otherwise the offsets it implies are not
                 // the ones the disassembly indexes.
-                if (tableRows > 0 && Covers(tableRows, cb, reg))
+                if (tableRows > 0 && Covers(tableRows, cb, reg) &&
+                    EmitTable(layout, cbname, reg, tableRows, extent))
                 {
-                    for (int row = 0; row < Math.Min(tableRows, extent); row++)
-                    {
-                        var mem = UnityCbuffers.Find(cbname, row);
-                        if (mem == null) continue;
-                        if (mem.IsMatrix) names[row] = $"{mem.Name}[{row - mem.Row}]";
-                        else if (mem.FillsRow || mem.Span >= 4) names[row] = mem.Name;
-                    }
+                    layout.Extent[reg] = extent;
+                    continue;
                 }
-                else
-                {
-                    foreach (var kv in cb.RowExpr.Where(k => k.Key.cb == reg))
-                        names[kv.Key.row] = kv.Value;
-                }
+
+                foreach (var kv in cb.RowExpr.Where(k => k.Key.cb == reg))
+                    names[kv.Key.row] = kv.Value;
 
                 layout.Extent[reg] = extent;
                 Declare(layout, reg, extent, names);
@@ -129,6 +124,31 @@ namespace ShaderRipper.Antlr.Emit
         {
             if (!cb.RowUse.TryGetValue(reg, out var use)) return true;
             return use.Keys.All(r => r < tableRows);
+        }
+
+        /// <summary>
+        /// Fill the row -> name map from the shipped layout of a buffer Unity defines.
+        ///
+        /// Only a member that owns its whole row can be named here.  A row that
+        /// holds several members (<c>UnityPerDrawSprite</c> row 1 is a <c>float2</c>
+        /// beside a <c>float</c>) would have to be declared as
+        /// <c>float2 _Flip; float _EnableExternalAlpha;</c> and read by component,
+        /// and a half-declared row shifts every member after it.  Those rows keep a
+        /// positional float4, which is the shape that cannot be wrong.
+        /// </summary>
+        private static bool EmitTable(CbLayout layout, string cbname, int reg, int tableRows, int extent)
+        {
+            var names = new Dictionary<int, string>();
+            for (int row = 0; row < Math.Min(tableRows, extent); row++)
+            {
+                var m = UnityCbuffers.Find(cbname, row);
+                if (m == null || m.Row != row) continue;
+                if (m.IsMatrix) names[row] = $"{m.Name}[{row - m.Row}]";
+                else if (m.FillsRow) names[row] = m.Name;
+            }
+
+            Declare(layout, reg, extent, names);
+            return true;
         }
 
         /// <summary>
