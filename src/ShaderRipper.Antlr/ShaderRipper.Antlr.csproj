@@ -13,5 +13,25 @@
     <!-- Runtime only: the lexer/parser under Grammar/ are generated ahead of
          time (see Grammar/README.md), so building this project needs no JVM. -->
     <PackageReference Include="Antlr4.Runtime.Standard" Version="4.13.1" />
+    <!-- LZ4: Unity's shader blobs are LZ4 block-compressed. -->
+    <PackageReference Include="K4os.Compression.LZ4" Version="1.3.8" />
+    <!-- Unity's typetree database and endian primitives, needed to read a
+         SerializedFile without a per-version hand-written schema. -->
+    <PackageReference Include="AssetRipper.Tpk" Version="2.0.0" />
+    <PackageReference Include="AssetRipper.IO.Endian" Version="2.1.0" />
+    <PackageReference Include="AssetRipper.Primitives" Version="3.2.0" />
+    <PackageReference Include="LZMA-SDK" Version="22.1.1" />
+    <!-- d3d9 token streams and the DXBC->DXIL fallback; the same decoder the
+         main tool uses. -->
+    <PackageReference Include="DXDecompiler-ly" Version="0.0.1" />
+  </ItemGroup>
+  <ItemGroup>
+    <!-- Schema trees and the typetree database, embedded so the binary is
+         self-contained the way the main tool is. -->
+    <EmbeddedResource Include="schema/*.json" LogicalName="ShaderRipper.Antlr.Embed.%(Identity)" />
+    <EmbeddedResource Include="data/*.tpk" LogicalName="ShaderRipper.Antlr.Embed.%(Identity)" />
+    <EmbeddedResource Include="data/*.txt" LogicalName="ShaderRipper.Antlr.Embed.%(Identity)" />
+    <EmbeddedResource Include="NativeLibs/*.dll" LogicalName="ShaderRipper.Antlr.Embed.%(Identity)" />
+    <EmbeddedResource Include="NativeLibs/win-x64/*.dll" LogicalName="ShaderRipper.Antlr.Embed.%(Filename)%(Extension)" />
   </ItemGroup>
 </Project>

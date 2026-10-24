@@ -38,6 +38,8 @@ namespace ShaderRipper.Antlr
                 case "--stats": return Stats(args[1]);
                 case "--emit": return EmitAll(args[1], args[2]);
                 case "--glsl": return Glsl(args[1], args.Contains("--shaderlab"));
+                case "--game": return ExportGame(args[1], args.Length > 2 ? args[2] : args[1] + "_Ripped",
+                                           Only(args), args.Contains("--shaderlab"));
                 default:
                     Console.Error.WriteLine($"unknown option: {args[0]}");
                     return 2;
@@ -55,6 +57,23 @@ namespace ShaderRipper.Antlr
                                     + $"translated={r.Translated} todo={r.Todo} parseErrors={m.ParseErrors}");
             if (r.Todo > 0) Console.Error.WriteLine("no handler yet: " + string.Join(", ", r.Missing));
             return r.Todo == 0 && m.ParseErrors == 0 ? 0 : 1;
+        }
+
+        /// <summary>Read a game's data directory and translate every shader in it.</summary>
+        private static int ExportGame(string dataDir, string outDir, string only, bool shaderLab)
+        {
+            var s = ShaderRipper.Antlr.Game.GameExport.Run(dataDir, outDir, only, shaderLab);
+            Console.WriteLine($"files={s.Files} shaders={s.Shaders} programs={s.Programs} "
+                              + $"disassembled={s.Disassembled} translated={s.Translated} "
+                              + $"skipped={s.Skipped} failed={s.Failed}");
+            foreach (var n in s.Notes.Take(8)) Console.WriteLine("  note: " + n);
+            return s.Failed == 0 ? 0 : 1;
+        }
+
+        private static string Only(string[] args)
+        {
+            int at = Array.IndexOf(args, "--only");
+            return at >= 0 && at + 1 < args.Length ? args[at + 1] : null;
         }
 
         /// <summary>GLSL payload -> HLSL (optionally wrapped in ShaderLab).</summary>

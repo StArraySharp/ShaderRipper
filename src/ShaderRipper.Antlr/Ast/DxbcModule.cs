@@ -68,6 +68,14 @@ namespace ShaderRipper.Antlr.Ast
         public List<Decl> Decls = new();
         public List<Instruction> Code = new();
 
+        /// <summary>
+        /// Names recovered from Unity's parameter blob, keyed by (cbuffer slot,
+        /// row).  Populated by the game reader before emission: the disassembly
+        /// carries no RDEF data (Unity strips it), so a numeric `cb1[7]` can only
+        /// be named from the asset's own constant-buffer reflection.
+        /// </summary>
+        public Dictionary<(int cb, int row), string> CbNames = new();
+
         public static readonly Module Empty = new();
 
         public static Module Read(string asm)

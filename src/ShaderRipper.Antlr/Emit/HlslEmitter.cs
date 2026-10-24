@@ -82,8 +82,23 @@ namespace ShaderRipper.Antlr.Emit
                               .OrderBy(d => d.Register).ToList();
             foreach (var d in cbs)
             {
+                // Rows the reflection named are declared as members; the rest keep
+                // a positional name.  A whole row per member is what makes
+                // `cb1[7].xy` become `_WorldSpaceLightPos0.xy` without changing
+                // meaning -- HLSL has no partial-row access to a named member.
+                int rows = Math.Max(d.Count, 1);
+                foreach (var kv in _m.CbNames.Keys.Where(k => k.cb == d.Register))
+                    rows = Math.Max(rows, kv.row + 1);
+
                 _sb.Append($"cbuffer CB{d.Register} : register(b{d.Register})\n{{\n");
-                _sb.Append($"    float4 cb{d.Register}[{Math.Max(d.Count, 1)}];\n}};\n\n");
+                for (int row = 0; row < rows; row++)
+                {
+                    string name = _m.CbNames.TryGetValue((d.Register, row), out var n)
+                        ? n
+                        : $"_cb{d.Register}_row{row}";
+                    _sb.Append($"    float4 {name};\n");
+                }
+                _sb.Append("};\n\n");
             }
         }
 
@@ -178,7 +193,9 @@ namespace ShaderRipper.Antlr.Emit
                 RegKind.R => $"r{o.Index}",
                 RegKind.V => $"v{o.Index}",
                 RegKind.O => $"o{o.Index}",
-                RegKind.Cb => o.Row >= 0 ? $"cb{o.Index}[{o.Row}]" : $"cb{o.Index}[0]",
+                RegKind.Cb => o.Row >= 0 && _m.CbNames.TryGetValue((o.Index, o.Row), out var nm)
+                    ? nm
+                    : o.Row >= 0 ? $"_cb{o.Index}_row{o.Row}" : $"_cb{o.Index}_row0",
                 RegKind.Null => "float4(0, 0, 0, 0)",
                 RegKind.Literal => Literal(o),
                 // Indexable temps: x0[a0.x] indexes an array of float4.
@@ -420,11 +437,11 @@ namespace ShaderRipper.Antlr.Emit
                 case "sample":
                     return Sample(a, d, "Sample");
                 case "sample_l":
-                    Line($"{d} = t{a[2].Index}.SampleLevel(s{a[3].Index}, {Expr(a[1])}.xy, {Scalar(a[4])});");
+                    Line($"{d} = t{a[2].Index}.SampleLevel(s{a[3].Index}, {Coord(a[1], a[2].Index)}, {Scalar(a[4])});");
                     return true;
                 case "sample_d":
-                    Line($"{d} = t{a[2].Index}.SampleGrad(s{a[3].Index}, {Expr(a[1])}.xy, "
-                         + $"{Expr(a[4])}.xy, {Expr(a[5])}.xy);");
+                    Line($"{d} = t{a[2].Index}.SampleGrad(s{a[3].Index}, {Coord(a[1], a[2].Index)}, "
+                         + $"{Coord(a[4], a[2].Index)}, {Coord(a[5], a[2].Index)});");
                     return true;
 
                 default:
@@ -445,9 +462,25 @@ namespace ShaderRipper.Antlr.Emit
         private bool Sample(List<Operand> a, string d, string method)
         {
             if (a.Count < 4) return false;
-            string coord = a[1].Swizzle != null ? Expr(a[1]) : Expr(a[1]) + ".xy";
-            Line($"{d} = t{a[2].Index}.{method}(s{a[3].Index}, {coord});");
+            Line($"{d} = t{a[2].Index}.{method}(s{a[3].Index}, {Coord(a[1], a[2].Index)});");
             return true;
+        }
+
+        /// <summary>
+        /// The sample coordinate at the width the resource needs: three
+        /// components for a 3D or cube texture, two for everything else.  Getting
+        /// this wrong is X3013 ("no matching intrinsic"), which is how the game
+        /// run found it.
+        /// </summary>
+        private string Coord(Operand o, int texRegister)
+        {
+            int dim = _m.Decls.FirstOrDefault(d => d.Kind == "texture" && d.Register == texRegister)?.Dimension ?? 2;
+            int comps = dim is 3 or 4 ? 3 : 2;
+            string e = Expr(o);
+            if (e == null) return null;
+            var m = System.Text.RegularExpressions.Regex.Match(e, @"^(\w[\w.\[\]]*)\.([xyzw]+)$");
+            if (m.Success) return $"({m.Groups[1].Value})." + (comps == 3 ? "xyz" : "xy");
+            return comps == 3 ? $"({e}).xyz" : $"({e}).xy";
         }
     }
 }
