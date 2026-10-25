@@ -109,6 +109,10 @@ def main():
                 continue
 
             shader_ok = True
+            # Whether this shader's build has any vertex program at all.  A pass
+            # that shipped only a fragment program gets the full-screen vertex the
+            # runtime supplies, which has no original to compare against.
+            src_has_vs = re.search(r"^\s*#pragma\s+vertex\s+\w+", src, re.M) is not None
             for s in snips:
                 # A pass may define only one of the two entry points -- a
                 # fragment-only effect pass is common -- and asking USC for a
@@ -137,17 +141,26 @@ def main():
 
                     ok_programs += 1
 
-                    # Compare against the originals of this stage.
+                    # Compare against the originals of this stage.  A pass that
+                    # shipped only a fragment program has no vertex program in the
+                    # build: the emitted vertex is the full-screen one Unity itself
+                    # supplies, and its `SV_VertexID`-only input signature matches
+                    # no compiled program, so it is skipped rather than matched
+                    # against an unrelated original.
                     dxbc = U.extract_dxbc(blob)
                     if not dxbc or not disasm or not os.path.isdir(d):
                         continue
                     new_asm = disasm(dxbc)
                     if not new_asm:
                         continue
+                    if fname == "vs" and "SV_VertexID" in new_asm:
+                        continue
                     got = V.profile_asm(new_asm)
                     best_why, best_ok, best_kind = "", False, "hard"
+                    compared = 0
                     for p in sorted(glob.glob(os.path.join(d, f"*_{fname}.orig.asm"))):
                         want = V.profile_asm(read_dxbc_asm(p))
+                        compared += 1
                         good, kind, why = V.compare(want, got)
                         if good:
                             best_ok = True
@@ -156,6 +169,12 @@ def main():
                             break
                         if not best_why:
                             best_why, best_kind = why, kind
+                    # A pass that shipped only its fragment program has no vertex
+                    # original to compare against -- the emitted vertex is the
+                    # full-screen one Unity itself would have supplied, so there is
+                    # nothing to disagree with.
+                    if compared == 0:
+                        continue
                     if best_ok:
                         if best_kind == "soft":
                             soft += 1

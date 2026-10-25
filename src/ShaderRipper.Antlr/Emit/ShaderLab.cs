@@ -162,8 +162,24 @@ namespace ShaderRipper.Antlr.Emit
                 return;
             }
 
+            // A pass can ship only its fragment program: Unity then supplies a
+            // full-screen triangle vertex shader at draw time, which is why the
+            // fragment's input signature starts at `SV_Position`.  Unity's own
+            // compiler rejects such a snippet outright ("Both vertex and fragment
+            // programs must be present ... Excluding it from compilation"), so the
+            // pass would be dropped on import.  Supplying the same full-screen
+            // vertex program the runtime uses keeps the pass alive and leaves the
+            // fragment's inputs exactly as the original program saw them.
+            bool synthVertex = p.Vertex == null && p.Fragment != null;
+            if (synthVertex)
+            {
+                merged = Merge(new Stage { Hlsl = FullscreenVertex(p), Entry = "vert" }, p.Fragment);
+                if (merged == null) return;
+            }
+
             sb.Append("            HLSLPROGRAM\n");
             if (p.Vertex != null) sb.Append("            #pragma vertex ").Append(p.Vertex.Entry).Append('\n');
+            else if (synthVertex) sb.Append("            #pragma vertex vert\n");
             if (p.Fragment != null) sb.Append("            #pragma fragment ").Append(p.Fragment.Entry).Append('\n');
             AppendTarget(sb, p);
             foreach (var pragma in p.Pragmas) sb.Append("            ").Append(pragma).Append('\n');
@@ -237,6 +253,55 @@ namespace ShaderRipper.Antlr.Emit
 
         private static string Tags(IEnumerable<(string k, string v)> tags) =>
             string.Join(" ", tags.Select(t => $"\"{t.k}\" = \"{t.v}\""));
+
+        /// <summary>
+        /// The full-screen triangle Unity binds when a pass ships only a fragment
+        /// program.
+        ///
+        /// Its output has to match the fragment's input signature, so the struct is
+        /// built from the fields the fragment actually declares: `SV_Position`
+        /// comes from the triangle, every other semantic is passed through
+        /// untouched (a screen-space effect reads them from the interpolator).
+        /// </summary>
+        private static string FullscreenVertex(PassText p)
+        {
+            // The struct is read back out of the fragment program's own
+            // `stage_in`, which is where the field names, types and semantics already
+            // are -- no second source of truth.
+            var fields = new List<(string type, string name, string sem)>();
+            var m = Regex.Match(p.Fragment.Hlsl ?? "",
+                                @"struct\s+stage_in\s*\{(.*?)\}", RegexOptions.Singleline);
+            if (m.Success)
+                foreach (Match f in Regex.Matches(m.Groups[1].Value,
+                                                  @"(\w+)\s+(\w+)\s*:\s*([A-Za-z_]\w*)\s*;"))
+                    fields.Add((f.Groups[1].Value, f.Groups[2].Value, f.Groups[3].Value));
+
+            var sb = new StringBuilder();
+            sb.Append("struct fs_out\n{\n");
+            if (fields.Count == 0)
+                sb.Append("\tfloat4 pos : SV_POSITION;\n");
+            else
+                foreach (var f in fields)
+                    sb.Append($"\t{f.type,-7} {f.name,-12} : {f.sem};\n");
+            sb.Append("};\n\n");
+            sb.Append("fs_out vert(uint id : SV_VertexID)\n{\n");
+            sb.Append("\tfs_out o;\n");
+            sb.Append("\tfloat2 uv = float2((id << 1) & 2, id & 2);\n");
+            // Every declared field is either the clip position (from the triangle)
+            // or a UV the fragment reads; the rest are zero so the struct is fully
+            // initialised.
+            foreach (var f in fields)
+            {
+                if (f.sem == "SV_POSITION")
+                    sb.Append($"\to.{f.name} = float4(uv * float2(2.0, -2.0) + float2(-1.0, 1.0), 0.0, 1.0);\n");
+                else if (f.sem.StartsWith("TEXCOORD", StringComparison.Ordinal))
+                    sb.Append($"\to.{f.name} = {f.type}(uv);\n");
+                else
+                    sb.Append($"\to.{f.name} = ({f.type})0;\n");
+            }
+            sb.Append("\treturn o;\n}\n");
+            return sb.ToString();
+        }
 
         /// <summary>
         /// One program block for a pass: constant buffers merged by NAME (not by
