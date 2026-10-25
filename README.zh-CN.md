@@ -191,8 +191,6 @@ if (any(r2.w)) { r2.xyz = float3(r3.x, r3.y, r3.w); break; }                  //
 
 编译器把分支链压成了谓词选择树，并把 `lerp` 改写成两条 `mad`；直译原样保留这个形态，而不是去猜原来的 `if/else`。这里的 `-1.0` 不是笔误——DXBC 的比较指令为真时写的是全 1 掩码，后面消费这些值的斜坡运算依赖这个符号，改成 `1.0` 会让判断整个反过来。这也解释了为什么输出比输入指令多（ExtremeFlow 1328 vs 1097）：编译器做过的算子融合拿不回来，硬猜就是编造。
 
-`scripts/usc_validate.py` 用 Unity 自家的 `UnityShaderCompiler` 复核整棵产物树（真实 `CGIncludes`、真实关键字集合）：每个文件只预处理一次，再把 `// ---- variant N` 标记列出的每个变体按顶点/片元各编译一遍，每个 worker 一个 UnityShaderCompiler.exe 进程。某商业游戏的数据目录（418 个 shader、约 1400 个变体）在 8 进程下约 25 秒跑完——同样的检查用 `.temp` 里那套 `d3dcompiler_47` 桩要十分钟，而且看不到 include 级别的错误。
-
 ## 限制
 
 - Metal / Vulkan（SMOL-V 压缩 SPIR-V）只存参考文件，不回译

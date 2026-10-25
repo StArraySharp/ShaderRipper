@@ -212,12 +212,6 @@ DXBC comparisons write an all-ones mask on true, and the ramp that consumes thes
 so a `1.0` there would silently invert the test. That is also why the output has more instructions than the
 input (1328 vs 1097): fusion the compiler performed cannot be recovered, and inventing it would be a guess.
 
-`scripts/usc_validate.py` re-checks whole output trees with Unity's own `UnityShaderCompiler` (real
-`CGIncludes`, real keyword sets): it preprocesses each file once and compiles every variant listed in its
-`// ---- variant N` markers for both stages, one UnityShaderCompiler.exe per worker. A commercial game's data
-directory (418 shaders, ~1.4k variants) goes green in about 25 seconds on 8 processes — the same check with
-the `d3dcompiler_47` harness in `.temp` takes ten minutes and cannot see the include-level errors.
-
 ## Limitations
 
 - Metal / Vulkan (SMOL-V compressed SPIR-V) are saved as reference files only, no back-translation

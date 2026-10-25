@@ -278,8 +278,8 @@ namespace ShaderRipper.Antlr.Game
                 File.WriteAllText(file, r.Hlsl);
 
                 // The original disassembly, kept beside the translation so the two
-                // can be compared instruction for instruction (see
-                // scripts/cmp_dxbc.py).  It is the same text the translator read.
+                // can be compared instruction for instruction.  It is the same text
+                // the translator read.
                 if (origAsm)
                     File.WriteAllText(Path.Combine(dir, $"{slot.BlobIndex}_{module.Stage}.orig.asm"), asm);
 
