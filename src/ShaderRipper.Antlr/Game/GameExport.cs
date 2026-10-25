@@ -220,7 +220,7 @@ namespace ShaderRipper.Antlr.Game
 
                 if (info.Format == "dxbc") ExportDxbc(sh, name, info, decoded, dir, dirName,
                     passOf, spOf, kwIndex, props, globals, perPass, origAsm, s);
-                else ExportGlsl(sh, name, info, decoded, dir, passOf, spOf, kwIndex, perPass, s);
+                else ExportGlsl(sh, name, info, decoded, dir, passOf, spOf, kwIndex, perPass, s, origAsm);
             }
 
             if (shaderLab && perPass.Count > 0)
@@ -299,7 +299,8 @@ namespace ShaderRipper.Antlr.Game
 
         private static void ExportGlsl(Shader sh, string name, PlatformInfo info, byte[] decoded,
             string dir, Dictionary<int, Pass> passOf, Dictionary<int, SubProgram> spOf,
-            Dictionary<int, string> kwIndex, Dictionary<Pass, PassBuild> perPass, Stats s)
+            Dictionary<int, string> kwIndex, Dictionary<Pass, PassBuild> perPass, Stats s,
+            bool origSrc = false)
         {
             // Slot i of the payload belongs to the i-th used blob index -- the
             // same convention the DXBC slot table follows.
@@ -318,6 +319,12 @@ namespace ShaderRipper.Antlr.Game
 
                 Directory.CreateDirectory(dir);
                 File.WriteAllText(Path.Combine(dir, $"{bi}_glsl.hlsl"), r.Hlsl);
+
+                // The original GLSL, kept beside the translation so the two can be
+                // compared: the translation is only as good as its agreement with
+                // this text, and nothing else records what Unity's HLSLcc emitted.
+                if (origSrc)
+                    File.WriteAllText(Path.Combine(dir, $"{bi}_glsl.orig.glsl"), pr.Text);
 
                 spOf.TryGetValue(bi, out var sub);
                 passOf.TryGetValue(bi, out var pass);

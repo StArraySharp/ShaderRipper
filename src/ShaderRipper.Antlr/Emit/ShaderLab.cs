@@ -206,7 +206,6 @@ namespace ShaderRipper.Antlr.Emit
             // program was built for -- and never less than 4.0, because the syntax
             // itself requires it.
             int model = Math.Max(p.Target, 40);
-            if (p.GlslIncludes) return;                 // that path already said 3.0
             sb.Append("            #pragma target ").Append(model / 10).Append('.')
               .Append(model % 10).Append('\n');
         }
@@ -216,12 +215,6 @@ namespace ShaderRipper.Antlr.Emit
             sb.Append("            HLSLPROGRAM\n");
             sb.Append("            #pragma vertex vert\n");
             sb.Append("            #pragma fragment frag\n");
-            if (p.GlslIncludes)
-            {
-                sb.Append("            #pragma target 3.0\n");
-                sb.Append("            #include \"HLSLSupport.cginc\"\n");
-                sb.Append("            #include \"UnityCG.cginc\"\n");
-            }
             AppendTarget(sb, p);
             foreach (var pragma in p.Pragmas) sb.Append("            ").Append(pragma).Append('\n');
             foreach (var note in p.Notes) sb.Append("            // ").Append(note).Append('\n');
@@ -302,6 +295,7 @@ namespace ShaderRipper.Antlr.Emit
             sb.Append("\treturn o;\n}\n");
             return sb.ToString();
         }
+
 
         /// <summary>
         /// One program block for a pass: constant buffers merged by NAME (not by

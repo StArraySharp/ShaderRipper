@@ -373,11 +373,15 @@ namespace ShaderRipper.Antlr.Emit
                     _ => "Texture2D",
                 };
                 _sb.Append(tex).Append(' ').Append(name).Append(";\n");
-                _sb.Append("SamplerState ").Append(name).Append("_sampler;\n");
+                _sb.Append("SamplerState sampler_").Append(name).Append(";\n");
             }
             foreach (var (type, name) in _uniforms)
             {
                 if (type.StartsWith("sampler", StringComparison.Ordinal)) continue;
+                // Without UnityCG.cginc in scope nothing else declares these, so
+                // every uniform the GLSL used has to be declared here -- including
+                // the engine's own (`_Time`, `unity_ObjectToWorld`).  Declaring them
+                // is exactly what makes the GLSL route self-contained.
                 _sb.Append(type).Append(' ').Append(name).Append(";\n");
             }
             foreach (var (type, name) in _ins)
@@ -588,13 +592,13 @@ namespace ShaderRipper.Antlr.Emit
                     var m = Swizzle.Match(coord);
                     coord = m.Success ? $"({m.Groups[1].Value}).xy" : $"({coord}).xy";
                 }
-                return $"{sampler}.Sample({sampler}_sampler, {coord})";
+                return $"{sampler}.Sample(sampler_{sampler}, {coord})";
             }
             if (Relations.TryGetValue(name, out var op) && args.Count == 2)
                 return $"(({args[0]}) {op} ({args[1]}))";
 
             if (name == "textureLod" && args.Count == 3)
-                return $"{args[0]}.SampleLevel({args[0]}_sampler, {args[1]}, {args[2]})";
+                return $"{args[0]}.SampleLevel(sampler_{args[0]}, {args[1]}, {args[2]})";
 
             return null;
         }
