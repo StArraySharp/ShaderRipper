@@ -384,6 +384,19 @@ namespace ShaderRipper.Antlr.Emit
                 }
             }
             if (sw != null) core += sw;
+
+            // A literal is a vector as far as the disassembly is concerned, so `dp2`
+            // on `l(12.9898, 78.233, 0, 0)` passed a four-component argument to a
+            // two-component `dot`, which fxc accepts only with a truncation warning
+            // -- and a warning is a compile failure under Unity.  Narrowing the
+            // literal's spelling keeps the dot well-typed.
+            if (comps > 0 && o.Kind == RegKind.Literal && o.Lit != null && o.Lit.Length > comps)
+            {
+                var parts = new string[comps];
+                for (int i = 0; i < comps; i++) parts[i] = Number(o.Lit[i]);
+                core = $"float{comps}({string.Join(", ", parts)})";
+            }
+
             if (o.Abs) core = $"abs({core})";
             if (o.Negate) core = "-" + core;
             return core;
@@ -619,7 +632,13 @@ namespace ShaderRipper.Antlr.Emit
             "and", "or", "xor", "ishl", "ishr", "ushr",
         };
 
-        /// <summary>The destination's write mask, "" when it writes all four.</summary>
+        /// <summary>Components a destination assignment writes (4 when unmasked).</summary>
+        private static int DestWidth(Operand dst)
+        {
+            string m = DestMask(dst);
+            return m.Length == 0 ? 4 : m.Length;
+        }
+
         private static string DestMask(Operand dst)
         {
             // The SWIZZLE token carries its own dot, so a full `.xyzw` mask is five
@@ -724,8 +743,21 @@ namespace ShaderRipper.Antlr.Emit
                 case "dp4": Line($"{d} = dot({Expr(a[1])}, {Expr(a[2])});"); return true;
                 case "rcp": Line($"{d} = 1.0 / {Scalar(a[1])};"); return true;
                 case "sincos":
-                    // DXBC writes cos to .x and sin to .y of the destination.
-                    Line($"{d} = float4(cos({Scalar(a[2])}), sin({Scalar(a[2])}), 0.0, 0.0);");
+                    // DXBC writes cos to .x and sin to .y of the destination, and a
+                    // destination can be a single lane or a narrow swizzle -- so
+                    // write only the lanes the instruction actually names.  The old
+                    // four-component constructor also had to invent the other two
+                    // lanes, which is what fxc warns about on every occurrence.
+                    {
+                        string m = DestMask(a[0]);
+                        string core = Core(a[0]);
+                        string arg = Scalar(a[2]);
+                        bool wantX = m.Length == 0 || m.Contains('x');
+                        bool wantY = m.Length == 0 || m.Contains('y');
+                        if (wantX && wantY) Line($"{core}.xy = float2(cos({arg}), sin({arg}));");
+                        else if (wantX) Line($"{core}.x = cos({arg});");
+                        else if (wantY) Line($"{core}.y = sin({arg});");
+                    }
                     return true;
 
                 // A comparison produces a bool per component, and a bool vector
@@ -790,7 +822,16 @@ namespace ShaderRipper.Antlr.Emit
                     Line($"{d} = (float4)asint({Expr(a[1])});");
                     return true;
                 case "ftoi":
-                    Line($"{d} = asfloat((int4){Expr(a[1])});");
+                    {
+                        // The integer conversion matches the destination's width:
+                        // `int4(scalar)` is not a legal constructor and `(int4)` on a
+                        // vector warns about truncation.  The source has to be
+                        // narrowed to the same width too -- `int2(r0.xzxx)` has four
+                        // components going into a two-component constructor.
+                        int w = DestWidth(a[0]);
+                        string cast = w switch { 1 => "int", 2 => "int2", 3 => "int3", _ => "int4" };
+                        Line($"{d} = asfloat({cast}({Expr(a[1], w)}));");
+                    }
                     return true;
 
                 case "sample":
