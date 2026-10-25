@@ -45,6 +45,12 @@ namespace ShaderRipper.Antlr.Emit
 
         private readonly CbLayout _lay;
         private ShaderInterface _iface;
+        /// <summary>
+        /// Output registers of a pixel program with more than one render target, so
+        /// the stage can return a struct of `SV_TargetN` fields.  Null for the
+        /// ordinary single-target case and for vertex programs.
+        /// </summary>
+        private List<Decl> _targets;
 
         private HlslEmitter(Module m)
         {
@@ -217,7 +223,27 @@ namespace ShaderRipper.Antlr.Emit
                 sig = _iface.V2fFields.Count > 0 ? "v2f vert(" + (hasIn ? "appdata v" : "") + ")"
                                                 : "float4 vert(" + (hasIn ? "appdata v" : "") + ") : SV_Position";
             else
-                sig = "float4 frag(" + (hasIn ? "stage_in i" : "") + ") : SV_Target";
+            {
+                // A pixel program may write several render targets.  Returning a
+                // single `float4 : SV_Target` throws the others away, and fxc then
+                // eliminates the whole body as dead code -- the rebuilt program
+                // outputs one constant target instead of the four the original
+                // wrote.  With more than one output register the stage returns a
+                // struct carrying one `SV_TargetN` field per register.
+                var outs = _m.Decls.Where(d => d.Kind == "output")
+                                   .GroupBy(d => d.Register).Select(g => g.First())
+                                   .OrderBy(d => d.Register).ToList();
+                _targets = outs.Count > 1 ? outs : null;
+                if (_targets != null)
+                {
+                    _sb.Append("struct frag_out\n{\n");
+                    foreach (var d in _targets)
+                        _sb.Append($"\tfloat4 target{d.Register} : SV_Target{d.Register};\n");
+                    _sb.Append("};\n");
+                    sig = "frag_out frag(" + (hasIn ? "stage_in i" : "") + ")";
+                }
+                else sig = "float4 frag(" + (hasIn ? "stage_in i" : "") + ") : SV_Target";
+            }
 
             _sb.Append(sig).Append("\n{\n");
             _indent = 1;
@@ -295,6 +321,13 @@ namespace ShaderRipper.Antlr.Emit
             {
                 foreach (var line in _iface.BindOutputs(_iface.VsOutReg, "o")) Line(line.Trim());
                 Line("return o;");
+                return;
+            }
+            if (_targets != null)
+            {
+                Line("frag_out result;");
+                foreach (var d in _targets) Line($"result.target{d.Register} = o{d.Register};");
+                Line("return result;");
                 return;
             }
             Line("return " + ReturnValue() + ";");
@@ -589,8 +622,17 @@ namespace ShaderRipper.Antlr.Emit
         /// <summary>The destination's write mask, "" when it writes all four.</summary>
         private static string DestMask(Operand dst)
         {
-            if (dst.Swizzle == null || dst.Swizzle.Length == 4) return "";
-            return dst.Swizzle[1..];
+            // The SWIZZLE token carries its own dot, so a full `.xyzw` mask is five
+            // characters and a three-component `.xzw` is four.  Comparing the raw
+            // length treated `.xzw` as "no mask", and the sources were then left
+            // un-remapped: `mul r1.xzw, r0.xxwy, l(...)` wrote r0's x,y,w into
+            // r1's x,z,w, while DXBC pairs them positionally -- x with x, z with y,
+            // w with w.  Reading the letters after the dot is what makes the two
+            // agree.
+            string sw = dst.Swizzle;
+            if (string.IsNullOrEmpty(sw) || sw[0] != '.') return "";
+            string mask = sw[1..];
+            return mask.Length >= 4 ? "" : mask;
         }
 
         /// <summary>

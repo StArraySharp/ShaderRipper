@@ -350,8 +350,18 @@ namespace ShaderRipper.Antlr.Ast
         private static float Float(DxbcAsmParser.NumberContext ctx)
         {
             string t = ctx.GetText();
+            // `0x3f800000` in a DXBC literal is a bit pattern, not a number: the
+            // value it stands for is the float those 32 bits spell.  Reading it as
+            // an integer and then converting loses that entirely -- 0x3f800000 is
+            // 1.0f, but as an integer it is 1065353216, and `asuint` of the result
+            // is a different bit pattern, so a mask like `and r, r, l(0x3f800000)`
+            // ends up clearing the value instead of keeping it.
             if (t.StartsWith("0x", StringComparison.OrdinalIgnoreCase))
-                return int.Parse(t[2..], NumberStyles.HexNumber, CultureInfo.InvariantCulture);
+            {
+                if (!uint.TryParse(t[2..], NumberStyles.HexNumber, CultureInfo.InvariantCulture,
+                                   out uint bits)) return 0f;
+                return BitConverter.Int32BitsToSingle(unchecked((int)bits));
+            }
             return float.TryParse(t, NumberStyles.Float, CultureInfo.InvariantCulture, out float v) ? v : 0f;
         }
 
