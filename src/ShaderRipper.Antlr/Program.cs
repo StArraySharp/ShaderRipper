@@ -30,7 +30,26 @@ namespace ShaderRipper.Antlr
                 Console.Error.WriteLine(
                     "usage:\n" +
                     "  ShaderRipper.Antlr --asm <file.dxbc.asm> [--out <file.hlsl>]\n" +
-                    "  ShaderRipper.Antlr --stats <dir-with-asm-files>");
+                    "  ShaderRipper.Antlr --stats <dir-with-asm-files>\n" +
+                    "  ShaderRipper.Antlr --game <dataDir> <outDir> [options]\n" +
+                    "  ShaderRipper.Antlr --file <path[,;path|wildcard]>... <outDir> [options]\n" +
+                    "  ShaderRipper.Antlr --list-shaders <file>\n" +
+                    "  ShaderRipper.Antlr --dump <file> [--dump-filter <text>]\n" +
+                    "\n" +
+                    "Export:\n" +
+                    "    --shaderlab      write <Name>.shader (the deliverable)\n" +
+                    "    --programs       also write per-program HLSL into <Name>/ folders\n" +
+                    "    --orig-asm       also dump the original disassembly (implies --programs)\n" +
+                    "    --dedup          keep one copy of a shader that ships many times\n" +
+                    "    --builtin        include Unity's own shaders as well\n" +
+                    "    --only <text>    only shaders whose name contains this\n" +
+                    "    --scan-all       take every serialized container, not just shaders\n" +
+                    "\n" +
+                    "Name tables:\n" +
+                    "    --names <dir>          $Globals member list directory\n" +
+                    "    --tmp-layouts <dir>    TMP layout rows\n" +
+                    "    --builtin-index <file> Unity's own shader list\n" +
+                    "    --no-tmp-layout        ignore the TMP layout rows");
                 return 2;
             }
 
@@ -38,16 +57,14 @@ namespace ShaderRipper.Antlr
             // $Globals member lists, the TMP layout rows, and the list of Unity's
             // global matrices.  All three are embedded in the binary and unpacked
             // to a temp directory on first use, so a single file is self-contained;
-            // a checkout picks up the files directly.
-            //
-            // The matrix list matters more than it looks: a global like
-            // `unity_WorldToLight` sits in `$Globals` beside material properties,
-            // and the parameter blob records only its first row.  Without the list
-            // the other three rows stay `_cb0_rowK` in every shader that lights
-            // something -- 438 declarations across one game alone.
-            GlobalsNames.TableDir = Paths.FindDir(Path.Combine("data", "globals_names"));
-            TmpLayouts.Load(null);
-            MatrixNames.Load(null);
+            // a checkout picks up the files directly.  Each has an override flag,
+            // because a shader that names its own members is the only authority on
+            // what they are -- a stale table must be overridable.
+            GlobalsNames.TableDir = Value(args, "--names")
+                                 ?? Paths.FindDir(Path.Combine("data", "globals_names"));
+            TmpLayouts.Load(Value(args, "--tmp-layouts"));
+            if (args.Contains("--no-tmp-layout")) TmpLayouts.Enabled = false;
+            BuiltinIndex.Load(Value(args, "--builtin-index"));
 
             switch (args[0])
             {
@@ -55,10 +72,17 @@ namespace ShaderRipper.Antlr
                 case "--stats": return Stats(args[1]);
                 case "--emit": return EmitAll(args[1], args[2]);
                 case "--glsl": return Glsl(args[1], args.Contains("--shaderlab"));
+                case "--list-shaders": return ListShaders(args[1]);
+                case "--dump": return Dump(args[1], Value(args, "--dump-filter") ?? "");
+                case "--file": return ExportFiles(args);
+                case "--file-bare": return ExportFiles(args);
                 case "--game": return ExportGame(args[1], args.Length > 2 ? args[2] : args[1] + "_Ripped",
                                            Only(args), args.Contains("--shaderlab"),
                                            args.Contains("--orig-asm"),
-                                           args.Contains("--dedup"));
+                                           args.Contains("--dedup"),
+                                           args.Contains("--builtin"),
+                                           args.Contains("--programs"),
+                                           args.Contains("--scan-all"));
                 default:
                     Console.Error.WriteLine($"unknown option: {args[0]}");
                     return 2;
@@ -80,12 +104,69 @@ namespace ShaderRipper.Antlr
 
         /// <summary>Read a game's data directory and translate every shader in it.</summary>
         private static int ExportGame(string dataDir, string outDir, string only, bool shaderLab,
-                                      bool origAsm = false, bool dedup = false)
+                                      bool origAsm = false, bool dedup = false, bool builtin = false,
+                                      bool programs = false, bool scanAll = false)
         {
-            var s = ShaderRipper.Antlr.Game.GameExport.Run(dataDir, outDir, only, shaderLab, origAsm, dedup);
-            Console.WriteLine($"files={s.Files} shaders={s.Shaders} programs={s.Programs} "
+            var s = ShaderRipper.Antlr.Game.GameExport.Run(dataDir, outDir, only, shaderLab,
+                                                           origAsm, dedup, builtin, programs,
+                                                           null, scanAll);
+            return Report(s);
+        }
+
+        /// <summary>
+        /// <c>--file a.bundle,b.assets out/</c> -- the same export driven by an
+        /// explicit input list instead of a data directory.  Each value may be a
+        /// SerializedFile, a bundle, a comma/semicolon list or a wildcard; the
+        /// output directory is the last non-option argument.
+        /// </summary>
+        private static int ExportFiles(string[] args)
+        {
+            var values = new List<string>();
+            string outDir = null;
+            for (int i = 1; i < args.Length; i++)
+            {
+                string a = args[i];
+                if (a.StartsWith("--", StringComparison.Ordinal))
+                {
+                    // Options that take a value consume it; flags do not.
+                    if (a is "--only") i++;
+                    continue;
+                }
+                // Every non-option argument before the last one is an input; the
+                // last is the output directory.  `--file x` (no positional out)
+                // therefore writes next to the first input.
+                values.Add(a);
+            }
+            if (values.Count >= 1) outDir = values[^1];
+            if (values.Count >= 2) values.RemoveAt(values.Count - 1);
+            else if (values.Count == 1) { values.Clear(); }
+
+            if (values.Count == 0)
+            {
+                Console.Error.WriteLine("usage: ShaderRipper.Antlr --file <path|list|wildcard>... <outDir>");
+                return 2;
+            }
+            if (outDir == null)
+            {
+                string first = values[0].Split(',', ';')[0].Trim();
+                outDir = Path.Combine(Path.GetDirectoryName(Path.GetFullPath(first))!, "_Ripped");
+            }
+
+            var s = ShaderRipper.Antlr.Game.GameExport.Run(
+                Path.GetDirectoryName(Path.GetFullPath(outDir)) ?? ".", outDir,
+                Only(args), args.Contains("--shaderlab"), args.Contains("--orig-asm"),
+                args.Contains("--dedup"), args.Contains("--builtin"),
+                args.Contains("--programs"), values, args.Contains("--scan-all"));
+            return Report(s);
+        }
+
+        private static int Report(ShaderRipper.Antlr.Game.GameExport.Stats s)
+        {
+            Console.WriteLine($"files={s.Files} shaders={s.Shaders} emitted={s.Emitted} "
+                              + $"programs={s.Programs} "
                               + $"disassembled={s.Disassembled} translated={s.Translated} "
-                              + $"skipped={s.Skipped} failed={s.Failed}");
+                              + $"skipped={s.Skipped} failed={s.Failed}"
+                              + (s.BuiltinSkipped > 0 ? $" builtin-skipped={s.BuiltinSkipped}" : ""));
             foreach (var n in s.Notes.Take(8)) Console.WriteLine("  note: " + n);
             return s.Failed == 0 ? 0 : 1;
         }
@@ -94,6 +175,121 @@ namespace ShaderRipper.Antlr
         {
             int at = Array.IndexOf(args, "--only");
             return at >= 0 && at + 1 < args.Length ? args[at + 1] : null;
+        }
+
+        /// <summary>The value of <paramref name="flag"/>, or null when it is absent.</summary>
+        private static string Value(string[] args, string flag)
+        {
+            int at = Array.IndexOf(args, flag);
+            return at >= 0 && at + 1 < args.Length ? args[at + 1] : null;
+        }
+
+        /// <summary>
+        /// <c>--list-shaders &lt;file&gt;</c>: every shader inside an input, one
+        /// per line.  Works on a SerializedFile or a bundle, which is how a build
+        /// is surveyed before exporting any of it.
+        /// </summary>
+        private static int ListShaders(string path)
+        {
+            Func<string, int, TypeNode> tpk = (ver, id) => TpkSchema.BuildClass(id, ver);
+            var files = new List<(string name, byte[] bytes, string file)>();
+            if (Data.Bundle.IsBundle(path))
+                foreach (var (n, d) in Data.Bundle.SerializedFiles(path))
+                    files.Add((n, d, path));
+            else
+                files.Add((Path.GetFileName(path), null, path));
+
+            int total = 0;
+            foreach (var (name, bytes, file) in files)
+            {
+                SerializedFile sf;
+                try
+                {
+                    sf = bytes != null ? SerializedFile.Load(bytes, null, tpk)
+                                       : SerializedFile.Load(file, null, tpk);
+                }
+                catch (Exception e)
+                {
+                    Console.Error.WriteLine($"  {name}: {e.Message}");
+                    continue;
+                }
+                foreach (var sh in sf.Shaders)
+                {
+                    string n = !string.IsNullOrEmpty(sh.Name) ? sh.Name
+                             : sh.ParsedForm?.Name ?? ("Shader_" + sh.PathId);
+                    string container = sh.ContainerPath ?? "";
+                    Console.WriteLine(n + "\tpathId=" + sh.PathId + "\tcontainer=" + container);
+                    total++;
+                }
+            }
+            Console.Error.WriteLine($"shaders={total} file(s)={files.Count}");
+            return 0;
+        }
+
+        /// <summary>
+        /// <c>--dump &lt;file&gt;</c>: what the exporter sees, without writing anything.
+        ///
+        /// One line per shader (name, path id, platforms, pass/sub-program count)
+        /// plus one line per platform slot saying where the payload came from.  A
+        /// translation that comes out wrong is nearly always a slot that was
+        /// picked up wrongly or a pass that has no program.
+        /// </summary>
+        private static int Dump(string path, string filter)
+        {
+            Func<string, int, TypeNode> tpk = (ver, id) => TpkSchema.BuildClass(id, ver);
+            var files = new List<(string name, byte[] bytes, string file)>();
+            if (Data.Bundle.IsBundle(path))
+                foreach (var (n, d) in Data.Bundle.SerializedFiles(path))
+                    files.Add((n, d, path));
+            else
+                files.Add((Path.GetFileName(path), null, path));
+
+            int total = 0;
+            foreach (var (name, bytes, file) in files)
+            {
+                SerializedFile sf;
+                try
+                {
+                    sf = bytes != null ? SerializedFile.Load(bytes, null, tpk)
+                                       : SerializedFile.Load(file, null, tpk);
+                }
+                catch (Exception e)
+                {
+                    Console.Error.WriteLine($"  {name}: {e.Message}");
+                    continue;
+                }
+                Console.WriteLine($"# {name}  unity={sf.UnityVersion} objects={sf.Objects.Count}");
+                foreach (var sh in sf.Shaders)
+                {
+                    string n = !string.IsNullOrEmpty(sh.Name) ? sh.Name
+                             : sh.ParsedForm?.Name ?? ("Shader_" + sh.PathId);
+                    if (filter.Length > 0 && n.IndexOf(filter, StringComparison.OrdinalIgnoreCase) < 0)
+                        continue;
+                    total++;
+
+                    int passes = 0, subs = 0;
+                    foreach (var ss in sh.ParsedForm?.SubShaders ?? new List<SubShader>())
+                        foreach (var p in ss.Passes)
+                        {
+                            passes++;
+                            subs += p.SubPrograms.Count;
+                        }
+                    var plats = (sh.Platforms ?? Array.Empty<uint>())
+                                .Select(p => Platforms.Get((int)p)?.Name ?? p.ToString());
+                    string container2 = sh.ContainerPath ?? "(none)";
+                    string source = sh.SourceFile ?? "(none)";
+                    Console.WriteLine("  " + n);
+                    Console.WriteLine("    pathId=" + sh.PathId + " passes=" + passes
+                                      + " subprograms=" + subs
+                                      + " props=" + (sh.ParsedForm?.Props.Count ?? 0)
+                                      + " keywords=" + (sh.ParsedForm?.KeywordNames.Count ?? 0));
+                    Console.WriteLine("    platforms=[" + string.Join(", ", plats) + "]");
+                    Console.WriteLine("    container=" + container2 + " source=" + source
+                                      + " fallback=" + sh.FallbackName);
+                }
+            }
+            Console.Error.WriteLine($"shaders={total} file(s)={files.Count}");
+            return 0;
         }
 
         /// <summary>GLSL payload -> HLSL (optionally wrapped in ShaderLab).</summary>

@@ -1,0 +1,206 @@
+Autodesk Interactive
+FX/Flare
+Hidden/BlitCopy
+Hidden/BlitCopyDepth
+Hidden/BlitCopyHDRTonemap
+Hidden/BlitCopyHDRTonemappedToHDRTonemap
+Hidden/BlitCopyHDRTonemappedToSDR
+Hidden/BlitCopyWithDepth
+Hidden/BlitToDepth
+Hidden/BlitToDepth_MSAA
+Hidden/Compositing
+Hidden/ConvertTexture
+Hidden/CubeBlend
+Hidden/CubeBlur
+Hidden/CubeCopy
+Hidden/GIDebug/ShowLightMask
+Hidden/GIDebug/TextureUV
+Hidden/GIDebug/UV1sAsPositions
+Hidden/GIDebug/VertexColors
+Hidden/Internal-CombineDepthNormals
+Hidden/Internal-CubemapToEquirect
+Hidden/Internal-DebugPattern
+Hidden/Internal-DeferredReflections
+Hidden/Internal-DeferredShading
+Hidden/Internal-DepthNormalsTexture
+Hidden/Internal-Flare
+Hidden/Internal-GUIRoundedRect
+Hidden/Internal-GUIRoundedRectWithColorPerBorder
+Hidden/Internal-GUITexture
+Hidden/Internal-GUITextureBlit
+Hidden/Internal-GUITextureClip
+Hidden/Internal-GUITextureClipText
+Hidden/Internal-Halo
+Hidden/Internal-MotionVectors
+Hidden/Internal-ODSWorldTexture
+Hidden/Internal-ScreenSpaceShadows
+Hidden/Internal-StencilWrite
+Hidden/Internal-UIE-ColorConversionBlit
+Hidden/Internal-UIRAtlasBlitCopy
+Hidden/Internal-UIRDefault
+Hidden/Nature/Terrain/Utilities
+Hidden/Nature/Tree Creator Albedo Rendertex
+Hidden/Nature/Tree Creator Bark Optimized
+Hidden/Nature/Tree Creator Bark Rendertex
+Hidden/Nature/Tree Creator Leaves Fast Optimized
+Hidden/Nature/Tree Creator Leaves Optimized
+Hidden/Nature/Tree Creator Leaves Rendertex
+Hidden/Nature/Tree Creator Normal Rendertex
+Hidden/Nature/Tree Soft Occlusion Bark Rendertex
+Hidden/Nature/Tree Soft Occlusion Leaves Rendertex
+Hidden/Physics2D/SDF_CapsuleGeometry
+Hidden/Physics2D/SDF_CircleGeometry
+Hidden/Physics2D/SDF_Line
+Hidden/Physics2D/SDF_Point
+Hidden/Physics2D/SDF_PolygonGeometry
+Hidden/TerrainEngine/BillboardTree
+Hidden/TerrainEngine/BrushPreview
+Hidden/TerrainEngine/CameraFacingBillboardTree
+Hidden/TerrainEngine/CrossBlendNeighbors
+Hidden/TerrainEngine/Details/BillboardWavingDoublePass
+Hidden/TerrainEngine/Details/Vertexlit
+Hidden/TerrainEngine/Details/WavingDoublePass
+Hidden/TerrainEngine/GenerateNormalmap
+Hidden/TerrainEngine/HeightBlitCopy
+Hidden/TerrainEngine/PaintHeight
+Hidden/TerrainEngine/Splatmap/Diffuse-AddPass
+Hidden/TerrainEngine/Splatmap/Diffuse-Base
+Hidden/TerrainEngine/Splatmap/Diffuse-BaseGen
+Hidden/TerrainEngine/Splatmap/Specular-AddPass
+Hidden/TerrainEngine/Splatmap/Specular-Base
+Hidden/TerrainEngine/Splatmap/Standard-AddPass
+Hidden/TerrainEngine/Splatmap/Standard-Base
+Hidden/TerrainEngine/Splatmap/Standard-BaseGen
+Hidden/TerrainEngine/TerrainBlitCopyZWrite
+Hidden/TerrainEngine/TerrainLayerUtils
+Hidden/TextCore/Distance Field
+Hidden/TextCore/Distance Field SSD
+Hidden/TextCore/Sprite
+Hidden/UI/CompositeOverdraw
+Hidden/UI/Overdraw
+Hidden/UIR/ColorEffect
+Hidden/UIR/GaussianBlur
+Hidden/VR/BlitCopyHDRTonemapTexArraySlice
+Hidden/VR/BlitCopyHDRTonemappedToHDRTonemapTexArraySlice
+Hidden/VR/BlitCopyHDRTonemappedToSDRTexArraySlice
+Hidden/VR/BlitFromTex2DToTexArraySlice
+Hidden/VR/BlitTexArraySlice
+Hidden/VR/BlitTexArraySliceToDepth
+Hidden/VR/BlitTexArraySliceToDepth_MSAA
+Hidden/VR/Internal-VRDistortion
+Hidden/VectorGraphics/Vector
+Hidden/VectorGraphics/VectorBlendMax
+Hidden/VectorGraphics/VectorDemultiply
+Hidden/VectorGraphics/VectorExpandEdges
+Hidden/VectorGraphics/VectorGradient
+Hidden/VideoComposite
+Hidden/VideoDecode
+Hidden/VideoDecodeAndroid
+Hidden/VideoDecodeOSX
+Hidden/VisualizeShadingRateImage
+Legacy Shaders/Bumped Diffuse
+Legacy Shaders/Bumped Specular
+Legacy Shaders/Decal
+Legacy Shaders/Diffuse
+Legacy Shaders/Diffuse Detail
+Legacy Shaders/Diffuse Fast
+Legacy Shaders/Lightmapped/Bumped Diffuse
+Legacy Shaders/Lightmapped/Bumped Specular
+Legacy Shaders/Lightmapped/Diffuse
+Legacy Shaders/Lightmapped/Specular
+Legacy Shaders/Lightmapped/VertexLit
+Legacy Shaders/Parallax Diffuse
+Legacy Shaders/Parallax Specular
+Legacy Shaders/Particles/Additive
+Legacy Shaders/Particles/Additive (Soft)
+Legacy Shaders/Particles/Alpha Blended
+Legacy Shaders/Particles/Alpha Blended Premultiply
+Legacy Shaders/Particles/Anim Alpha Blended
+Legacy Shaders/Particles/Multiply
+Legacy Shaders/Particles/Multiply (Double)
+Legacy Shaders/Particles/VertexLit Blended
+Legacy Shaders/Particles/~Additive-Multiply
+Legacy Shaders/Reflective/Bumped Diffuse
+Legacy Shaders/Reflective/Bumped Specular
+Legacy Shaders/Reflective/Bumped Unlit
+Legacy Shaders/Reflective/Bumped VertexLit
+Legacy Shaders/Reflective/Diffuse
+Legacy Shaders/Reflective/Parallax Diffuse
+Legacy Shaders/Reflective/Parallax Specular
+Legacy Shaders/Reflective/Specular
+Legacy Shaders/Reflective/VertexLit
+Legacy Shaders/Self-Illumin/Bumped Diffuse
+Legacy Shaders/Self-Illumin/Bumped Specular
+Legacy Shaders/Self-Illumin/Diffuse
+Legacy Shaders/Self-Illumin/Parallax Diffuse
+Legacy Shaders/Self-Illumin/Parallax Specular
+Legacy Shaders/Self-Illumin/Specular
+Legacy Shaders/Self-Illumin/VertexLit
+Legacy Shaders/Specular
+Legacy Shaders/Transparent/Bumped Diffuse
+Legacy Shaders/Transparent/Bumped Specular
+Legacy Shaders/Transparent/Cutout/Bumped Diffuse
+Legacy Shaders/Transparent/Cutout/Bumped Specular
+Legacy Shaders/Transparent/Cutout/Diffuse
+Legacy Shaders/Transparent/Cutout/Soft Edge Unlit
+Legacy Shaders/Transparent/Cutout/Specular
+Legacy Shaders/Transparent/Cutout/VertexLit
+Legacy Shaders/Transparent/Diffuse
+Legacy Shaders/Transparent/Parallax Diffuse
+Legacy Shaders/Transparent/Parallax Specular
+Legacy Shaders/Transparent/Specular
+Legacy Shaders/Transparent/VertexLit
+Legacy Shaders/VertexLit
+Mobile/Bumped Diffuse
+Mobile/Bumped Specular
+Mobile/Bumped Specular (1 Directional Realtime Light)
+Mobile/Diffuse
+Mobile/Particles/Additive
+Mobile/Particles/Alpha Blended
+Mobile/Particles/Multiply
+Mobile/Particles/VertexLit Blended
+Mobile/Skybox
+Mobile/Unlit (Supports Lightmap)
+Mobile/VertexLit
+Mobile/VertexLit (Only Directional Lights)
+Nature/SpeedTree
+Nature/SpeedTree Billboard
+Nature/SpeedTree8
+Nature/SpeedTree9
+Nature/Terrain/Diffuse
+Nature/Terrain/Specular
+Nature/Terrain/Standard
+Nature/Tree Creator Bark
+Nature/Tree Creator Leaves
+Nature/Tree Creator Leaves Fast
+Nature/Tree Soft Occlusion Bark
+Nature/Tree Soft Occlusion Leaves
+Particles/Standard Surface
+Particles/Standard Unlit
+Skybox/6 Sided
+Skybox/Cubemap
+Skybox/Panoramic
+Skybox/Procedural
+Sprites/Default
+Sprites/Diffuse
+Sprites/Mask
+Standard
+Standard (Specular setup)
+UI/Default
+UI/Default Font
+UI/DefaultETC1
+UI/Lit/Bumped
+UI/Lit/Detail
+UI/Lit/Refraction
+UI/Lit/Refraction Detail
+UI/Lit/Transparent
+UI/Unlit/Detail
+UI/Unlit/Text
+UI/Unlit/Text Detail
+UI/Unlit/Transparent
+Unlit/Color
+Unlit/Texture
+Unlit/Transparent
+Unlit/Transparent Cutout
+VR/SpatialMapping/Occlusion
+VR/SpatialMapping/Wireframe

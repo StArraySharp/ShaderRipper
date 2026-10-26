@@ -62,11 +62,28 @@ namespace ShaderRipper.Antlr.Emit
         /// <summary>Why a register kept the array shape, for the note in the output.</summary>
         public readonly Dictionary<int, string> Fallback = new();
 
+        /// <summary>
+        /// A named constant-buffer row: <c>_EnvMatrix[2]</c> is column 2 of a
+        /// matrix, <c>unity_WorldToShadow[1]#0</c> is column 0 of element 1 of a
+        /// matrix array.  The two shapes are kept apart because the first folds a
+        /// whole matrix into one <c>float4 name[n]</c>, while the second cannot: its
+        /// elements are already indexed by the body, so each column stays its own
+        /// <c>float4</c>.
+        /// </summary>
         private static readonly Regex MatrixRow =
-            new(@"^([A-Za-z_]\w*)\[(\d+)\]$", RegexOptions.CultureInvariant);
+            new(@"^([A-Za-z_]\w*(?:\[\d+\])?)(?:\[(\d+)\]|#(\d+))$",
+                RegexOptions.CultureInvariant);
 
         private static readonly Regex Identifier =
             new(@"^[A-Za-z_]\w*$", RegexOptions.CultureInvariant);
+
+        /// <summary>
+        /// Column index a <see cref="MatrixRow"/> match carries.  A matrix folds its
+        /// columns into `<c>name[i]</c>`; an array element spells them
+        /// `<c>name[k]#i</c>`, so the two groups are checked in turn.
+        /// </summary>
+        private static int MatrixCol(Match m) =>
+            int.Parse(m.Groups[m.Groups[2].Success ? 2 : 3].Value, CultureInfo.InvariantCulture);
 
         /// <summary>
         /// A matrix column as the resolver spells it: <c>(_EnvMatrix._m00_m10_m20_m30)</c>
@@ -75,9 +92,13 @@ namespace ShaderRipper.Antlr.Emit
         /// declaration layer cannot use it -- but <c>_EnvMatrix[0]</c> is the same
         /// value once the matrix is declared as an array of <c>float4</c> (which is
         /// exactly the memory layout: column-major, one column per row).
+        ///
+        /// An array element carries its own index -- <c>(unity_WorldToShadow[2]._m01_...)</c>
+        /// is column 2 of element 0 -- so the brackets are part of the name.
         /// </summary>
         private static readonly Regex MatrixColumnExpr =
-            new(@"^\(\s*([A-Za-z_]\w*)\s*\._m\d(\d)(?:_m\d\d)+\)$", RegexOptions.CultureInvariant);
+            new(@"^\(\s*([A-Za-z_]\w*(?:\[\d+\])?)\s*\._m\d(\d)(?:_m\d\d)+\)$",
+                RegexOptions.CultureInvariant);
 
         private static readonly Regex LaneMember =
             new(@"^([A-Za-z_]\w*)\.([xyzw])$", RegexOptions.CultureInvariant);
@@ -254,7 +275,12 @@ namespace ShaderRipper.Antlr.Emit
             if (string.IsNullOrEmpty(raw)) return raw;
             var m = MatrixColumnExpr.Match(raw);
             if (!m.Success) return raw;
-            return $"{m.Groups[1].Value}[{int.Parse(m.Groups[2].Value, CultureInfo.InvariantCulture)}]";
+            // A matrix that is itself an array element (`unity_WorldToShadow[2]`)
+            // keeps its element index: the column indices run per element, so
+            // folding them together would print `[2][1]`, which is not a member.
+            string bas = m.Groups[1].Value;
+            int col = int.Parse(m.Groups[2].Value, CultureInfo.InvariantCulture);
+            return bas.Contains('[') ? $"{bas}#{col}" : $"{bas}[{col}]";
         }
 
         /// <summary>
@@ -300,7 +326,7 @@ namespace ShaderRipper.Antlr.Emit
                 var m = MatrixRow.Match(kv.Value);
                 if (!m.Success) continue;
                 string bas = m.Groups[1].Value;
-                int idx = int.Parse(m.Groups[2].Value, CultureInfo.InvariantCulture);
+                int idx = MatrixCol(m);
                 bases[bas] = kv.Key - idx;
                 if (!spans.TryGetValue(bas, out int have) || idx + 1 > have) spans[bas] = idx + 1;
             }
@@ -344,8 +370,30 @@ namespace ShaderRipper.Antlr.Emit
                     if (mm.Success)
                     {
                         string bas = mm.Groups[1].Value;
-                        int idx = int.Parse(mm.Groups[2].Value, CultureInfo.InvariantCulture);
+                        int idx = MatrixCol(mm);
                         int span = spans.TryGetValue(bas, out int sp) ? sp : 0;
+
+                        // A matrix that is itself an array element is already
+                        // indexed by the body (`unity_WorldToShadow[0]`), so its
+                        // columns cannot be folded into one `float4 name[n]` --
+                        // that spelling does not exist.  Each column becomes its
+                        // own float4 named after the element, and the bodies read
+                        // it by that name.
+                        if (bas.Contains('['))
+                        {
+                            string elem = bas.Replace('[', '_').Replace("]", "");
+                            string colName = $"{elem}_col{idx}";
+                            if (used.Add(colName))
+                            {
+                                members.Add(new Member
+                                {
+                                    Name = colName, Type = "float4", Row = row, Col = 0,
+                                });
+                                rows[row] = colName;
+                                row++;
+                                continue;
+                            }
+                        }
 
                         // The run has to be measured against the matrix's real
                         // length, not against how many of its rows this variant

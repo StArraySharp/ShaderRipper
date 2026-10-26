@@ -29,6 +29,12 @@ namespace ShaderRipper.Antlr.Game
         public sealed class Stats
         {
             public int Files, Shaders, Programs, Disassembled, Translated, Skipped, Failed;
+            /// <summary>Shaders actually written to disk (a shader whose ShaderLab
+            /// fails the well-formedness check is counted as processed but not
+            /// emitted, so this can be lower than <see cref="Shaders"/>).</summary>
+            public int Emitted;
+            /// <summary>Unity's own shaders left out of the export.</summary>
+            public int BuiltinSkipped;
             public readonly List<string> Notes = new();
         }
 
@@ -78,7 +84,9 @@ namespace ShaderRipper.Antlr.Game
         }
 
         public static Stats Run(string dataDir, string outDir, string only, bool shaderLab,
-                                bool origAsm = false, bool dedup = false)
+                                bool origAsm = false, bool dedup = false, bool builtin = false,
+                                bool programs = false, IReadOnlyList<string> files = null,
+                                bool scanAll = false)
         {
             var s = new Stats();
             Directory.CreateDirectory(outDir);
@@ -86,10 +94,21 @@ namespace ShaderRipper.Antlr.Game
             Func<string, int, TypeNode> tpk = (version, classId) => TpkSchema.BuildClass(classId, version);
             var used = new HashSet<string>(StringComparer.Ordinal);
 
+            // Resources.Load paths only exist in globalgamemanagers, whose
+            // ResourceManager m_Container holds {build path -> .assets file +
+            // pathID}.  Without it a Resources shader can only be named after
+            // itself; with it the original "Assets/Resources/..." layout comes
+            // back.  Loading is best-effort: a bundle-only input has no such file.
+            var resRoot = files != null && files.Count > 0
+                ? Path.GetDirectoryName(Path.GetFullPath(files[0]))
+                : dataDir;
+            Dictionary<(string file, long pathId), string> resMap =
+                TryLoadResourceMap(resRoot, tpk, s);
+
             // Collect first, export second: `--dedup` has to see every copy of a
             // shader before picking the one worth emitting.
             var found = new List<(Shader sh, string name)>();
-            foreach (var (inName, inBytes, inPath) in Inputs(dataDir))
+            foreach (var (inName, inBytes, inPath) in Inputs(dataDir, files))
             {
                 SerializedFile sf;
                 try
@@ -107,6 +126,17 @@ namespace ShaderRipper.Antlr.Game
                                 : !string.IsNullOrEmpty(sh.ParsedForm?.Name) ? sh.ParsedForm.Name
                                 : $"pathId_{sh.PathId}";
                     if (only != null && !name.Contains(only, StringComparison.OrdinalIgnoreCase)) continue;
+                    // Unity's own shaders come with the editor and ship in every
+                    // build; ripping them back out produces a file that cannot be
+                    // re-imported (the engine's names are already taken).  The check
+                    // is against the engine's own resource listing --
+                    // data/unity_builtin_shaders.txt, dumped from
+                    // Resources/unity_builtin_extra -- not against name prefixes.
+                    if (!builtin && BuiltinIndex.Contains(name)) { s.BuiltinSkipped++; continue; }
+                    // Which .assets file this object came from: the Resources map is
+                    // keyed by it, and a bundle node's name is the only thing that
+                    // identifies the file once it has been extracted.
+                    sh.SourceFile ??= inName;
                     found.Add((sh, name));
                 }
             }
@@ -115,11 +145,11 @@ namespace ShaderRipper.Antlr.Game
             if (dedup)
             {
                 // The same shader can ship in several data files; keep one per
-                // output name.  A copy with a fixed container path wins (it
-                // lands on the plain file name), then the lowest path id so the
-                // winner never depends on enumeration order.
-                var winners = found.GroupBy(t => SafeKey(t.name), StringComparer.Ordinal)
-                                   .Select(g => g.OrderByDescending(t => !string.IsNullOrEmpty(t.sh.ContainerPath))
+                // output path.  A copy with a fixed container path wins (it lands
+                // on the path the asset itself names), then the lowest path id so
+                // the winner never depends on enumeration order.
+                var winners = found.GroupBy(t => OutKey(t.sh, t.name, resMap), StringComparer.Ordinal)
+                                   .Select(g => g.OrderByDescending(t => HasFixedPath(t.sh, resMap))
                                                  .ThenBy(t => t.sh.PathId).First())
                                    .OrderBy(t => t.sh.PathId)
                                    .ToList();
@@ -128,36 +158,341 @@ namespace ShaderRipper.Antlr.Game
                 export = winners;
             }
 
+            // Whole output paths are claimed in a fixed order (the order a
+            // sequential run would use) so two shaders that map to the same file
+            // never race: the first keeps the plain name, later ones get a suffix.
+            var claimed = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+
             foreach (var (sh, name) in export)
             {
                 s.Shaders++;
-                try { ExportShader(sh, name, outDir, used, shaderLab, origAsm, s); }
+                try { ExportShader(sh, name, outDir, used, claimed, resMap, shaderLab, programs, origAsm, s); }
                 catch (Exception e) { s.Failed++; s.Notes.Add($"{name}: {e.Message}"); }
             }
             return s;
         }
 
-        private static IEnumerable<string> Candidates(string dataDir)
+        /// <summary>
+        /// Best-effort read of the Resources container map.  A player build has
+        /// globalgamemanagers next to its .assets files; a bundle-only input has
+        /// no such file, and the map stays empty (names fall back to the shader's
+        /// own name).
+        /// </summary>
+        private static Dictionary<(string file, long pathId), string> TryLoadResourceMap(
+            string dir, Func<string, int, TypeNode> tpk, Stats s)
         {
-            // resources.assets first: it is where Resources-included shaders live.
+            var empty = new Dictionary<(string, long), string>();
+            if (string.IsNullOrEmpty(dir) || !Directory.Exists(dir)) return empty;
+            var gg = Path.Combine(dir, "globalgamemanagers");
+            if (!File.Exists(gg)) { s.Notes.Add("resources map: globalgamemanagers not found"); return empty; }
+            try
+            {
+                var map = ResourceMap.Load(File.ReadAllBytes(gg), null, tpk);
+                s.Notes.Add($"resources map: {map.Count} entries");
+                return map;
+            }
+            catch (Exception e)
+            {
+                s.Notes.Add("resources map: " + e.Message);
+                return empty;
+            }
+        }
+
+        /// <summary>Does this shader's destination come from the asset itself?</summary>
+        private static bool HasFixedPath(Shader sh,
+            Dictionary<(string file, long pathId), string> resMap) =>
+            !string.IsNullOrEmpty(sh.ContainerPath) ||
+            (resMap != null && sh.SourceFile != null &&
+             resMap.ContainsKey((Path.GetFileName(sh.SourceFile), sh.PathId)));
+
+        /// <summary>
+        /// The file name a shader gets, matching the main tool exactly.
+        ///
+        /// The shader's own name is the only input: the hierarchy separators in
+        /// "UI/Pause Planets" become underscores ("UI_Pause Planets"), and no
+        /// other character is touched.  Shader names are Unity asset names, so
+        /// they are not paths -- turning "/" into a directory would invent a
+        /// tree the project never had, and would split one asset across folders.
+        /// </summary>
+        private static string SafeOf(Shader sh, string name)
+        {
+            string safe = (name ?? "").Replace('/', '_').Replace('\\', '_');
+            foreach (char c in Path.GetInvalidFileNameChars())
+                if (c != '/' && c != '\\') safe = safe.Replace(c, '_');
+            return safe.Length == 0 ? "Shader_" + sh.PathId : safe;
+        }
+
+        /// <summary>
+        /// The relative path a shader is written to.
+        ///
+        /// Everything lands under <c>Assets/</c>, which is what an AssetRipper
+        /// extraction of the same build looks like -- the tree can be dropped
+        /// straight over an ExportedProject.  Two sources name the rest, in
+        /// order:
+        ///   * the Resources map (globalgamemanagers m_Container) or the bundle's
+        ///     own container path, which restore the project path the asset had
+        ///     before it was packed ("Assets/Resources/camerafilterpack_*.shader");
+        ///   * otherwise <c>Assets/Shader/&lt;flat name&gt;.shader</c>, the same
+        ///     fallback the main tool uses.
+        /// </summary>
+        private static string OutPath(Shader sh, string name,
+            Dictionary<(string file, long pathId), string> resMap)
+        {
+            string flat = SafeOf(sh, name);
+
+            // A Resources container path is the asset's real project location.
+            if (resMap != null && sh.SourceFile != null &&
+                resMap.TryGetValue((Path.GetFileName(sh.SourceFile), sh.PathId), out var mapped) &&
+                !string.IsNullOrEmpty(mapped))
+                return CleanRel("Assets/Resources/" + mapped.Replace('\\', '/'), flat);
+
+            // A bundle node path is project-relative and already starts at
+            // "assets/" in the cases Unity writes; anything else is a bare
+            // archive entry name and belongs on the flat path instead.
+            if (!string.IsNullOrEmpty(sh.ContainerPath))
+            {
+                string rel = sh.ContainerPath.Replace('\\', '/').TrimStart('/');
+                if (rel.StartsWith("assets/", StringComparison.OrdinalIgnoreCase))
+                    return CleanRel(rel, flat);
+            }
+            return CleanRel("Assets/Shader/" + flat, flat);
+        }
+
+        /// <summary>The path used for dedup grouping: case- and slash-insensitive.</summary>
+        private static string OutKey(Shader sh, string name,
+            Dictionary<(string file, long pathId), string> resMap) =>
+            OutPath(sh, name, resMap).ToLowerInvariant();
+
+        /// <summary>
+        /// A container path as a safe relative path: forced to .shader, slashes
+        /// normalised, illegal characters replaced, no leading separators or dots
+        /// (a "../.." in an asset path must not escape the output directory).
+        /// </summary>
+        private static string CleanRel(string raw, string fallbackName)
+        {
+            string rel = (raw ?? "").Replace('\\', '/').TrimStart('/');
+            foreach (string part in rel.Split('/'))
+                if (part == "..") { rel = fallbackName; break; }
+            if (!rel.EndsWith(".shader", StringComparison.OrdinalIgnoreCase)) rel += ".shader";
+            var parts = rel.Split('/');
+            for (int i = 0; i < parts.Length; i++)
+            {
+                foreach (char c in Path.GetInvalidFileNameChars()) parts[i] = parts[i].Replace(c, '_');
+                if (parts[i].Length == 0) parts[i] = "_";
+            }
+            return string.Join('/', parts);
+        }
+
+        private static IEnumerable<string> Candidates(string dataDir)
+        {            // resources.assets first: it is where Resources-included shaders live.
             return Directory.EnumerateFiles(dataDir, "*.assets", SearchOption.TopDirectoryOnly)
                             .OrderBy(f => Path.GetFileName(f) == "resources.assets" ? 0 : 1)
                             .ThenBy(f => f, StringComparer.Ordinal);
         }
 
         /// <summary>
-        /// Loose *.assets files plus the SerializedFile entries inside *.bundle
-        /// archives -- DLC and scene bundles routinely carry the only copy of a
-        /// shader, and the GLES-only builds often ship nothing but bundles.
+        /// Unity's own shaders, by the path prefix Unity gives them.
+        ///
+        /// These ship with the editor and appear in every build, so ripping them
+        /// back out returns the engine's own source -- and a re-import of that file
+        /// fails, because the identifiers it declares belong to the engine.  A game
+        /// that genuinely wants them (to diff against a newer Unity) can pass
+        /// <c>--builtin</c>.
         /// </summary>
-        private static IEnumerable<(string name, byte[] bytes, string path)> Inputs(string dataDir)
+        private static bool IsBuiltinShader(string name)
         {
+            string[] prefixes =
+            {
+                "Standard", "Legacy Shaders/", "Mobile/", "Particles/", "Unlit/",
+                "UI/", "Sprites/", "Skybox/", "Nature/", "FX/", "Hidden/",
+                "TextMeshPro/", "TMP/", "ImageEffects/", "Internal-",
+                "Autodesk Interactive", "VertexLit", "Diffuse", "Specular",
+            };
+            foreach (string p in prefixes)
+                if (name.StartsWith(p, StringComparison.Ordinal)) return true;
+            return false;
+        }
+
+        /// <summary>
+        /// Input serialized files.
+        ///
+        /// Two modes.  With <paramref name="files"/> the caller named them
+        /// explicitly (<c>--file</c>): each is a SerializedFile, a bundle, or a
+        /// wildcard, and the directory is not scanned at all.  Without it the
+        /// whole data directory is read: loose *.assets files plus the
+        /// SerializedFile entries inside *.bundle archives -- DLC and scene
+        /// bundles routinely carry the only copy of a shader, and the GLES-only
+        /// builds often ship nothing but bundles.
+        /// </summary>
+        private static IEnumerable<(string name, byte[] bytes, string path)> Inputs(
+            string dataDir, IReadOnlyList<string> files)
+        {
+            if (files != null && files.Count > 0)
+            {
+                foreach (string raw in ExpandFiles(files))
+                {
+                    // Sniffed by content, not by extension: an Android build is a
+                    // .apk (a zip of bundles) and a player build may name its
+                    // archives anything at all.
+                    switch (Sniff(raw))
+                    {
+                        case InputKind.Bundle:
+                            foreach (var (path, data) in Bundle.SerializedFiles(raw))
+                                yield return ($"{Path.GetFileName(raw)}/{path}", data, raw);
+                            break;
+
+                        case InputKind.Zip:
+                            foreach (var (name, data) in ZipEntries(raw))
+                                yield return ($"{Path.GetFileName(raw)}/{name}", data, raw);
+                            break;
+
+                        default:
+                            yield return (Path.GetFileName(raw), null, raw);
+                            break;
+                    }
+                }
+                yield break;
+            }
+
             foreach (var f in Candidates(dataDir))
                 yield return (Path.GetFileName(f), null, f);
             foreach (var b in Directory.EnumerateFiles(dataDir, "*.bundle", SearchOption.TopDirectoryOnly)
                                        .OrderBy(f => f, StringComparer.Ordinal))
                 foreach (var (path, data) in Bundle.SerializedFiles(b))
                     yield return ($"{Path.GetFileName(b)}/{path}", data, b);
+        }
+
+        /// <summary>What an input file is, decided from its first bytes.</summary>
+        private enum InputKind
+        {
+            /// <summary>A Unity SerializedFile (version is at offset 8).</summary>
+            Serialized,
+            /// <summary>A UnityFS container.</summary>
+            Bundle,
+            /// <summary>A zip archive — an .apk, or a zip of bundles.</summary>
+            Zip,
+            /// <summary>None of the above; the exporter will try it as a SerializedFile.</summary>
+            Unknown,
+        }
+
+        private static InputKind Sniff(string path)
+        {
+            try
+            {
+                using var fs = File.OpenRead(path);
+                var head = new byte[12];
+                int got = fs.Read(head, 0, head.Length);
+                if (got >= 7 && head[0] == 'U' && head[1] == 'n' && head[2] == 'i' &&
+                    head[3] == 't' && head[4] == 'y' && head[5] == 'F' && head[6] == 'S')
+                    return InputKind.Bundle;
+                if (got >= 4 && head[0] == 'P' && head[1] == 'K' &&
+                    (head[2] == 3 || head[2] == 5 || head[2] == 7))
+                    return InputKind.Zip;
+                if (got >= 12)
+                {
+                    // A SerializedFile starts with metadataSize/fileSize/version,
+                    // all big-endian and all small.  Version lives at offset 8.
+                    uint version = (uint)(head[8] << 24 | head[9] << 16 | head[10] << 8 | head[11]);
+                    if (version > 5 && version < 1000) return InputKind.Serialized;
+                }
+                return InputKind.Unknown;
+            }
+            catch { return InputKind.Unknown; }
+        }
+
+        /// <summary>
+        /// The shader-bearing entries of a zip: nested bundles are expanded, and
+        /// plain SerializedFiles inside the archive are taken as they are.  A zip
+        /// inside a zip is not followed — no Unity build nests them that deeply.
+        /// </summary>
+        private static IEnumerable<(string name, byte[] data)> ZipEntries(string zipPath)
+        {
+            System.IO.Compression.ZipArchive zip;
+            try { zip = System.IO.Compression.ZipFile.OpenRead(zipPath); }
+            catch { yield break; }
+
+            using (zip)
+            {
+                foreach (var entry in zip.Entries)
+                {
+                    if (entry.Length < 12) continue;
+                    // Resource payloads are huge and carry no shader objects.
+                    if (entry.FullName.EndsWith(".resS", StringComparison.OrdinalIgnoreCase) ||
+                        entry.FullName.EndsWith(".resource", StringComparison.OrdinalIgnoreCase))
+                        continue;
+
+                    byte[] data;
+                    try
+                    {
+                        using var es = entry.Open();
+                        using var ms = new MemoryStream((int)entry.Length);
+                        es.CopyTo(ms);
+                        data = ms.ToArray();
+                    }
+                    catch { continue; }
+
+                    string name = entry.FullName.Replace('\\', '/');
+                    if (data.Length >= 7 && data[0] == 'U' && data[1] == 'n' && data[2] == 'i' &&
+                        data[3] == 't' && data[4] == 'y' && data[5] == 'F' && data[6] == 'S')
+                    {
+                        List<Bundle.Node> nodes;
+                        try { nodes = Bundle.Read(data); }
+                        catch { continue; }
+                        foreach (var nd in nodes)
+                        {
+                            if (nd.Path.EndsWith(".resS", StringComparison.OrdinalIgnoreCase) ||
+                                nd.Path.EndsWith(".resource", StringComparison.OrdinalIgnoreCase))
+                                continue;
+                            yield return (name + "/" + nd.Path, nd.Data);
+                        }
+                        continue;
+                    }
+                    // Unity data files inside an apk often have no extension at
+                    // all (GUID-named); the version field is the only signal.
+                    if (data.Length >= 12)
+                    {
+                        uint v = (uint)(data[8] << 24 | data[9] << 16 | data[10] << 8 | data[11]);
+                        if (v > 5 && v < 1000) yield return (name, data);
+                    }
+                }
+            }
+        }
+
+        /// <summary>
+        /// The --file arguments as existing paths.
+        ///
+        /// One value can be several entries: comma and semicolon separate a list,
+        /// and `*`/`?` expand against the value's own directory.  A wildcard that
+        /// matches nothing is kept as-is so the caller reports the missing file
+        /// rather than silently exporting nothing.  Duplicates are dropped by
+        /// full path, case-insensitively, keeping first-seen order.
+        /// </summary>
+        private static IEnumerable<string> ExpandFiles(IReadOnlyList<string> values)
+        {
+            var seen = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+            foreach (string rawVal in values)
+            {
+                foreach (string seg in (rawVal ?? "").Split(',', ';'))
+                {
+                    string v = seg.Trim();
+                    if (v.Length == 0) continue;
+
+                    if (v.IndexOf('*') >= 0 || v.IndexOf('?') >= 0)
+                    {
+                        string dir = Path.GetDirectoryName(Path.GetFullPath(v));
+                        string pat = Path.GetFileName(v);
+                        if (Directory.Exists(dir))
+                        {
+                            foreach (string hit in Directory.GetFiles(dir, pat)
+                                                            .OrderBy(f => f, StringComparer.Ordinal))
+                                if (seen.Add(hit)) yield return hit;
+                            continue;
+                        }
+                    }
+                    string full = Path.GetFullPath(v);
+                    if (seen.Add(full)) yield return full;
+                }
+            }
         }
 
         private static string SafeKey(string name)
@@ -167,11 +502,46 @@ namespace ShaderRipper.Antlr.Game
             return safe;
         }
 
+        /// <summary>
+        /// One shader -> the path <see cref="OutPath"/> derives for it.
+        ///
+        /// The per-program HLSL (and the original disassembly beside it) is
+        /// debugging material, not the deliverable: 412 shaders would otherwise
+        /// leave 412 folders of fragments next to 412 files.  It is written only
+        /// when <paramref name="programs"/> is set (<c>--programs</c>, implied by
+        /// <c>--orig-asm</c>), which is what the offline verification scripts read.
+        /// </summary>
         private static void ExportShader(Shader sh, string name, string outDir,
-                                         HashSet<string> used, bool shaderLab, bool origAsm, Stats s)
+                                         HashSet<string> used, HashSet<string> claimed,
+                                         Dictionary<(string file, long pathId), string> resMap,
+                                         bool shaderLab, bool programs, bool origAsm, Stats s)
         {
+            // The destination comes from the asset when the asset knows it.  A
+            // bundle's container path and the Resources map both describe the
+            // original project layout, so honouring them restores the directory
+            // tree instead of flattening 412 shaders into one folder.
+            string rel = OutPath(sh, name, resMap);
+            if (!claimed.Add(rel))
+            {
+                // Two shaders resolved to the same file.  The path id is appended
+                // rather than the name replaced: the file still says what it is,
+                // and the loser is still reachable.
+                string stem = rel.EndsWith(".shader", StringComparison.OrdinalIgnoreCase)
+                    ? rel[..^".shader".Length] : rel;
+                string alt = stem + "_" + sh.PathId + ".shader";
+                int n = 2;
+                while (!claimed.Add(alt)) alt = stem + "_" + sh.PathId + "_" + n++ + ".shader";
+                s.Notes.Add($"{name}: path taken, written as {alt}");
+                rel = alt;
+            }
+
+            string full = Path.Combine(outDir, rel.Replace('/', Path.DirectorySeparatorChar));
+            string relDir = Path.GetDirectoryName(full) ?? outDir;
+            Directory.CreateDirectory(relDir);
+
+            // Per-program folders sit beside the .shader, named after it.
             string dirName = Safe(name, used);
-            string dir = Path.Combine(outDir, dirName);
+            string dir = programs || origAsm ? Path.Combine(relDir, dirName) : null;
 
             var props = sh.ParsedForm?.Props ?? new List<Property>();
             var globals = GlobalsNames.For(name);
@@ -219,16 +589,20 @@ namespace ShaderRipper.Antlr.Game
                 if (decoded == null || decoded.Length == 0) { s.Skipped++; continue; }
 
                 if (info.Format == "dxbc") ExportDxbc(sh, name, info, decoded, dir, dirName,
-                    passOf, spOf, kwIndex, props, globals, perPass, origAsm, s);
+                    passOf, spOf, kwIndex, props, globals, perPass, programs, origAsm, s);
                 else ExportGlsl(sh, name, info, decoded, dir, passOf, spOf, kwIndex, perPass, s, origAsm);
             }
 
             if (shaderLab && perPass.Count > 0)
             {
+                // The shader's own Properties block is the authority on which
+                // names are the game's: a member declared here stays even when its
+                // name happens to look like an engine one.
+                Emit.ShaderLab.SetPropertyNames(props);
                 var text = Emit.ShaderLab.Wrap(name, sh.FallbackName,
                                                PassTree(sh, perPass), props);
                 var errs = Emit.ShaderLab.Check(text);
-                if (errs.Count == 0) File.WriteAllText(Path.Combine(outDir, dirName + ".shader"), text);
+                if (errs.Count == 0) { File.WriteAllText(full, text); s.Emitted++; }
                 else s.Notes.Add($"{name}: shaderlab not well-formed: {errs[0]}");
             }
         }
@@ -240,7 +614,7 @@ namespace ShaderRipper.Antlr.Game
         private static void ExportDxbc(Shader sh, string name, PlatformInfo info, byte[] decoded,
             string dir, string dirName, Dictionary<int, Pass> passOf, Dictionary<int, SubProgram> spOf,
             Dictionary<int, string> kwIndex, List<Property> props, GlobalsNames globals,
-            Dictionary<Pass, PassBuild> perPass, bool origAsm, Stats s)
+            Dictionary<Pass, PassBuild> perPass, bool programs, bool origAsm, Stats s)
         {
             var slots = BlobTool.DecodeSlots(decoded, UsedBlobIndices(sh));
 
@@ -273,15 +647,20 @@ namespace ShaderRipper.Antlr.Game
                 var r = HlslEmitter.Emit(module);
                 s.Translated++;
 
-                Directory.CreateDirectory(dir);
-                string file = Path.Combine(dir, $"{slot.BlobIndex}_{module.Stage}.hlsl");
-                File.WriteAllText(file, r.Hlsl);
+                if (programs || origAsm)
+                {
+                    Directory.CreateDirectory(dir);
+                    // The translation is only written with --programs; --orig-asm
+                    // alone keeps just the disassembly it compares against.
+                    if (programs)
+                        File.WriteAllText(Path.Combine(dir, $"{slot.BlobIndex}_{module.Stage}.hlsl"), r.Hlsl);
 
-                // The original disassembly, kept beside the translation so the two
-                // can be compared instruction for instruction.  It is the same text
-                // the translator read.
-                if (origAsm)
-                    File.WriteAllText(Path.Combine(dir, $"{slot.BlobIndex}_{module.Stage}.orig.asm"), asm);
+                    // The original disassembly, kept beside the translation so the two
+                    // can be compared instruction for instruction.  It is the same text
+                    // the translator read.
+                    if (origAsm)
+                        File.WriteAllText(Path.Combine(dir, $"{slot.BlobIndex}_{module.Stage}.orig.asm"), asm);
+                }
 
                 if (pass == null) continue;
                 if (!perPass.TryGetValue(pass, out var build)) perPass[pass] = build = new PassBuild();
@@ -317,14 +696,17 @@ namespace ShaderRipper.Antlr.Game
                 if (string.IsNullOrWhiteSpace(r.Hlsl)) { s.Skipped++; continue; }
                 s.Translated++;
 
-                Directory.CreateDirectory(dir);
-                File.WriteAllText(Path.Combine(dir, $"{bi}_glsl.hlsl"), r.Hlsl);
+                if (dir != null)
+                {
+                    Directory.CreateDirectory(dir);
+                    File.WriteAllText(Path.Combine(dir, $"{bi}_glsl.hlsl"), r.Hlsl);
 
-                // The original GLSL, kept beside the translation so the two can be
-                // compared: the translation is only as good as its agreement with
-                // this text, and nothing else records what Unity's HLSLcc emitted.
-                if (origSrc)
-                    File.WriteAllText(Path.Combine(dir, $"{bi}_glsl.orig.glsl"), pr.Text);
+                    // The original GLSL, kept beside the translation so the two can be
+                    // compared: the translation is only as good as its agreement with
+                    // this text, and nothing else records what Unity's HLSLcc emitted.
+                    if (origSrc)
+                        File.WriteAllText(Path.Combine(dir, $"{bi}_glsl.orig.glsl"), pr.Text);
+                }
 
                 spOf.TryGetValue(bi, out var sub);
                 passOf.TryGetValue(bi, out var pass);
@@ -348,8 +730,7 @@ namespace ShaderRipper.Antlr.Game
         /// declarations); anything richer goes through the guarded chains.
         /// </summary>
         private static List<Emit.ShaderLab.SubShaderText> PassTree(
-            Shader sh, Dictionary<Pass, PassBuild> programs)
-        {
+            Shader sh, Dictionary<Pass, PassBuild> programs)        {
             var list = new List<Emit.ShaderLab.SubShaderText>();
             foreach (var ss in sh.ParsedForm?.SubShaders ?? new List<SubShader>())
             {

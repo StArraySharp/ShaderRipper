@@ -187,9 +187,34 @@ namespace ShaderRipper.Antlr.Resolve
             return true;
         }
 
+        /// <summary>
+        /// Does the asset's own reflection describe this member as a matrix?
+        ///
+        /// This replaces the hand-maintained <c>unity_matrix_names.txt</c>: the
+        /// name list could only say "a member called unity_WorldToLight is probably
+        /// a float4x4", while the reflection says so for this exact compile, with
+        /// its row count.  The name list also had to be regenerated whenever Unity
+        /// renamed something; the reflection ships inside the data being read.
+        ///
+        /// Two further sources answer the same question when the reflection cannot:
+        /// the engine-name table (a name Unity declares as a <c>float4x4</c>, like
+        /// <c>unity_WorldToLight</c>) and the span arithmetic at the call site.  A
+        /// stage that reads only one column of a global matrix never sees the other
+        /// rows in its parameter blob, so the reflection alone is silent there.
+        /// </summary>
+        private bool IsDeclaredMatrix(string name)
+        {
+            if (string.IsNullOrEmpty(name)) return false;
+            if (MatrixRows != null && MatrixRows.TryGetValue(name, out int rows) && rows >= 2)
+                return true;
+            if (AssetGlobals != null)
+                foreach (var am in AssetGlobals.Members)
+                    if (am.Name == name && am.IsMatrix && am.RowCount >= 2) return true;
+            return Emit.UnityIncludes.IsMatrixMember(name);
+        }
+
         public static CbResolver Resolve(Ast.Module prog, ICollection<string> nameTable,
-                                         IReadOnlyList<Property> props,
-                                         List<BlobTool.CbInfo> paramCbs = null,
+                                         IReadOnlyList<Property> props,                                         List<BlobTool.CbInfo> paramCbs = null,
                                          int blobIndex = -1,
                                          GlobalsNames names = null,
                                          AssetConstantBuffer assetGlobals = null,
@@ -711,7 +736,12 @@ namespace ShaderRipper.Antlr.Resolve
                 // never row 13.  Requiring the member's first row to be read threw
                 // the whole matrix away for such a stage, so its rows stayed bare
                 // cb0[14]/cb0[15].  Coverage is therefore decided per row, below.
-                if (col == 0 && !m.IsMatrix && MatrixNames.Contains(m.Name))
+                //
+                // Whether a member is a matrix is answered by the asset's own
+                // reflection (IsMatrix/RowCount); the old name list is gone because
+                // a name only says "this is probably a matrix", while the reflection
+                // says so per member and per compile.
+                if (col == 0 && !m.IsMatrix && IsDeclaredMatrix(m.Name))
                 {
                     int next = mi + 1 < members.Count ? members[mi + 1].Offset : cb.Size;
                     int n = (next - m.Offset) / 16;
@@ -894,7 +924,7 @@ namespace ShaderRipper.Antlr.Resolve
                 if (declaredRows == 0 && AssetGlobals != null)
                     foreach (var am in AssetGlobals.Members)
                         if (am.Name == mname && am.IsMatrix) { declaredRows = Math.Max(declaredRows, am.RowCount); break; }
-                if (col == 0 && (declaredRows is >= 2 and <= 4 || MatrixNames.Contains(mname)))
+                if (col == 0 && (declaredRows is >= 2 and <= 4 || IsDeclaredMatrix(mname)))
                 {
                     int span = (i + 1 < ordered.Count ? ordered[i + 1].offset : cb.Size) - moff;
                     int n = declaredRows is >= 2 and <= 4 ? declaredRows : (span >= 32 ? span / 16 : 0);

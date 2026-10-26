@@ -458,6 +458,14 @@ namespace ShaderRipper.Antlr.Emit
                 _sb.Append("    float4 o0 = 0.0;\n");
 
             if (_main?.compoundStatement() != null)
+            {
+                // The translated statement text carries the source's own layout,
+                // which is GLSLcc output: braces are glued to the preceding
+                // expression (`if(u_xlatb0){`) and the body is one flat column.
+                // Re-indenting by brace depth is what makes the emitted function
+                // readable; trimming alone left every nested statement at the
+                // same level as the `if` that guards it.
+                int depth = 1;   // 1 = inside the function's own body
                 foreach (var st in _main.compoundStatement().statement())
                 {
                     string text = Render(st)?.Trim();
@@ -467,9 +475,28 @@ namespace ShaderRipper.Antlr.Emit
                         string l = line.Trim();
                         if (l.Length == 0) continue;
                         if (l == "return;") l = _vertex ? "return o0;" : "return " + (_outs.Count > 0 ? _outs[0].name : "o0") + ";";
-                        _sb.Append("    ").Append(l).Append('\n');
+
+                        // A line that opens with `}` closes the block that was
+                        // open, so it sits one level out from the body it ends.
+                        // `} else {` is the exception in spirit but not in form:
+                        // it closes one block and opens another, so the level it
+                        // belongs to is still the outer one -- it is the *text*
+                        // that reads at the inner level, not the line.
+                        int opens = l.Count(c => c == '{');
+                        int closes = l.Count(c => c == '}');
+
+                        int lead = l.StartsWith("}", StringComparison.Ordinal) ? depth - 1 : depth;
+                        if (lead < 0) lead = 0;
+                        _sb.Append(new string(' ', lead * 4)).Append(l).Append('\n');
+
+                        // The depth moves by the line's net brace change; the `}`
+                        // that decided `lead` is a real close and returns the
+                        // level to the enclosing block for the next statement.
+                        depth += opens - closes;
+                        if (depth < 1) depth = 1;
                     }
                 }
+            }
 
             _sb.Append("}\n\n");
             return _sb.ToString();

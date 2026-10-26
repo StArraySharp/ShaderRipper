@@ -27,6 +27,24 @@ namespace ShaderRipper.Antlr.Data
         /// <summary>Nodes of a bundle, in the order the bundle lists them.</summary>
         public static List<Node> Read(string path) => Read(File.ReadAllBytes(path));
 
+        /// <summary>
+        /// Is this file a UnityFS container?  Decided from the bytes, not the
+        /// extension: a game is free to name its archives anything, and a *.bundle
+        /// that is really a SerializedFile must be read as one.
+        /// </summary>
+        public static bool IsBundle(string path)
+        {
+            try
+            {
+                using var fs = File.OpenRead(path);
+                var head = new byte[8];
+                if (fs.Read(head, 0, 8) < 7) return false;
+                return head[0] == 'U' && head[1] == 'n' && head[2] == 'i' &&
+                       head[3] == 't' && head[4] == 'y' && head[5] == 'F' && head[6] == 'S';
+            }
+            catch { return false; }
+        }
+
         public static List<Node> Read(byte[] buf)
         {
             if (buf.Length < 32 || buf[0] != 'U' || buf[1] != 'n' || buf[2] != 'i' ||

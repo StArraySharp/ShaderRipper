@@ -104,7 +104,37 @@ namespace ShaderRipper.Antlr.Emit
             if (!string.IsNullOrEmpty(fallback))
                 sb.Append("    Fallback \"").Append(fallback.Replace('"', '_')).Append("\"\n");
             sb.Append("}\n");
-            return sb.ToString();
+            return Tidy(sb.ToString());
+        }
+
+        /// <summary>
+        /// Collapse runs of blank lines to one, drop blank edges and strip
+        /// trailing whitespace.
+        ///
+        /// A program block is assembled from several sources -- the merged
+        /// structs and buffers, the include lines, one or more variant bodies --
+        /// and each of them ends with its own separator blank.  Where two such
+        /// sources meet the separators stack, which is how the GLSL route
+        /// reached six blank lines between two declarations.  Blank lines carry
+        /// no meaning in ShaderLab or HLSL, so this is purely a readability fix.
+        /// </summary>
+        private static string Tidy(string text)
+        {
+            string[] lines = text.Replace("\r\n", "\n").Split('\n');
+            var outp = new List<string>(lines.Length);
+            foreach (string raw in lines)
+            {
+                string line = raw.TrimEnd();
+                if (line.Length == 0)
+                {
+                    if (outp.Count == 0 || outp[outp.Count - 1].Length == 0) continue;
+                    outp.Add("");
+                    continue;
+                }
+                outp.Add(line);
+            }
+            while (outp.Count > 0 && outp[outp.Count - 1].Length == 0) outp.RemoveAt(outp.Count - 1);
+            return string.Join("\n", outp) + "\n";
         }
 
         /// <summary>
@@ -182,11 +212,25 @@ namespace ShaderRipper.Antlr.Emit
             else if (synthVertex) sb.Append("            #pragma vertex vert\n");
             if (p.Fragment != null) sb.Append("            #pragma fragment ").Append(p.Fragment.Entry).Append('\n');
             AppendTarget(sb, p);
-            foreach (var pragma in p.Pragmas) sb.Append("            ").Append(pragma).Append('\n');
+            foreach (var line in p.Pragmas) sb.Append("            ").Append(line).Append('\n');
             foreach (var note in p.Notes) sb.Append("            // ").Append(note).Append('\n');
-            foreach (var line in merged) sb.Append("            ").Append(line).Append('\n');
+            foreach (var line in merged) AppendBodyLine(sb, line);
             sb.Append("            ENDHLSL\n");
             sb.Append("        }\n\n");
+        }
+
+        /// <summary>
+        /// One line of a translated body, at the program block's indentation.
+        ///
+        /// An empty line is written as a bare newline and nothing else: the
+        /// previous form appended <c>"\n"</c> *and* the empty text *and* another
+        /// <c>\n</c>, which is where the two-blank-line gaps between every
+        /// declaration came from.
+        /// </summary>
+        private static void AppendBodyLine(StringBuilder sb, string line)
+        {
+            if (line.Length == 0) { sb.Append('\n'); return; }
+            sb.Append("            ").Append(line).Append('\n');
         }
 
         /// <summary>
@@ -233,13 +277,11 @@ namespace ShaderRipper.Antlr.Emit
                         ? (guard.Length > 0 ? "#if " + guard : "#if 1")
                         : (guard.Length > 0 ? "#elif " + guard : "#elif 1");
                     sb.Append("            ").Append(head).Append('\n');
-                    foreach (var l in bodyLines[vi])
-                        sb.Append(l.Length == 0 ? "\n" : "            ").Append(l).Append('\n');
+                    foreach (var l in bodyLines[vi]) AppendBodyLine(sb, l);
                 }
                 // Combinations the build never shipped: compile the base variant.
                 sb.Append("            #else\n");
-                foreach (var l in bodyLines[0])
-                    sb.Append(l.Length == 0 ? "\n" : "            ").Append(l).Append('\n');
+                foreach (var l in bodyLines[0]) AppendBodyLine(sb, l);
                 sb.Append("            #endif\n");
             }
         }
@@ -320,9 +362,97 @@ namespace ShaderRipper.Antlr.Emit
             public readonly Dictionary<(int row, int col), CbLayout.Member> Rows = new();
         }
 
+        /// <summary>
+        /// Names the shader's own Properties block declares.
+        ///
+        /// A member matching one of these is the game's, never the engine's, even
+        /// when the name also appears in <c>unity_engine_names.json</c>: a material
+        /// property has to keep its declaration or the material can no longer drive
+        /// it.  Only names absent here are handed over to the include.
+        /// </summary>
+        private static HashSet<string> _properties = new(StringComparer.Ordinal);
+
+        internal static void SetPropertyNames(IEnumerable<Data.Property> props)
+        {
+            var set = new HashSet<string>(StringComparer.Ordinal);
+            foreach (var p in props ?? Enumerable.Empty<Data.Property>())
+            {
+                if (string.IsNullOrEmpty(p.Name)) continue;
+                set.Add(p.Name);
+                // A texture property also implies `<name>_ST` / `<name>_TexelSize`,
+                // which Unity synthesises and a shader routinely reads.
+                set.Add(p.Name + "_ST");
+                set.Add(p.Name + "_TexelSize");
+                set.Add(p.Name + "_HDR");
+            }
+            _properties = set;
+        }
+
+        private static bool IsProperty(string name)
+        {
+            if (string.IsNullOrEmpty(name) || _properties.Count == 0) return false;
+            if (_properties.Contains(name)) return true;
+            // `name[2]` and `name.x` both belong to `name`.
+            int cut = name.IndexOfAny(new[] { '[', '.' });
+            return cut > 0 && _properties.Contains(name[..cut]);
+        }
+
+        /// <summary>
+        /// Re-indent a declaration block to one level inside the program.
+        ///
+        /// The translated HLSL is emitted at column zero (`struct appdata` /
+        /// `{` / tab-indented members), because it is a program fragment rather
+        /// than ShaderLab source.  Dropping it into a <c>HLSLPROGRAM</c> unchanged
+        /// leaves the brace and the members hanging outside the surrounding
+        /// indentation -- valid, but the file reads as if it were broken.
+        ///
+        /// The body is normalised rather than shifted: the first line fixes the
+        /// base column, deeper lines keep their relative offset, and tabs become
+        /// spaces so the result is uniform.
+        /// </summary>
+        private static List<string> Reindent(List<string> block, int level)
+        {
+            string pad = new string(' ', level * 4);
+            var lines = block.SelectMany(b => b.Replace("\r\n", "\n").Split('\n')).ToList();
+
+            // Drop leading/trailing blank lines; the caller adds one after.
+            while (lines.Count > 0 && lines[0].Trim().Length == 0) lines.RemoveAt(0);
+            while (lines.Count > 0 && lines[lines.Count - 1].Trim().Length == 0) lines.RemoveAt(lines.Count - 1);
+
+            // Column of the first non-blank line becomes the base.
+            int baseCol = 0;
+            foreach (string l in lines)
+                if (l.Trim().Length > 0) { baseCol = IndentOf(l); break; }
+
+            var outp = new List<string>(lines.Count);
+            foreach (string raw in lines)
+            {
+                if (raw.Trim().Length == 0) { outp.Add(""); continue; }
+                int col = Math.Max(0, IndentOf(raw) - baseCol);
+                outp.Add(pad + new string(' ', col) + raw.TrimStart(' ', '\t'));
+            }
+            return outp;
+        }
+
+        /// <summary>Width of a line's leading whitespace, counting a tab as 4.</summary>
+        private static int IndentOf(string line)
+        {
+            int col = 0;
+            foreach (char c in line)
+            {
+                if (c == ' ') col++;
+                else if (c == '\t') col += 4;
+                else break;
+            }
+            return col;
+        }
+
         internal static List<string> Merge(Stage vs, Stage ps)
         {
             if (vs == null && ps == null) return null;
+
+            // The replacement tally is per pass, not per file.
+            UnityIncludes.Reset();
 
             var buffers = new Dictionary<string, Buf>(StringComparer.Ordinal);
             var structs = new List<List<string>>();
@@ -461,33 +591,99 @@ namespace ShaderRipper.Antlr.Emit
 
             var outp = new List<string>();
             var renames = new Dictionary<string, string>(StringComparer.Ordinal);
-            foreach (var block in structs) { outp.AddRange(block); outp.Add(""); }
+            foreach (var block in structs) { outp.AddRange(Reindent(block, 0)); outp.Add(""); }
+
+            // Unity's own constant buffers are declared by the include chain, not
+            // by us.  Re-declaring `unity_ObjectToWorld`, `unity_MatrixVP` and the
+            // rest makes the ShaderLab compiler reject the file outright:
+            //
+            //   Shader has a float property 'unity_MatrixVP' which clashes with a
+            //   built-in non-float property name.
+            //
+            // Unity resolves every identifier it sees in a program block against
+            // its built-in property table, and a `cbuffer` member is no exception.
+            // Including the file that already declares them is both shorter and
+            // correct -- and it is what the original source did.
+            bool usingIncludes = UnityIncludes.Enabled;
             foreach (var kv in buffers.OrderBy(k => slotOf[k.Key]))
             {
-                outp.Add(kv.Value.Header.Replace(Regex.Match(kv.Value.Header, @"register\(b\d+\)").Value,
-                                                 $"register(b{slotOf[kv.Key]})"));
-                outp.Add("{");
-            // Two stages can each contribute a piece of the same row -- one a
-            // whole-footprint member, the other narrower ones sharing it -- and the
-            // union would then declare members over the same bytes, which fxc
-            // rejects ("packoffset overlaps").  The wider member wins, and every
-            // narrower name that overlapped it is rewritten to read through it in
-            // *every* stage body, because those names may appear in a variant that
-            // never goes through this merge.
-            var overlap = CbLayout.OverlapRenames(kv.Value.Rows.Values);
-            foreach (var r in overlap)
-            {
-                renames[r.Key] = r.Value;
-                kv.Value.Rows.Remove((kv.Value.Rows.First(x => x.Value.Name == r.Key).Key));
-            }
-            var keptMembers = kv.Value.Rows.Values.OrderBy(m => m.Row).ThenBy(m => m.Col).ToList();
+                // Two stages can each contribute a piece of the same row -- one a
+                // whole-footprint member, the other narrower ones sharing it -- and
+                // the union would then declare members over the same bytes, which
+                // fxc rejects ("packoffset overlaps").  The wider member wins, and
+                // every narrower name that overlapped it is rewritten to read
+                // through it in *every* stage body, because those names may appear
+                // in a variant that never goes through this merge.
+                var overlap = CbLayout.OverlapRenames(kv.Value.Rows.Values);
+                foreach (var r in overlap)
+                {
+                    renames[r.Key] = r.Value;
+                    kv.Value.Rows.Remove((kv.Value.Rows.First(x => x.Value.Name == r.Key).Key));
+                }
+                var keptMembers = kv.Value.Rows.Values.OrderBy(m => m.Row).ThenBy(m => m.Col).ToList();
 
-            foreach (var m in keptMembers) outp.Add(CbLayout.Line(m));
-            outp.Add("};");
-            outp.Add("");
-        }
-        outp.AddRange(globals);
-        if (globals.Count > 0) outp.Add("");
+                // A `$Globals` block holds the engine's own globals beside the
+                // material's properties -- `unity_WorldToLight`, `unity_LightmapST`
+                // and friends land there because the original source declared them
+                // outside any CBUFFER.  Leaving them in makes the ShaderLab compiler
+                // reject the file, exactly like re-declaring `UnityPerFrame` did, so
+                // they are dropped here and come in through the include instead.
+                //
+                // The check is by member NAME against the engine's own table, not by
+                // buffer name: `unity_WorldToLight` lives in `$Globals` (a game-owned
+                // buffer) and `unity_MatrixVP` in `UnityPerFrame` (an engine one),
+                // and both must go.  A buffer left with no members is dropped whole.
+                //
+                // The shader's own Properties block overrules the table.  A game is
+                // free to declare a material property that merely shares a name with
+                // an engine one, and such a property must keep its declaration: the
+                // material drives it, so dropping it would break the shader.  Only
+                // names the property table does not claim are handed to the include.
+                if (usingIncludes)
+                {
+                    keptMembers = keptMembers.Where(m =>
+                    {
+                        if (!UnityIncludes.IsEngineMember(m.Name)) return true;
+                        if (IsProperty(m.Name)) return true;
+                        UnityIncludes.NoteMember(m.Name);
+                        return false;
+                    }).ToList();
+                }
+
+                if (keptMembers.Count == 0) continue;   // the whole block was engine-owned
+
+                string header = kv.Value.Header.Replace(
+                    Regex.Match(kv.Value.Header, @"register\(b\d+\)").Value,
+                    $"register(b{slotOf[kv.Key]})");
+                outp.Add(header.Trim());
+                outp.Add("{");
+                // Members sit one level inside the block.  `Wrap` prefixes every
+                // line with the program's own indentation, so the relative offset
+                // added here is what the reader sees.
+                foreach (var m in keptMembers) outp.Add("    " + CbLayout.Line(m).TrimStart());
+                outp.Add("};");
+                outp.Add("");
+            }
+
+            // The includes go before the declarations that remain, so the engine
+            // members are visible to every program in the file.  A shader that only
+            // touches `unity_MatrixVP` gets one line; a particle shader that needs
+            // the billboard helpers gets that file too.
+            if (usingIncludes && UnityIncludes.Any)
+            {
+                var head = new List<string>();
+                foreach (string line in UnityIncludes.Lines())
+                    head.Add(line.Trim());
+                head.Add("");
+                head.AddRange(outp);
+                outp = head;
+            }
+
+            if (globals.Count > 0)
+            {
+                outp.AddRange(Reindent(globals, 0));
+                outp.Add("");
+            }
 
             foreach (var (stage, own) in perStage)
             {
@@ -511,7 +707,7 @@ namespace ShaderRipper.Antlr.Emit
                         fn = Regex.Replace(fn, @"\b" + Regex.Escape(row.Value.Name) + @"\b", merged.Name);
                     }
                 }
-                outp.AddRange(fn.Split('\n'));
+                outp.AddRange(Reindent(fn.Split('\n').ToList(), 0));
                 outp.Add("");
             }
             return outp;

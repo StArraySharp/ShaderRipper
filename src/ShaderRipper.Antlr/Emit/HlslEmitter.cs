@@ -283,11 +283,16 @@ namespace ShaderRipper.Antlr.Emit
                 if (ok && ins.Saturate)
                 {
                     string written = _sb.ToString(at, _sb.Length - at);
+                    // The captured leading whitespace is the line's *full*
+                    // indentation -- `Line` put it there.  Carrying it into the
+                    // replacement and letting `Line` indent again doubles it,
+                    // which is how these lines ended up four columns deeper than
+                    // their neighbours.
                     var mm = Regex.Match(written, @"^(\s*)([^=\n]+)= (.+);\r?\n$");
                     if (mm.Success)
                     {
                         _sb.Length = at;
-                        Line($"{mm.Groups[1].Value}{mm.Groups[2].Value}= saturate({mm.Groups[3].Value});");
+                        Line($"{mm.Groups[2].Value}= saturate({mm.Groups[3].Value});");
                     }
                 }
                 if (ok) _r.Translated++;
