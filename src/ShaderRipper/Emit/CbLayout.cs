@@ -12,27 +12,17 @@ namespace ShaderRipper.Emit
     /// Turns the resolver's row/lane names into a constant-buffer declaration that
     /// HLSL will accept.
     ///
-    /// The resolver answers "what is at cb1 row 7" -- <c>_Color</c>,
-    /// <c>unity_WorldToLight[2]</c> -- and, when a row holds several scalars,
-    /// "what is at cb1 row 7 lane 2" as well.  Those answers cannot be repeated
-    /// verbatim: a matrix column is spelled <c>(M._m00_m10_m20_m30)</c>, which is an
-    /// expression rather than a member name.
+    /// The resolver answers "what is at cb1 row 7" (<c>_Color</c>,
+    /// <c>unity_WorldToLight[2]</c>) and, for a row of scalars, which lane.  Those
+    /// answers cannot be repeated verbatim, because a matrix column is spelled
+    /// <c>(M._m00_m10_m20_m30)</c> -- an expression, not a member name.
     ///
-    /// The declaration is driven by <c>packoffset</c>.  Without it a constant buffer
-    /// is laid out member after member, so the declaration has to cover every row
-    /// from zero and one unnamed row forces an opaque placeholder -- 2,340 of them
-    /// across one game's shaders.  With it, each member is pinned to its real row
-    /// and lane: unnamed rows simply do not appear, and a row that holds
-    /// four scalars can declare four scalars instead of one opaque float4.
-    ///
-    /// Shapes produced, per register:
-    ///
-    ///   * <b>named members</b> -- <c>float _FaceDilate : packoffset(c6.x);</c>, a
-    ///     matrix run collapsed into <c>float4 _EnvMatrix[4]</c> (column-major, so
-    ///     one column per row, which is what the resolver's references index), and
-    ///     <c>float4 _cbN_rowK</c> only for rows nothing at all pinned.
-    ///   * <b>the raw array</b> -- <c>float4 cb1[21];</c> -- only for a buffer read
-    ///     with a runtime row index, which no member name can express.
+    /// The declaration is driven by <c>packoffset</c>: each member is pinned to its
+    /// real row and lane, so unnamed rows simply do not appear and a row holding four
+    /// scalars declares four scalars instead of one opaque float4.  The shapes per
+    /// register are named members, a matrix run collapsed into
+    /// <c>float4 _EnvMatrix[4]</c>, and -- only for a buffer read with a runtime row
+    /// index -- the raw <c>float4 cb1[21];</c> array.
     /// </summary>
     internal sealed class CbLayout
     {
@@ -406,17 +396,11 @@ namespace ShaderRipper.Emit
         /// Turn a row -> name map (plus per-lane names) into members whose
         /// <c>packoffset</c> puts each one exactly where the disassembly reads it.
         ///
-        /// The offset is what makes this affordable.  A constant buffer declared
-        /// without one is laid out member after member, so the declaration has to
-        /// cover every row from zero and a single unnamed row forces a positional
-        /// placeholder.  With <c>packoffset</c> each member is pinned to its real
-        /// row and lane: unnamed rows simply do not appear, and a row that holds
-        /// four scalars can declare four scalars instead of one opaque float4.
-        ///
-        /// A matrix or an array is a run of consecutive <c>name[i]</c> rows, and
-        /// becomes one <c>float4 name[n]</c> -- the same shape the resolver's
-        /// references use.  A run that starts at a non-zero index is declared from
-        /// its real base so the indices still line up.
+        /// Without an offset the declaration has to cover every row from zero and one
+        /// unnamed row forces a placeholder; with <c>packoffset</c> unnamed rows simply
+        /// do not appear.  A run of consecutive <c>name[i]</c> rows becomes one
+        /// <c>float4 name[n]</c>, declared from its real base when it starts at a
+        /// non-zero index.
         /// </summary>
         private static (List<Member> members, Dictionary<int, string> rows) DeclareMembers(
             int reg, int extent, Dictionary<int, string> names,

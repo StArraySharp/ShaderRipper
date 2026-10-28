@@ -10,16 +10,13 @@ namespace ShaderRipper.Emit
     /// <summary>
     /// GLSL -> HLSL, read with <c>Glsl.g4</c>.
     ///
-    /// Unity stores the HLSLcc output for its GL platforms, so the input is a
-    /// register-style transliteration already: one statement per line,
-    /// <c>u_xlatN</c> temporaries, stage built-ins named <c>in_*</c>,
-    /// <c>vs_*</c>, <c>gl_*</c>.  That shape is what makes a straight
-    /// transliteration faithful — the work is renaming and choosing the right
-    /// sampling form, not recovering intent.
+    /// Unity stores the HLSLcc output for its GL platforms, so the input is already a
+    /// register-style transliteration: one statement per line, <c>u_xlatN</c>
+    /// temporaries, stage built-ins named <c>in_*</c>/<c>vs_*</c>/<c>gl_*</c>.  That
+    /// makes a straight transliteration faithful -- the work is renaming and choosing
+    /// the right sampling form, not recovering intent.
     ///
-    /// The output keeps the same register-level, compilable style as the DXBC
-    /// side: <c>float4 u_xlat0</c>, <c>Texture2D</c>/<c>SamplerState</c>,
-    /// <c>.Sample()</c>.
+    /// The output keeps the same register-level, compilable style as the DXBC side.
     /// </summary>
     internal sealed class GlslTranslator
     {
@@ -39,28 +36,13 @@ namespace ShaderRipper.Emit
         private readonly HashSet<string> _samplers = new(StringComparer.Ordinal);
         private readonly Dictionary<string, string> _samplerKind = new(StringComparer.Ordinal);
         /// <summary>
-        /// Is this name Unity's own (declared by a CGInclude and filled by the
-        /// engine), rather than something the material owns?
-        ///
-        /// The engine table alone is not enough here.  It also lists names that
-        /// <em>some</em> cginc happens to declare while a script is what actually
-        /// sets them -- `TextCoreProperties.cginc` declares `_ClipRect` and
-        /// `_EnvMatrix`, and TMP/UGUI write both through `Material.SetVector`.  Those
-        /// are material constants: leaving them to an include means nothing ever
-        /// fills them.
-        ///
-        /// So the engine set is narrowed to the names the engine actually writes:
-        /// everything under `unity_`/`glstate_`, plus the per-frame scalars Unity
-        /// uploads itself.  A Properties entry always wins over both.
-        /// </summary>
-        /// <summary>
         /// Is this a name Unity synthesises for a texture property?
         ///
-        /// A `2D` property `<name>` implies `<name>_ST` (scale/offset),
-        /// `<name>_TexelSize` and `<name>_HDR`, carried in the same material
-        /// constant buffer.  A payload reads them directly, and they are never
-        /// listed in the Properties block, so without this they stayed bare globals
-        /// and read zero.
+        /// A <c>2D</c> property <c>&lt;name&gt;</c> implies <c>&lt;name&gt;_ST</c>
+        /// (scale/offset), <c>&lt;name&gt;_TexelSize</c> and <c>&lt;name&gt;_HDR</c>,
+        /// carried in the same material constant buffer.  A payload reads them
+        /// directly and they are never listed in the Properties block, so without this
+        /// they stay bare globals and read zero.
         /// </summary>
         private bool IsPropertyDerived(string name)
         {
@@ -171,16 +153,15 @@ namespace ShaderRipper.Emit
 
         /// <summary>
         /// name -> HLSL type for every material property the payload declares, in
-        /// first-seen order.  The merged file emits this as ONE `UnityPerMaterial`
-        /// block: a block per stage defines the shared names twice, and a block
-        /// built from only the vertex stage leaves the fragment's properties
-        /// undeclared.
+        /// first-seen order.
         ///
-        /// Owned by the <see cref="Translate"/> call that is running, not by the
-        /// class: the two stages of one payload have to share it, two payloads
-        /// must not.  As a plain static it was per-process -- the content of a
-        /// shader exported with `--jobs` depended on what the shader next to it
-        /// happened to declare, and on which worker got there first.
+        /// The merged file emits this as ONE <c>UnityPerMaterial</c> block: a block per
+        /// stage would define the shared names twice, and one built from the vertex
+        /// stage alone leaves the fragment's properties undeclared.
+        ///
+        /// Per <see cref="Translate"/> call, not static: the two stages of one payload
+        /// share it, two payloads must not -- a static made the content of a shader
+        /// exported with <c>--jobs</c> depend on its neighbour.
         /// </summary>
         private readonly Dictionary<string, string> _materialUnion;
 
@@ -566,15 +547,12 @@ namespace ShaderRipper.Emit
         }
 
         /// <summary>
-        /// Engine-provided names the body references but the payload never
-        /// declares.
+        /// Engine-provided names the body references but the payload never declares.
         ///
-        /// A GLSL payload from HLSLcc is a complete translation unit for the
-        /// *shader*, but Unity's own globals arrive through the include chain when
-        /// the file is compiled by the editor.  Since this route emits no include,
-        /// the few names that come from the engine are declared here -- and only
-        /// the ones the body actually mentions, because an unused local in HLSL is
-        /// an error at higher warning levels.
+        /// A GLSL payload is a complete translation unit for the shader, but Unity's
+        /// globals arrive through the include chain when the editor compiles the file.
+        /// Only the names the body actually mentions are declared here, since an unused
+        /// local is an error at higher warning levels.
         /// </summary>
         private IEnumerable<(string type, string name)> EngineBuiltins()
         {
@@ -628,15 +606,9 @@ namespace ShaderRipper.Emit
         };
 
         /// <summary>
-        /// Engine names the include chain genuinely provides.
-        ///
-        /// Only `unity_StereoEyeIndex` qualifies.  It lives in `UnityShaderVariables.cginc`
-        /// under one of three stereo defines, but `UnityPerDraw`'s
-        /// `#if !defined(USING_STEREO_MATRICES)` branch declares it on every D3D11
-        /// compile -- so a local copy is a redefinition and the include is the right
-        /// answer.  (The previous version also listed `unity_ProbeVolumeParams`
-        /// here, which is only declared when `UNITY_LIGHT_PROBE_PROXY_VOLUME` is on:
-        /// that made the name vanish for every shader without the pragma.)
+        /// Engine names the include chain genuinely provides -- only
+        /// <c>unity_StereoEyeIndex</c>, which <c>UnityPerDraw</c> declares on every
+        /// D3D11 compile, so a local copy would be a redefinition.
         /// </summary>
         private IEnumerable<string> IncludeProvided()
         {
@@ -784,18 +756,13 @@ namespace ShaderRipper.Emit
             }
 
             // Uniforms split three ways, and the split is what makes the values
-            // actually arrive:
+            // arrive:
             //
-            //   * a name the shader's Properties block declares is a MATERIAL
-            //     property.  Unity uploads a material's values into a constant
-            //     buffer called `UnityPerMaterial`, so the declaration has to live
-            //     in exactly that buffer.  A bare `float4 _Color;` compiles and
-            //     reads zero -- that is what turned every GLSL-route sprite fully
-            //     transparent.
-            //   * a name the engine owns (`unity_ObjectToWorld`, `_ScreenParams`,
-            //     `_Time`) is declared by Unity's own CGIncludes, so it is left out
-            //     entirely and pulled in through `#include "UnityCG.cginc"`.  It is            //     the same rule the DXBC route follows, and the same reason: the
-            //     engine fills those buffers by name, so a private copy is dead.
+            //   * a Properties-block name is a MATERIAL property, so it has to be
+            //     declared in `UnityPerMaterial` -- that is the buffer Unity uploads
+            //     into.  A bare `float4 _Color;` compiles and reads zero.
+            //   * a name the engine owns is declared by Unity's CGIncludes, so it is
+            //     left out and pulled in through `#include "UnityCG.cginc"`.
             //   * anything else is a payload local and stays a plain global.
             var material = new List<(string type, string name)>();
             var engine = new List<(string type, string name)>();
@@ -811,22 +778,15 @@ namespace ShaderRipper.Emit
                 //   1. a Properties entry, or a name Unity derives from one
                 //      (`<tex>_ST`), is a material property -> UnityPerMaterial;
                 //   2. a name Unity's own includes declare is left to the include
-                //      chain, because the engine fills those buffers by name and a
-                //      private copy would read zero;
-                //   3. anything else is a constant the material owns -- `_ClipRect`
-                //      and `_EnvMatrix` are set through Material.SetVector by the
-                //      UI/TMP scripts and never appear in Properties -- so it also
-                //      goes in UnityPerMaterial.  That is what the DXBC route does
-                //      with its `$Globals` block, and this is the same buffer.
+                //      chain, because the engine fills those buffers by name;
+                //   3. anything else is a constant the material owns, so it also goes
+                //      in UnityPerMaterial -- the same buffer the DXBC route calls
+                //      `$Globals`.
                 //
-                // `IsEngineName` is consulted BEFORE the Properties check of
-                // is-a-material-property above, because a shader may list an engine
-                // global in its Properties block without owning it: the TMP suite
-                // declares `unity_ProbeVolumeParams` and `_LightColor0` as material
-                // entries, and putting them in UnityPerMaterial made them collide
-                // with the include's own copies ("redefinition of
-                // 'unity_ProbeVolumeParams'").  What decides ownership is who fills
-                // the value, not where the declaration happened to be copied from.
+                // `IsEngineName` is consulted BEFORE the is-a-property check, because
+                // a shader may list an engine global in Properties without owning it,
+                // and declaring it locally then collides with the include's copy.
+                // What decides ownership is who fills the value.
                 if (IsEngineName(bare)) engine.Add(u);
                 else material.Add(u);
             }

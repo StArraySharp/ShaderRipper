@@ -22,15 +22,10 @@ namespace ShaderRipper.Data
     /// Pull programs out of a decompressed platform payload.
     ///
     /// Every slot starts with a per-program header (0x0C0A75BA) followed by the
-    /// constant-buffer name tables, so the payload never starts at offset 0 and
-    /// its backend can only be recognised by its own signature:
-    ///
-    ///   * d3d11     — a DXBC container (has its own total-length field)
-    ///   * gles3/gl  — HLSLcc output, plain text starting at "#version"
-    ///   * metal     — 0xF00DCAFE archive: u32 header size, entry name, MSL text
-    ///   * vulkan    — SPIR-V, but Unity stores it SMOL-V *compressed*, which has
-    ///                 no magic number; only the embedded "GLSL.std.450" string
-    ///                 and the instruction stream give it away
+    /// constant-buffer name tables, so the payload never starts at offset 0 and its
+    /// backend is recognised by its own signature: a DXBC container for d3d11,
+    /// HLSLcc text starting at "#version" for gles/gl, a 0xF00DCAFE archive for
+    /// metal, and SMOL-V-compressed SPIR-V (no magic number) for vulkan.
     /// </summary>
     internal static class ProgramSource
     {

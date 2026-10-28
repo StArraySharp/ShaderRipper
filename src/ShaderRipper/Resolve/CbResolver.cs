@@ -11,14 +11,11 @@ namespace ShaderRipper.Resolve
     /// really is, and rewrites <c>cbN[row]</c> accesses to the named uniform that
     /// occupies that slot.
     ///
-    /// Nothing here is guessed.  Two independent pieces of evidence are combined:
-    ///
-    ///   1. the pass's name table (<c>SerializedPass.m_NameIndices</c>) lists the
-    ///      constant-buffer names the shader uses -- e.g. "$Globals",
-    ///      "UnityPerDraw", "UnityPerFrame";
-    ///   2. the row layout of every Unity cbuffer is fixed by the shipped
-    ///      <c>CGIncludes/UnityShaderVariables.cginc</c>, and a member is only
-    ///      accepted when its name is also present in the name table.
+    /// Two pieces of evidence are combined: the pass's name table
+    /// (<c>SerializedPass.m_NameIndices</c>) lists the buffer names the shader uses,
+    /// and the row layout of every Unity cbuffer is fixed by the shipped
+    /// <c>UnityShaderVariables.cginc</c>, where a member is only accepted when its
+    /// name also appears in the name table.
     ///
     /// A cbuffer is renamed only when every row it reads is covered by a
     /// name-confirmed member, and the assignment is a bijection across the stage.
@@ -91,15 +88,16 @@ namespace ShaderRipper.Resolve
         public Dictionary<string, int> MatrixRows;
 
         /// <summary>
-        /// 整个 shader 所有子程序的参数块。每个子程序只记自己读到的成员，单看一份
-        /// 算不出"到下一个成员的距离"，矩阵就判不出来；按缓冲尺寸合起来才完整。
+        /// Parameter blocks of every sub-program in this shader.  One sub-program only
+        /// records the members it reads, which is not enough to measure the distance to
+        /// the next member -- so matrices are only detectable across the union.
         /// </summary>
         private List<BlobTool.CbInfo> AllParamCbs;
 
-        /// <summary>本次解析确认过的 $Globals 布局（供同一 shader 的另一个子程序复用）。</summary>
+        /// <summary>$Globals layout confirmed by this resolution, reusable by a sibling.</summary>
         public TmpLayouts.Layout ChosenLayout;
 
-        /// <summary>同一 shader 里别的子程序已经确认的布局（只当线索，仍要过覆盖检查）。</summary>
+        /// <summary>A layout a sibling sub-program confirmed; a hint, still coverage-checked.</summary>
         private TmpLayouts.Layout _layoutHint;
 
         private CbResolver(HashSet<string> nameTable) { _nameTable = nameTable; }
@@ -143,16 +141,9 @@ namespace ShaderRipper.Resolve
         private HashSet<int> _dynamicIndex = new();
 
         /// <summary>
-        /// True when every lane this stage reads from the row carries a name, so the
-        /// program can drop the raw <c>cbN[...]</c> declaration without leaving an
-        /// undefined identifier behind.
-        /// </summary>
-        /// <summary>
         /// True when some row of this register is read but still has no name, so the
         /// emitted program needs the raw <c>cbN[...]</c> array.  Decided at emit time
-        /// because cross-variant filling can name rows after the mapping pass ran;
-        /// trusting the earlier snapshot left a dead array declaration (and a
-        /// duplicate of the buffer) in front of fully named code.
+        /// because cross-variant filling can name rows after the mapping pass ran.
         /// </summary>
         public bool HasDynamicIndex(int reg) => _dynamicIndex.Contains(reg);
 
@@ -187,17 +178,11 @@ namespace ShaderRipper.Resolve
         /// <summary>
         /// Does the asset's own reflection describe this member as a matrix?
         ///
-        /// This replaces the hand-maintained <c>unity_matrix_names.txt</c>: the
-        /// name list could only say "a member called unity_WorldToLight is probably
-        /// a float4x4", while the reflection says so for this exact compile, with
-        /// its row count.  The name list also had to be regenerated whenever Unity
-        /// renamed something; the reflection ships inside the data being read.
-        ///
-        /// Two further sources answer the same question when the reflection cannot:
-        /// the engine-name table (a name Unity declares as a <c>float4x4</c>, like
-        /// <c>unity_WorldToLight</c>) and the span arithmetic at the call site.  A
-        /// stage that reads only one column of a global matrix never sees the other
-        /// rows in its parameter blob, so the reflection alone is silent there.
+        /// The reflection answers this for the exact compile, with its row count,
+        /// which is better than any name table.  Two further sources cover what it
+        /// cannot: the engine-name table, and the span arithmetic at the call site --
+        /// a stage that reads only one column of a global matrix never sees the other
+        /// rows in its parameter blob.
         /// </summary>
         private bool IsDeclaredMatrix(string name)
         {
@@ -545,13 +530,14 @@ namespace ShaderRipper.Resolve
         }
 
         /// <summary>
-        /// 用同一个 shader 里**别的子程序**已经确认的寄存器身份做兜底。
+        /// Fall back to a register identity another sub-program of the same shader
+        /// already confirmed.
         ///
-        /// <c>_ZBufferParams</c> 这类成员在编译产物里不留名字（只在
-        /// <c>LinearEyeDepth</c> 的内联展开里出现），名字表查不到，双射会放弃整块，
-        /// 行号就全留成 cbN[row]。但同一个 shader 的另一个变体往往能确认
-        /// "cb1 = UnityPerCamera"，身份在同 shader 内是稳定的——只要读取的行都落在这个
-        /// 缓冲的布局里，就可以照抄身份，再按布局逐行命名。
+        /// Members like <c>_ZBufferParams</c> leave no name in the compiled program, so
+        /// the name table cannot place them and the bijection gives up on the whole
+        /// buffer.  But identity is stable within one shader, and a sibling variant
+        /// usually confirms it -- so the identity is copied and the rows are named from
+        /// the layout, as long as every row read falls inside it.
         /// </summary>
         private void AssignFromSiblingHint(List<Ast.Decl> decls,
                                            Dictionary<int, SortedSet<int>> used,
@@ -665,27 +651,10 @@ namespace ShaderRipper.Resolve
         }
 
         /// <summary>
-        /// Name $Globals rows from the parameter blob's member table.  Each record
-        /// carries the member's byte offset inside the cbuffer, so its row and its
-        /// first component are both known.
-        ///
-        /// Width comes from the material property list when the member is a property,
-        /// otherwise from the distance to the next member: a member cannot be wider
-        /// than the space reserved in front of the next one.  The narrower of the two
-        /// is used, so padding after a scalar can never widen it into a float4.
-        /// </summary>
-        /// <summary>
-        /// Name $Globals from the asset's own constant-buffer reflection.  Every
-        /// member carries its byte offset and component count, so this needs no
-        /// inference at all: a slot is named by the member that starts exactly there.
-        /// </summary>
-        /// <summary>
         /// One register of a matrix holds a COLUMN, not a row: D3D packs matrices
-        /// column-major, so cbuffer row R of a float4x4 is M[0..3][R].  Reading it
-        /// as M[R] transposes the matrix, which is what turned a world-position W
-        /// into M[1][3] -- zero for an affine transform -- and sent the object off
-        /// screen.  The expression is parenthesised so a lane can still be taken
-        /// from it ("(M._m01_m11_m21_m31).w"): swizzling a swizzle is not legal.
+        /// column-major, so cbuffer row R of a float4x4 is M[0..3][R].  Reading it as
+        /// M[R] transposes the matrix.  The expression is parenthesised so a lane can
+        /// still be taken from it, since swizzling a swizzle is not legal.
         /// </summary>
         private static string MatrixColumn(string name, int k, int rows)
         {
@@ -1034,9 +1003,9 @@ namespace ShaderRipper.Resolve
         }
 
         /// <summary>
-        /// 同一个成员的不同写法：`_EnvMatrix` 与 `_EnvMatrix[0]` 指的是同一条矩阵的
-        /// 首行（前者是"整行"写法，后者是矩阵下标写法）。冲突检测只关心是不是同一个
-        /// 成员，写法差异不算冲突。
+        /// Two spellings of the same member: <c>_EnvMatrix</c> and <c>_EnvMatrix[0]</c>
+        /// both denote the matrix's first row.  Conflict detection only cares whether
+        /// two names denote the same member, so a spelling difference is not a conflict.
         /// </summary>
         private static bool SameMember(string a, string b)
         {
@@ -1052,8 +1021,10 @@ namespace ShaderRipper.Resolve
         }
 
         /// <summary>
-        /// $Globals 成员的"名字 → 字节偏移"锚点，来自参数块与资产反射。
-        /// 用来在 name table 交集不足时确认布局表挑对了（见 <see cref="TmpLayouts.Match"/>）。
+        /// "Name -> byte offset" anchors for <c>$Globals</c> members, from the parameter
+        /// blob and the asset reflection.  Used to confirm a layout table was picked
+        /// correctly when the name-table intersection is thin (see
+        /// <see cref="TmpLayouts.Match"/>).
         /// </summary>
         private Dictionary<string, int> TmpAnchors()
         {
@@ -1069,12 +1040,14 @@ namespace ShaderRipper.Resolve
         }
 
         /// <summary>
-        /// 用逐 shader 的 <c>$Globals</c> 布局表还原行号（见 <see cref="TmpLayouts"/>）。
+        /// Recover row numbers from the per-shader <c>$Globals</c> layout table (see
+        /// <see cref="TmpLayouts"/>).
         ///
-        /// 表由 Unity 自己的 CGIncludes 真编一遍得到，所以这里不做推导：按 <c>dcl</c>
-        /// 行数选表，要求成员名与本程序 name table 有足够交集，且本程序读到的每一行
-        /// 都被覆盖。已经命名的行不动，一旦与表里的名字冲突就整块放弃——冲突恰好说明
-        /// 这张表不适用于这个程序。
+        /// The table comes from really compiling Unity's CGIncludes, so nothing is
+        /// inferred here: a table is selected by <c>dcl</c> row count, must share enough
+        /// member names with the program's name table, and must cover every row the
+        /// program reads.  Rows already named are left alone, and any conflict drops the
+        /// whole table -- a conflict is exactly the sign that this table does not apply.
         /// </summary>
         private bool ApplyTmpLayout(Ast.Decl d, SortedSet<int> rows)
         {
@@ -1166,14 +1139,14 @@ namespace ShaderRipper.Resolve
         }
 
         /// <summary>
-        /// 按指令形态认 <c>_ClipRect</c>。
+        /// Recognise <c>_ClipRect</c> from the instruction shapes alone.
         ///
-        /// Unity 的 UI 着色器统一用 <c>float4 _ClipRect</c> 做矩形裁剪：<c>.xy</c> 是
-        /// 最小值、<c>.zw</c> 是最大值，四个分量分别与同一坐标做 <c>ge</c> 比较
-        /// （<c>x &gt;= _ClipRect.x</c>、<c>_ClipRect.z &gt;= x</c>，y/w 同理）。
-        /// 这个形态在 UI 着色器里没有第二种解释，而 <c>_ClipRect</c> 通常既不在
-        /// Properties 里、也不在资产反射里，所以只能从这里反推。
-        /// 只认"z、w 在比较左侧、x、y 在右侧"这一种组合，其余不动。
+        /// Unity's UI shaders clip with <c>float4 _ClipRect</c>: <c>.xy</c> is the
+        /// minimum, <c>.zw</c> the maximum, and the four components are each compared
+        /// with <c>ge</c> against the same coordinate.  Nothing else in a UI shader
+        /// produces that shape, and <c>_ClipRect</c> is usually in neither the
+        /// Properties block nor the asset reflection, so this is the only way back.
+        /// Only the "z/w on the left, x/y on the right" form is accepted.
         /// </summary>
         private bool ApplyClipRectShape(Ast.Decl d, SortedSet<int> rows)
         {

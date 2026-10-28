@@ -138,19 +138,12 @@ namespace ShaderRipper.Data
                     }
                 }
             }
-            // The trailing sections describe cross-file references: script types
-            // (MonoBehaviour class identities), externals (which .assets file a
-            // PPtr names) and ref types.  None of them is needed to read a Shader
-            // or Material body -- the object table above already carries every
-            // object this tool reads -- so a file whose tail cannot be parsed is
-            // still a usable file, and failing the whole load over it would throw
-            // away a complete object table.
-            //
-            // That is not hypothetical: Switch builds (platform 19) put a tail in
-            // this region whose layout the PC-oriented reader does not match, and
-            // the old code turned that into "truncated type table, -81900 bytes
-            // left" for 25 of a 186-node bundle while the shaders in those files
-            // were perfectly readable.
+            // The trailing sections describe cross-file references: script types,
+            // externals and ref types.  None is needed to read a Shader or Material
+            // body, so a file whose tail cannot be parsed is still usable and
+            // failing the whole load over it would throw away a complete object
+            // table.  Switch builds (platform 19) do put a tail here that the
+            // PC-oriented reader does not match.
             try
             {
                 ReadTailSections(r, sf, version);
@@ -217,17 +210,12 @@ namespace ShaderRipper.Data
 
         /// <summary>
         /// Parse an <c>AssetBundle</c> (ClassID 142) far enough to read
-        /// <c>m_Container</c>.
+        /// <c>m_Container</c>, which maps each object's pathID to the project path it
+        /// came from.
         ///
-        /// The container is a vector of {string assetPath; PPtr&lt;Object&gt; asset},
-        /// where the PPtr's pathID names an object in THIS file.  Nothing else on the
-        /// AssetBundle object is needed: the tool wants the path each object came
-        /// from, which is what lets a bundle-packed shader land back on the location
-        /// the project had before the build packed it away.
-        ///
-        /// The layout is read by hand rather than through the type tree because the
-        /// bundle's own tree is usually stripped in a release build, and the shape is
-        /// short and fixed: m_Name, m_PreloadTable, m_Container, ...
+        /// Read by hand rather than through the type tree because a release build
+        /// usually strips the bundle's own tree, while the shape is short and fixed:
+        /// m_Name, m_PreloadTable, m_Container.
         /// </summary>
         private static void ReadAssetBundleContainer(SerializedFile sf, long off, uint size, uint version)
         {
@@ -267,10 +255,9 @@ namespace ShaderRipper.Data
                 //     PPtr<Object> asset          -- the object the path names
                 //
                 // With these bundles both PPtrs are 8 bytes (int fileID + int
-                // pathID), so one entry's payload is 8 + 4 + 8 = 20 bytes.  That is
-                // measured from the bytes, not assumed: after
-                // 'Assets/scenes/Levels/Taro/T1-1.unity' come exactly 20 bytes, then
-                // the next entry's length prefix.
+                // pathID), so one entry's payload is 8 + 4 + 8 = 20 bytes.  Measured
+                // from the bytes, not assumed: the path string is followed by exactly
+                // 20 bytes and then the next entry's length prefix.
                 r.ReadI32();                    // preloadIndex.m_FileID
                 int preloadPathId = r.ReadI32(); // preloadIndex.m_PathID
                 r.ReadI32();                    // preloadSize

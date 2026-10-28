@@ -175,12 +175,9 @@ namespace ShaderRipper.Data
         /// Serialized files inside a bundle, with nested containers expanded.
         ///
         /// A Unity 6 build can put a whole UnityFS container inside a node of
-        /// another one: the outer bundle lists a bare <c>CAB-&lt;hash&gt;</c> node
-        /// whose payload is itself a bundle, and the serialized files that matter
-        /// live one level down.  Reading that node as a SerializedFile desynchronises
-        /// the type table immediately (the payload starts with "UnityFS", not with a
-        /// metadata size), which is exactly the "truncated type table, negative
-        /// bytes left" failure this used to report for every such node.
+        /// another one, so a bare <c>CAB-&lt;hash&gt;</c> node may itself be a
+        /// bundle.  Reading that node as a SerializedFile desynchronises the type
+        /// table immediately.
         ///
         /// Nodes ending in <c>.resS</c> / <c>.resource</c> are raw payloads and are
         /// skipped: no shader object has ever lived in one.

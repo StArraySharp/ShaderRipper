@@ -5,23 +5,23 @@ using System.IO;
 namespace ShaderRipper.Data
 {
     /// <summary>
-    /// 唯一的路径解析点。
+    /// The single place a data path is resolved.
     ///
-    /// 以前每个数据文件各自写死一串 <c>..\..\..\data</c> 候选，游戏目录更是直接写死成
-    /// 本机的 Steam 路径——换台机器、或者把 exe 拷到别处就跑不起来。这里改成：
+    /// Lookup order: an explicit argument (<c>--data</c>, <c>--out</c>,
+    /// <c>--root</c>, ...), then the <c>SHADERRIP_DATA</c> / <c>SHADERRIP_OUT</c> /
+    /// <c>SHADERRIP_ROOT</c> environment variables, then an upward search from the
+    /// executable directory and the working directory for a directory holding
+    /// <c>schema/</c> or <c>data/</c> (or a repository containing
+    /// <c>ShaderRipper.csproj</c>).
     ///
-    ///   1. 显式参数（<c>--data</c>/<c>--out</c>/<c>--root</c>/<c>--names</c>…）；
-    ///   2. 环境变量 <c>SHADERRIP_DATA</c> / <c>SHADERRIP_OUT</c> / <c>SHADERRIP_ROOT</c>；
-    ///   3. 从可执行文件目录、再从当前工作目录**向上找标记**（含 <c>schema/</c> 或
-    ///      <c>data/</c> 的目录，或者 <c>ShaderRipper.csproj</c> 所在的仓库目录）。
-    ///
-    /// 全都找不到就返回 null，由调用方明确报错——不再"猜一个看起来像"的路径。
+    /// Returns null when nothing is found, so the caller reports it instead of
+    /// guessing a plausible-looking path.
     /// </summary>
     internal static class Paths
     {
         private static string _root;
 
-        /// <summary>嵌入资源解压目录（%TEMP%\ShaderRipper\embed），懒创建。</summary>
+        /// <summary>Extraction directory for embedded resources, created lazily.</summary>
         private static string EmbedDir =>
             _embedDir ??= TryCreateDir(Path.Combine(Path.GetTempPath(), "ShaderRipper", "embed"));
         private static string _embedDir;
@@ -33,9 +33,9 @@ namespace ShaderRipper.Data
         }
 
         /// <summary>
-        /// 把嵌入资源 <c>ShaderRipper.Embed.&lt;relative&gt;</c> 解压到临时目录并返回路径；
-        /// 没有这个嵌入资源（或解压失败）返回 null。资源名分隔符在 Windows/Linux
-        /// 构建下分别是 '\'/'/'，两种都尝试。
+        /// Extract the embedded resource <c>ShaderRipper.Embed.&lt;relative&gt;</c> to
+        /// the temporary directory and return its path, or null when there is no such
+        /// resource.  Both the '\' and '/' name separators are tried.
         /// </summary>
         public static string ExtractEmbedded(string relative)
         {
@@ -62,8 +62,9 @@ namespace ShaderRipper.Data
         }
 
         /// <summary>
-        /// 解压嵌入目录（形如 <c>data/tmp_layouts</c>）下的所有文件，返回解压后的目录；
-        /// 没有任何匹配的嵌入资源返回 null。
+        /// Extract every embedded resource under a directory (e.g.
+        /// <c>data/tmp_layouts</c>) and return the extracted directory, or null when
+        /// nothing matched.
         /// </summary>
         public static string ExtractEmbeddedDir(string relative)
         {
@@ -83,10 +84,10 @@ namespace ShaderRipper.Data
             return extracted > 0 ? Path.Combine(dir, relative.Replace('/', Path.DirectorySeparatorChar)) : null;
         }
 
-        /// <summary>资源根目录（含 <c>schema/</c> 与 <c>data/</c>），可能为 null。</summary>
+        /// <summary>The resource root (holding <c>schema/</c> and <c>data/</c>), or null.</summary>
         public static string Root => _root ??= Discover();
 
-        /// <summary>显式指定资源根；传 null/不存在则回退自动发现。</summary>
+        /// <summary>Pin the resource root; null or a missing directory falls back to discovery.</summary>
         public static void SetRoot(string dir)
         {
             if (!string.IsNullOrWhiteSpace(dir) && Directory.Exists(dir))
@@ -94,8 +95,9 @@ namespace ShaderRipper.Data
         }
 
         /// <summary>
-        /// 找一个资源文件（相对路径形如 <c>data/unity_builtin_shaders.txt</c>）。
-        /// 顺序：嵌入资源（解压）→ exe 同级（发布后的布局）→ 资源根 → null。
+        /// Find a resource file (relative path such as
+        /// <c>data/unity_builtin_shaders.txt</c>).  Order: an embedded resource
+        /// (extracted), beside the executable, the resource root, then null.
         /// </summary>
         public static string Find(string relative)
         {
@@ -117,7 +119,7 @@ namespace ShaderRipper.Data
             return null;
         }
 
-        /// <summary>找一个资源目录（如 <c>data/tmp_layouts</c>）。</summary>
+        /// <summary>Find a resource directory (e.g. <c>data/tmp_layouts</c>).</summary>
         public static string FindDir(string relative)
         {
             string emb = ExtractEmbeddedDir(relative);
@@ -136,8 +138,9 @@ namespace ShaderRipper.Data
         }
 
         /// <summary>
-        /// 缓存目录：工作目录下的 <c>.temp</c>（诊断 dump、解码中间产物等）。
-        /// 不存在时自动创建；创建失败（只读盘等）返回 null，调用方自行吞掉。
+        /// Cache directory (<c>.temp</c> under the working directory) for diagnostic
+        /// dumps and intermediate decode products.  Created on demand; null when it
+        /// cannot be created.
         /// </summary>
         public static string TempDir
         {

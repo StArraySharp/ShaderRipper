@@ -88,25 +88,15 @@ namespace ShaderRipper.Emit
             "#pragma multi_compile __ " + string.Join(" ", Members(g));
 
         /// <summary>
-        /// Which pragma a group should get, given the variants the build actually
-        /// shipped.
+        /// Which pragma a group should get, given the variants the build shipped.
         ///
-        /// <c>multi_compile</c> and <c>shader_feature</c> are indistinguishable in
-        /// the serialized data -- both just put keywords in the name table -- but
-        /// they differ in what the build keeps.  A <c>multi_compile</c> line keeps
-        /// every variant it enumerates; a <c>shader_feature</c> line keeps only the
-        /// variants some material in the build actually selected.
-        ///
-        /// So a group whose <em>off</em> state never appears in the compiled set is
-        /// the fingerprint of <c>shader_feature</c>: the keyword exists in the name
-        /// table, but no material ever turned it on, and the build stripped the
-        /// on-variant.  Emitting <c>multi_compile</c> there is what makes a rebuilt
-        /// shader explode into variants the original never had -- and, when it is
-        /// re-packed, into variants no material selects.
-        ///
-        /// The reverse (off state always present) proves nothing, so it stays
-        /// <c>multi_compile</c>: that is the safe answer, since it guarantees every
-        /// variant the guard chain contains is compiled.
+        /// <c>multi_compile</c> and <c>shader_feature</c> are indistinguishable in the
+        /// serialized data but differ in what a build keeps: the former keeps every
+        /// variant it enumerates, the latter only those some material selected.  A group
+        /// whose <em>off</em> state never appears is the fingerprint of
+        /// <c>shader_feature</c>, and emitting <c>multi_compile</c> there explodes a
+        /// rebuilt shader into variants the original never had.  The reverse proves
+        /// nothing, so it stays <c>multi_compile</c>.
         /// </summary>
         public static string Pragma(Group g, List<HashSet<string>> sets)
         {

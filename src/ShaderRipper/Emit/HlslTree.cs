@@ -9,15 +9,12 @@ namespace ShaderRipper.Emit
     /// Splits a translated HLSL program into its top-level items using the
     /// <c>Hlsl.g4</c> parse tree -- not string scanning.
     ///
-    /// The variant assembler (ShaderLab variant chains) and the cross-stage
-    /// merge both need the same three-way cut: preprocessor lines, external
-    /// declarations (cbuffers, structs, globals) and function definitions.
-    /// Cutting it on the parse tree is what keeps that decision grammatical:
-    /// a `float4 _Color;` inside a function body can never be mistaken for a
-    /// global, and a cbuffer is recognised by its rule, not by its spelling.
-    ///
-    /// Item text is taken from the original source over the line span the
-    /// tree reports, so re-emitting items reproduces the input verbatim.
+    /// The variant assembler and the cross-stage merge both need the same three-way
+    /// cut: preprocessor lines, external declarations and function definitions.
+    /// Cutting on the parse tree keeps that decision grammatical, so a
+    /// <c>float4 _Color;</c> inside a function body can never be mistaken for a
+    /// global.  Item text comes from the original source over the line span the tree
+    /// reports, so re-emitting reproduces the input verbatim.
     /// </summary>
     internal static class HlslTree
     {

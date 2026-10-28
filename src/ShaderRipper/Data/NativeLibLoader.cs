@@ -4,17 +4,19 @@ using System.Runtime.InteropServices;
 namespace ShaderRipper.Data
 {
     /// <summary>
-    /// 原生库随主程序集内嵌（NativeLibs/D3Dcompiler_47.dll → 资源
-    /// "ShaderRipper.Native.D3Dcompiler_47.dll"），首次使用时解压到
-    /// %TEMP%\ShaderRipper\native\ 并 SetDllDirectory，让 DllImport 能找到。
-    /// 只在 Windows 上做 —— Linux 没有 d3dcompiler，这条链路整个被守卫跳过。
+    /// Native libraries are embedded in the main assembly
+    /// (<c>NativeLibs/*.dll</c> as <c>ShaderRipper.Native.&lt;file&gt;</c>) and
+    /// extracted to the temp directory on first use, with <c>SetDllDirectory</c>
+    /// pointing at them so <c>DllImport</c> resolves.
+    ///
+    /// Windows only: there is no d3dcompiler elsewhere, and that path is guarded.
     /// </summary>
     internal static class NativeLibLoader
     {
         private static bool _done;
         private static readonly object Lock = new();
 
-        /// <summary>原生库解压目录（%TEMP%\ShaderRipper\native），不可用时为 null。</summary>
+        /// <summary>Where the native libraries are extracted; null when unusable.</summary>
         private static string NativeDir
         {
             get
@@ -34,8 +36,8 @@ namespace ShaderRipper.Data
         private static string _nativeDir;
 
         /// <summary>
-        /// 通用解压：把嵌入资源 <c>ShaderRipper.Native.&lt;fileName&gt;</c> 解压到
-        /// 原生库目录并返回完整路径；资源缺失或解压失败返回 null。
+        /// Extract the embedded resource <c>ShaderRipper.Native.&lt;fileName&gt;</c> and
+        /// return its full path, or null when the resource is missing.
         /// </summary>
         public static string ExtractNative(string fileName)
         {

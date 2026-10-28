@@ -15,11 +15,6 @@ namespace ShaderRipper.Data
     /// </summary>
     internal static class ResourceMap
     {
-        /// <summary>
-        /// Build (external file name, pathID) -> container path.
-        /// Keys use the file's base name because PPtr m_FileID indexes the global
-        /// file's external list ("resources.assets", "sharedassets0.assets", ...).
-        /// </summary>
         /// <summary>Last failure reason, for diagnostics (null when clean).</summary>
         public static string LastError;
 

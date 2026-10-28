@@ -1,24 +1,14 @@
 // ShaderRipper -- collapse the four-statement expansion of a matrix-vector product.
 //
-// GLSLcc, which produces the payloads Unity ships in a GLES program, never emits a
-// `mul(M, v)`: it unrolls the product into one assignment per row,
+// GLSLcc never emits `mul(M, v)`: it unrolls the product into one assignment per
+// row, and a vertex shader then does it a second time with `unity_MatrixVP` because
+// `UnityObjectToClipPos` was inlined the same way before the GLSL was generated.
 //
-//     u_xlat0 = in_POSITION0.yyyy * unity_ObjectToWorld[1];
-//     u_xlat0 = unity_ObjectToWorld[0] * in_POSITION0.xxxx + u_xlat0;
-//     u_xlat0 = unity_ObjectToWorld[2] * in_POSITION0.zzzz + u_xlat0;
-//     u_xlat0 = u_xlat0 + unity_ObjectToWorld[3];
-//
-// and a vertex shader then does it a second time with `unity_MatrixVP`, because
-// Unity's own `UnityObjectToClipPos` was inlined the same way before the GLSL was
-// generated.  Nothing in the pipeline puts it back, so the deliverable spelled every
-// vertex transform out as eight statements over eight matrix rows.
-//
-// This pass is a peephole over the TRANSLATED STATEMENT LIST -- the body the GLSL
-// translator has already rendered.  It reads statements the same way the DXBC route
-// reads instructions (lhs, scalar operand, matrix row), rebuilds the product the
-// four assignments stand for, and re-spells it as one `mul`.  A product that feeds a
-// second one becomes `UnityObjectToClipPos`, which is the macro the original shader
-// was written with.
+// This pass is a peephole over the TRANSLATED STATEMENT LIST: it reads statements
+// the way the DXBC route reads instructions (lhs, scalar operand, matrix row),
+// rebuilds the product the four assignments stand for, and re-spells it as one
+// `mul`.  A product that feeds a second one becomes `UnityObjectToClipPos`, which is
+// the macro the original shader was written with.
 
 using System;
 using System.Collections.Generic;

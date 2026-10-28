@@ -7,22 +7,20 @@ namespace ShaderRipper.Data
     /// <summary>
     /// Unity's <c>SerializedShader.m_Platforms</c> ids.
     ///
-    /// The numbers are <c>UnityEditor.Rendering.ShaderCompilerPlatform</c>, read
-    /// straight out of the editor (see DumpPlatforms.cs in the verify project) —
-    /// they are NOT the C#-side <c>ShaderCompilerPlatform</c> ordering, which is
-    /// why d3d11 shows up as 4 and Vulkan as 18.
+    /// The numbers are <c>UnityEditor.Rendering.ShaderCompilerPlatform</c>, read from
+    /// the editor by reflection -- NOT the C#-side enum ordering, which is why d3d11
+    /// is 4 and Vulkan is 18.  Current values: 0 None, 4 D3D, 5 GLES20, 9 GLES3x,
+    /// 11 PS4, 12 XboxOneD3D11, 14 Metal, 15 OpenGLCore, 18 Vulkan, 19 Switch,
+    /// 20 XboxOneD3D12, 21-25 GameCore/PS5 variants, 26 WebGPU, 27 Switch2.
     ///
-    /// 权威值（本机 Unity 6000.3.10f1 编辑器反射，注册表定位安装目录）：
-    ///   0 None, 4 D3D, 5 GLES20, 9 GLES3x, 11 PS4, 12 XboxOneD3D11, 14 Metal,
-    ///   15 OpenGLCore, 18 Vulkan, 19 Switch, 20 XboxOneD3D12, 21 GameCoreXboxOne,
-    ///   22 GameCoreXboxSeries, 23 PS5, 24 PS5NGGC, 25 GameCore, 26 WebGPU, 27 Switch2.
-    /// 现代编辑器枚举里没有 d3d9 / 桌面 GL / 通用 D3D12 —— 它们只存在于旧序列化
-    /// 惯例（1=OpenGL、2=D3D9）或与平台 4 共用（D3D12 的 DXIL 载荷仍挂在 id 4 的
-    /// 槽位里，按 DXBC 容器内的 DXIL chunk 识别）。
+    /// d3d9, desktop GL and generic D3D12 have no modern enum entry: they only exist
+    /// in old serialization conventions (1 = OpenGL, 2 = D3D9) or share id 4 (a D3D12
+    /// DXIL payload still sits in the id-4 slot and is recognised as a DXIL chunk
+    /// inside a DXBC container).
     ///
-    /// The value matters because <c>m_Offsets</c> is indexed by the same order as
+    /// The value matters because <c>m_Offsets</c> uses the same order as
     /// <c>m_Platforms</c>: decompressing the wrong slot yields another backend's
-    /// payload (DXBC vs SPIR-V vs GLSL), and the bytes then look like noise.
+    /// payload, and the bytes then look like noise.
     /// </summary>
     internal sealed class PlatformInfo
     {
@@ -66,7 +64,7 @@ namespace ShaderRipper.Data
             : new PlatformInfo { Id = id, Name = "unknown" + id, Format = "unknown" };
 
         /// <summary>Accept both the numeric id and the name ("vulkan", "gles3").
-        /// 常用别名：gles→gles3、gles2→gles20、gl→opengl、glcore→openglcore。</summary>
+        /// Aliases: gles = gles3, gles2 = gles20, gl = opengl, glcore = openglcore.</summary>
         public static int? ByName(string s)
         {
             if (string.IsNullOrWhiteSpace(s)) return null;

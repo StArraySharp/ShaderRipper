@@ -9,27 +9,15 @@ namespace ShaderRipper.Game
     /// <summary>
     /// Ownership of the output directory.
     ///
-    /// Re-exporting into the same directory used to leave the previous run's files
-    /// behind.  A shader that is no longer in the build keeps its `.shader`, its
-    /// `.orig.asm` and its `Disassembly/` subtree, so the tree quietly grows a
-    /// second, stale copy of the game next to the current one -- and every check
-    /// that walks the directory then measures the union of all runs.
-    ///
-    /// `--overwrite` empties the directory first, so one path can be reused
-    /// instead of a new `.temp/yN` per attempt.
-    ///
-    /// Emptying a directory is destructive, so it only ever happens to a directory
-    /// this tool can prove it owns:
-    ///
-    ///   * it is empty,
-    ///   * it carries the marker written by a previous export, or
-    ///   * every entry in it is one of the names an export produces
-    ///     (`Assets`, `Disassembly`).
+    /// `--overwrite` empties the directory first, so one path can be reused instead
+    /// of a new `.temp/yN` per attempt.  That is destructive, so it only happens to a
+    /// directory this tool can prove it owns: it is empty, it carries the marker a
+    /// previous export wrote, or every entry in it is a name an export produces.
     ///
     /// Anything else -- a typo, a game install, somebody's Documents -- is refused
     /// with an explanation instead of being deleted.  A directory that looks like a
-    /// game (it holds a `*_Data` folder) is refused even when it also looks like an
-    /// export, because that is the one mistake with no way back.
+    /// game (it holds a <c>*_Data</c> folder) is refused even when it also looks like
+    /// an export, because that is the one mistake with no way back.
     /// </summary>
     internal static class ExportDir
     {

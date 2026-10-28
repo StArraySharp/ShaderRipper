@@ -25,16 +25,9 @@ namespace ShaderRipper.Game
     /// <summary>
     /// Writes the progress log shared by the exporter and the front end.
     ///
-    /// Two things it gets right that <c>Console.WriteLine</c> scattered through
-    /// the exporter did not:
-    ///   * every line has a stable, greppable shape (<c>level subject -&gt; detail</c>),
-    ///     aligned so a column of them reads as a table;
-    ///   * a broken terminal or a closed pipe must not take an export down mid-way,
-    ///     so writes are guarded.
-    ///
-    /// The level tags are localized (a Chinese run says 信息 rather than info), so
-    /// the columns line up within one language, which is what a person reading one
-    /// run cares about.
+    /// Every line has a stable, greppable shape (<c>level subject -> detail</c>)
+    /// aligned so a column reads as a table, and writes are guarded so a broken
+    /// terminal or a closed pipe cannot take an export down mid-way.
     /// </summary>
     internal static class Log
     {

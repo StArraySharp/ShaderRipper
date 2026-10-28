@@ -6,7 +6,7 @@ using K4os.Compression.LZ4;
 
 namespace ShaderRipper.Data
 {
-    /// <summary>LZ4 stage decode + DXBC carve + 反汇编（统一走 dxcompiler，全平台）。</summary>
+    /// <summary>LZ4 stage decode, DXBC carve and disassembly.</summary>
     internal static class BlobTool
     {
 
@@ -82,20 +82,17 @@ namespace ShaderRipper.Data
         }
 
         /// <summary>
-        /// Map every blob to its true <c>m_BlobIndex</c>.
+        /// Map every blob to its true <c>m_BlobIndex</c>.  Two layouts exist.
         ///
-        /// Two layouts exist:
+        /// In 2019.3 the decompressed payload starts with <c>u32 count</c> then that
+        /// many triplets of (absoluteOffset, size, reserved), and each slot holds one
+        /// DXBC container behind a 42-byte per-program header.
         ///
-        ///  * 2019.3 -- the decompressed payload starts with <c>u32 count</c> then
-        ///    <c>count</c> triplets of (absoluteOffset, size, reserved), and each
-        ///    slot holds one DXBC container behind a 42-byte per-program header.
-        ///
-        ///  * 6000.x -- the same header, but the slots hold *parameter* blobs (the
-        ///    constant-buffer name tables) and the DXBC containers follow them
-        ///    contiguously.  The containers are stored in ascending blobIndex order
-        ///    over the entries that actually have a compiled program, so they are
-        ///    paired with the sorted set of blob indices the shader's sub-programs
-        ///    reference.
+        /// In 6000.x the same header is present but the slots hold *parameter* blobs
+        /// (the constant-buffer name tables) and the DXBC containers follow
+        /// contiguously.  Those are stored in ascending blobIndex order over the
+        /// entries that have a compiled program, so they are paired with the sorted
+        /// set of blob indices the sub-programs reference.
         /// </summary>
         public static List<BlobSlot> DecodeSlots(byte[] buf, IReadOnlyCollection<int> usedBlobIndices = null)
         {
@@ -339,9 +336,9 @@ namespace ShaderRipper.Data
         }
 
     /// <summary>Disassemble one DXBC/DXIL container; null on failure.
-    /// Windows：SM4/5 DXBC 先走 d3dcompiler（内嵌解压）。d3dcompiler 缺席或失败时
-    /// （含全平台 Linux），SM4/5 DXBC 走 DXDecompiler（纯托管 NuGet，跨平台）；
-    /// DXIL（D3D12）只有 dxcompiler 认，仍走 DxcDisassemble。</summary>
+    /// On Windows SM4/5 DXBC goes to d3dcompiler first; when that is unavailable or
+    /// fails (including on Linux) it falls back to the managed DXDecompiler, and
+    /// DXIL only has dxcompiler.</summary>
     public static string Disassemble(byte[] container)
     {
         bool forceManaged = Environment.GetEnvironmentVariable("SHADERRIP_FORCE_MANAGED") == "1";
@@ -358,8 +355,8 @@ namespace ShaderRipper.Data
         return s;
     }
 
-    /// <summary>DXDecompiler 托管反汇编 DXBC 容器；失败返回 null。
-    /// 输出风格与 d3dcompiler 接近（vs_5_0 / dcl_ / mov 等标准 SM 汇编）。</summary>
+    /// <summary>Managed DXDecompiler disassembly of a DXBC container; null on
+    /// failure.  Output matches d3dcompiler's style closely enough to diff.</summary>
     private static string ManagedDisassemble(byte[] container)
     {
         try
@@ -431,7 +428,7 @@ namespace ShaderRipper.Data
 
     private delegate int DisasmFnX(IntPtr data, uint size, uint flags, string comment, out IntPtr blob);
 
-    /// <summary>DXBC 容器里有没有 DXIL chunk（= D3D12/SM6 程序）。</summary>
+    /// <summary>Does this DXBC container hold a DXIL chunk (a D3D12/SM6 program)?</summary>
     public static bool HasDxilChunk(byte[] container)
     {
         if (container.Length < 0x24 || BitConverter.ToUInt32(container, 0) != 0x43425844) return false;
@@ -514,7 +511,7 @@ namespace ShaderRipper.Data
         return IntPtr.Zero;
     }
 
-    /// <summary>用 dxcompiler.dll（COM）反汇编 DXBC+DXIL；失败返回 null。</summary>
+    /// <summary>Disassemble through dxcompiler's COM interface; null on failure.</summary>
     public static string DxcDisassemble(byte[] container)
     {
         try
@@ -708,10 +705,11 @@ namespace ShaderRipper.Data
         }
 
         /// <summary>
-        /// d3d9 SM2/SM3 载荷校验 + 长度计算。token 流规则：END=0x0000FFFF；
-        /// 注释 token 低 16 位 0xFFFE、bit16-30 是 DWORD 数；指令 token 的
-        /// bit24-27 是长度（不含指令 token 本身）；操作数 token bit31=1，
-        /// 跟在指令长度里，不需单独跳。
+        /// Validate a d3d9 SM2/SM3 payload and measure its length.  Token rules:
+        /// END is 0x0000FFFF; a comment token has 0xFFFE in its low 16 bits with the
+        /// DWORD count in bits 16-30; an instruction token carries its length in bits
+        /// 24-27 (not counting the token itself); operand tokens set bit 31 and are
+        /// included in that length, so they need no separate skip.
         /// </summary>
         public static bool LooksD3d9(byte[] b, int off, int end)
         {
@@ -724,7 +722,7 @@ namespace ShaderRipper.Data
             return D3d9TokenEnd(b, off + 4, end) >= 0;
         }
 
-        /// <summary>从 token 流走到 END，返回 END 之后的位置；走不下去返回 -1。</summary>
+        /// <summary>Walk the token stream to END and return the position after it, or -1.</summary>
         public static int D3d9TokenEnd(byte[] b, int p, int end)
         {
             int guard = 0;

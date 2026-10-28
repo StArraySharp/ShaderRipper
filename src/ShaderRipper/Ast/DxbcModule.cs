@@ -490,10 +490,6 @@ namespace ShaderRipper.Ast
         private string Text(ParserRuleContext ctx) =>
             Source.Substring(ctx.Start.StartIndex, ctx.Stop.StopIndex - ctx.Start.StartIndex + 1);
 
-        /// <summary>
-        /// The literal's raw 32 bits: a plain integer (`1`, `-1`) is an integer
-        /// literal, anything with a decimal point or an exponent is a float one.
-        /// </summary>
         /// <summary>Was this number printed as a plain integer (`1`, not `1.0`)?</summary>
         private static bool Integral(DxbcAsmParser.NumberContext ctx)
         {

@@ -9,20 +9,15 @@ using ShaderRipper.Resolve;
 namespace ShaderRipper.Game
 {
     /// <summary>
-    /// Game data -> HLSL, inside this project.
+    /// Game data -> HLSL.
     ///
-    /// The reading layer is the one the main tool uses, copied rather than
-    /// referenced: SerializedFile + typetree database to find the Shader
-    /// objects, BlobTool to decode Unity's LZ4 blob and carve the program
-    /// containers out of it, dxcompiler to disassemble DXBC.  What differs is
-    /// what happens after the bytes exist -- this project's grammar-driven
-    /// translators (DxbcAsm for DXBC, Glsl for the GLES/GL platforms), not the
-    /// hand-written ones.
+    /// The reading layer finds the Shader objects, decodes Unity's LZ4 blob and
+    /// carves the program containers out of it; the grammar-driven translators
+    /// (<c>DxbcAsm</c>, <c>Glsl</c>) turn each payload into HLSL.
     ///
-    /// Per shader: every pass's keyword variants are recovered with
-    /// <c>VariantPlan</c> and emitted as guarded chains inside one
-    /// HLSLPROGRAM, the way the original source had them before Unity
-    /// flattened them.
+    /// Per shader, every pass's keyword variants are recovered with
+    /// <c>VariantPlan</c> and emitted as guarded chains inside one HLSLPROGRAM, the
+    /// way the original source had them before Unity flattened them.
     /// </summary>
     internal static class GameExport
     {
@@ -343,10 +338,9 @@ namespace ShaderRipper.Game
         /// Best-effort read of the Resources container map.
         ///
         /// The file lives inside Unity's data directory ("&lt;Game&gt;_Data"), and a
-        /// person points at either that directory or the game root above it
-        /// (<c>--game "...\A Dance of Fire and Ice"</c>), so both are probed.  A
-        /// bundle-only input has no such file and the map stays empty (names fall
-        /// back to the shader's own name).
+        /// person may point at either that directory or the game root above it, so
+        /// both are probed.  A bundle-only input has no such file and the map stays
+        /// empty (names fall back to the shader's own name).
         /// </summary>
         private static Dictionary<(string file, long pathId), string> TryLoadResourceMap(
             string dir, Func<string, int, TypeNode> tpk, Stats s)
@@ -478,15 +472,10 @@ namespace ShaderRipper.Game
         /// <summary>
         /// The relative path a shader is written to.
         ///
-        /// Everything lands under <c>Assets/</c>, which is what an AssetRipper
-        /// extraction of the same build looks like -- the tree can be dropped
-        /// straight over an ExportedProject.  Two sources name the rest, in
-        /// order:
-        ///   * the Resources map (globalgamemanagers m_Container) or the bundle's
-        ///     own container path, which restore the project path the asset had
-        ///     before it was packed ("Assets/Resources/camerafilterpack_*.shader");
-        ///   * otherwise <c>Assets/Shader/&lt;flat name&gt;.shader</c>, the same
-        ///     fallback the main tool uses.
+        /// Everything lands under <c>Assets/</c>, so the tree can be dropped straight
+        /// over an ExportedProject.  The Resources map (or the bundle's own container
+        /// path) restores the project path the asset had before it was packed;
+        /// otherwise the shader name is used under <c>Assets/Shader/</c>.
         /// </summary>
         private static string OutPath(Shader sh, string name,
             Dictionary<(string file, long pathId), string> resMap)
@@ -514,17 +503,11 @@ namespace ShaderRipper.Game
         /// <summary>
         /// The key dedup groups by: the shader's own name, case-insensitive.
         ///
-        /// Grouping by output path is not enough.  The same shader ships in
-        /// <c>resources.assets</c> (where the Resources map names its project path,
-        /// <c>Assets/Resources/camerafilterpack_*.shader</c>) and inside a bundle
-        /// (where only the shader's own name is known,
-        /// <c>Assets/Shader/CameraFilterPack_*.shader</c>), so the two copies
-        /// resolve to different files and a path-keyed dedup keeps both -- which is
-        /// exactly the 21 pairs that appeared in the last export.
-        ///
-        /// The shader name is the identity Unity itself uses: two objects with the
-        /// same <c>m_Name</c> are the same shader to a project, whichever archive
-        /// they came out of.
+        /// Grouping by output path is not enough: the same shader ships in
+        /// <c>resources.assets</c> (where the Resources map names its project path)
+        /// and inside a bundle (where only the shader's own name is known), so the two
+        /// copies resolve to different files and a path-keyed dedup keeps both.  The
+        /// shader name is the identity Unity itself uses.
         /// </summary>
         private static string OutKey(Shader sh, string name,
             Dictionary<(string file, long pathId), string> resMap) =>
@@ -632,21 +615,11 @@ namespace ShaderRipper.Game
         }
 
         /// <summary>
-        /// Every shader-bearing file under <paramref name="root"/>, decided by
-        /// content.
+        /// Every shader-bearing file under <paramref name="root"/>, decided by content.
         ///
-        /// <c>*.assets</c> and <c>*.bundle</c> are the conventional names, but a
-        /// Unity 6 build also writes bare GUID-named serialized files and packs
-        /// whole UnityFS containers into bundle nodes, so the extension is only a
-        /// hint.  Each file's first bytes say what it is:
-        ///   * <c>UnityFS</c> -> a bundle, whose serialized nodes are expanded;
-        ///   * a plausible SerializedFile version at offset 8 -> a serialized file;
-        ///   * anything else -> skipped.
-        ///
-        /// Resource payloads (<c>.resS</c>, <c>.resource</c>) and the huge Unity
-        /// player binaries are skipped by name before the header is even read,
-        /// because reading a 600 MB executable to find out it is not a shader is
-        /// pure cost.
+        /// The extension is only a hint: a build also writes bare GUID-named serialized
+        /// files and packs whole UnityFS containers into bundle nodes.  Resource
+        /// payloads and player binaries are skipped by name before the header is read.
         /// </summary>
         private static IEnumerable<(string name, byte[] bytes, string path)> ScanTree(string root)
         {
@@ -813,15 +786,10 @@ namespace ShaderRipper.Game
         /// <summary>
         /// Does this look like a real SerializedFile header?
         ///
-        /// The fields are big-endian at fixed offsets:
-        /// <code>
-        ///   0x00 metadataSize (v&lt;22)  0x04 fileSize (v&lt;22)
-        ///   0x08 version               0x0c dataOffset (v&lt;22)
-        ///   0x14 metadataSize (v&gt;=22) 0x18 fileSize (v&gt;=22, 64-bit)
-        /// </code>
-        /// A real file's declared size matches the bytes on disk, which is the
-        /// check that rules out every media format whose own header happens to put
-        /// a plausible number at offset 8.
+        /// The fields are big-endian at fixed offsets (metadata size and file size at
+        /// 0x00/0x04 before v22 and 0x14/0x18 after, version at 0x08).  A real file's
+        /// declared size matches the bytes on disk, which rules out every media format
+        /// that happens to put a plausible number at offset 8.
         /// </summary>
         private static bool LooksLikeSerializedHeader(byte[] h, long fileLength)
         {
@@ -1310,18 +1278,12 @@ namespace ShaderRipper.Game
         /// <summary>
         /// Every render-state line a pass declares, in ShaderLab order.
         ///
-        /// The asset records each state twice: a numeric value and, when the
-        /// original source drove it from a material property, the property's name
-        /// (<c>ZWrite [_ZWrite]</c>, <c>Stencil { Ref [_Stencil] }</c>).  The name
-        /// is the one to emit -- the number is what that property happened to be
-        /// set to when Unity compiled the asset, so writing the number would
-        /// freeze a material-tunable state into the shader and stop the property
-        /// from having any effect.
-        ///
-        /// States at their ShaderLab default are omitted: a pass that says nothing
-        /// already means <c>ZWrite On</c>, <c>ZTest LEqual</c>, <c>Cull Back</c>
-        /// and no stencil, and repeating the defaults makes 400 generated files
-        /// harder to read for no gain.
+        /// The asset records each state twice: a numeric value and, when the source
+        /// drove it from a material property, the property's name
+        /// (<c>ZWrite [_ZWrite]</c>).  The name is the one to emit -- the number is
+        /// what the property happened to be set to when the asset was compiled, so
+        /// writing it would freeze a tunable state.  States at their ShaderLab default
+        /// are omitted.
         /// </summary>
         private static void AppendRenderState(Emit.ShaderLab.PassText pt, Pass pass)
         {
@@ -1730,13 +1692,11 @@ namespace ShaderRipper.Game
         /// <summary>
         /// Run the constant-buffer analysis for one program.
         ///
-        /// Everything it needs comes from the asset and none of it from the
-        /// disassembly, which carries no RDEF: the pass names its buffers
-        /// (<c>m_NameIndices</c>), the program's parameter blob gives each buffer's
-        /// byte size and members, the shader's Properties block says which of those
-        /// names are material properties, and the program's own reflection
-        /// (<c>m_Parameters.m_ConstantBuffers</c>) is the authoritative $Globals
-        /// member list when Unity kept it.
+        /// Everything it needs comes from the asset, not from the disassembly, which
+        /// carries no RDEF: the pass's name table lists the buffers, the parameter blob
+        /// gives each buffer's size and members, the Properties block says which names
+        /// are material properties, and the program's own reflection is the
+        /// authoritative <c>$Globals</c> member list when Unity kept it.
         /// </summary>
         private static Resolve.CbResolver NameConstantBuffers(
             Ast.Module m, string shaderName, Pass pass, SubProgram sub,

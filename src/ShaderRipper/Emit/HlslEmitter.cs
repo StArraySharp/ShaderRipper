@@ -9,14 +9,12 @@ using ShaderRipper.Ast;
 namespace ShaderRipper.Emit
 {
     /// <summary>
-    /// Emits HLSL from a <see cref="Module"/> — that is, from the DXBC parse
-    /// tree.
+    /// Emits HLSL from a <see cref="Module"/> -- that is, from the DXBC parse tree.
     ///
-    /// The output is register-level on purpose: <c>float4 r0</c> locals, one
+    /// The output is register-level on purpose (<c>float4 r0</c> locals, one
     /// statement per instruction, real <c>cbuffer</c> blocks bound by register,
-    /// <c>Texture2D</c> + <c>SamplerState</c>.  Register level is what makes the
-    /// translation checkable — D3DCompile either accepts it or names the line
-    /// that is wrong — while pretty names need the constant-buffer reflection,
+    /// <c>Texture2D</c> + <c>SamplerState</c>), because that is what makes the
+    /// translation checkable.  Pretty names need the constant-buffer reflection,
     /// which is a later layer.
     ///
     /// An instruction without a handler becomes a <c>// TODO</c> comment and is
@@ -76,24 +74,15 @@ namespace ShaderRipper.Emit
         private List<Decl> _targets;
 
         /// <summary>
-        /// Everything the emitter needs to know about comparison masks in one
-        /// program.
+        /// Everything the emitter needs to know about comparison masks in one program.
         ///
         /// The decision is per WRITE, because the same lane usually holds a mask once
-        /// and a number later (`r0.x = (1 &lt; v.y) ? MASK; if (r0.x) { r0.x = ...; }`).
-        /// A whole-register or whole-program test answers "no" for that pattern,
-        /// which is why 4,123 of 4,123 masks survived the first attempt.
-        ///
-        /// So: for every comparison, walk FORWARD until the lane is rewritten and ask
-        /// what each read in that window is.
-        ///   * only branches, selects and bitwise combinations -> <c>1.0f</c>, because
-        ///     every one of them only reads the truth value;
-        ///   * float arithmetic, and integer reads that can be answered with a
-        ///     literal -> <c>-1.0f</c>: the same number the bit pattern stands for,
-        ///     without the NaN;
-        ///   * an integer read that cannot be answered -- the value crosses a branch,
-        ///     so a linear scan cannot prove the lane still holds THIS comparison ->
-        ///     keep the 0xFFFFFFFF pattern, because that is what `asint` has to see.
+        /// and a number later.  For every comparison, walk forward until the lane is
+        /// rewritten and classify each read in that window: only branches, selects and
+        /// bitwise combinations means <c>1.0f</c> is safe; float arithmetic wants
+        /// <c>-1.0f</c> (the number the bit pattern stands for, without the NaN); an
+        /// integer read across a branch keeps the 0xFFFFFFFF pattern, because a linear
+        /// scan cannot prove the lane still holds this comparison.
         /// </summary>
         private sealed class MaskInfo
         {
@@ -281,19 +270,11 @@ namespace ShaderRipper.Emit
         };
 
         /// <summary>
-        /// Lanes whose mask value is only ever CONSUMED as a boolean.
+        /// Lanes whose mask value is only ever consumed as a boolean.
         ///
-        /// DXBC writes the all-ones bit pattern (-1.0) for true.  That is a NaN in
-        /// IEEE 754, so any later multiply that misses the mask turns a colour into
-        /// NaN.  A lane that is only branched on, selected on, or combined with
-        /// another mask cannot tell -1.0 from 1.0 -- both are truthy -- so emitting
-        /// `1.0f` there removes the NaN without changing a single decision.
-        ///
-        /// A lane that is ALSO read arithmetically (`iadd`, `itof`, `mul`, a `dot`)
-        /// keeps the bit pattern: the classic interval selector
-        /// `lt -> iadd(-t, v) -> itof -> ge -> and` reads the mask numerically, and
-        /// 1.0 there inverts the ramp (a mood shader picks the wrong region and the
-        /// background goes grey while everything still compiles).
+        /// See <see cref="MaskInfo"/> for how the set is computed.  Emitting `1.0f`
+        /// for these removes the IEEE NaN that -1.0 would carry, without changing any
+        /// decision the program makes.
         /// </summary>
         private readonly HashSet<(int reg, char lane)> _boolLanes;
 
@@ -328,15 +309,11 @@ namespace ShaderRipper.Emit
         /// Registers that an integer opcode writes, so they get a companion
         /// <c>int4 iN</c> beside their <c>float4 rN</c>.
         ///
-        /// DXBC has one register file and no types: <c>iadd</c> stores the bit pattern
-        /// 1 in a temp and a later <c>asint</c> reads it back as 1.  Re-deriving that
-        /// from the float copy (<c>asint(asfloat(1))</c>) does not survive the trip
-        /// through HLSL -- the float with bit pattern 1 is the denormal 1.4e-45, and
-        /// fxc folds it to 0.  Measured: <c>asint(asfloat(1))</c> compiles to
-        /// <c>0</c>.  That is what turned <c>cb2[asint(r1.y) + 25]</c> into
-        /// <c>cb2[25]</c> and drew the stereo passes for the wrong eye.  Keeping the
-        /// integer in an integer variable is the only spelling that survives, and it
-        /// also removes the <c>asint(...)</c> around every read.
+        /// DXBC has one register file and no types.  Re-deriving an integer from the
+        /// float copy does not survive the trip through HLSL -- the float with bit
+        /// pattern 1 is a denormal that fxc folds to 0 -- so the integer is kept in an
+        /// integer variable, which also removes the <c>asint(...)</c> around every
+        /// read.
         /// </summary>
         private readonly HashSet<int> _intRegs = new();
 
@@ -356,24 +333,18 @@ namespace ShaderRipper.Emit
         /// Instruction indices whose mask may be spelled <c>1.0f</c>.
         ///
         /// Per-INSTRUCTION rather than per register: the same lane usually holds a
-        /// mask once and a number later, so the question is only ever answerable for
-        /// one write at a time.  See <see cref="AnalyseMasks"/>.
+        /// mask once and a number later, so the question is only answerable for one
+        /// write at a time.  See <see cref="AnalyseMasks"/>.
         /// </summary>
         private readonly HashSet<int> _boolDefs;
 
         /// <summary>
-        /// The mask constant for a destination lane set.
-        ///
-        /// `1.0f` where every lane is boolean-only, `-1.0f` otherwise.
-        /// This is the whole NaN-removal pass: same truth value, no NaN, and it
-        /// works on vectors -- unlike a `bool` declaration, which HLSL cannot give a
-        /// float vector (X3017) and cannot subscript (X3018).
+        /// The mask constant for a destination lane set: <c>1.0f</c> where every lane
+        /// is boolean-only, <c>-1.0f</c> otherwise.
         ///
         /// DXBC's mask is the bit pattern 0xFFFFFFFF, which is a NaN when read as a
-        /// float.  Reproducing the pattern was the only way to keep `iadd`/`itof`
-        /// chains exact, but the numeric value of that pattern is -1 and the integer
-        /// reads are answered with a literal instead (see <see cref="AsInt"/>), so
-        /// nothing is left that needs the NaN bits.
+        /// float.  Its numeric value is -1, and integer reads are answered with a
+        /// literal instead (see <see cref="AsInt"/>), so nothing needs the NaN bits.
         /// </summary>
         private string MaskFor(Operand dst, Instruction ins = null)
         {
@@ -392,11 +363,10 @@ namespace ShaderRipper.Emit
         /// Opcodes whose result is an integer bit pattern, so the destination gets an
         /// <c>int4</c> companion.
         ///
-        /// Only the opcodes whose emission always goes through
-        /// <see cref="IntResult"/> belong here: the shadow is declared in the
-        /// pre-pass from this set, so an opcode that sometimes writes a float instead
-        /// (`and` is a masked select when one side is a comparison result) would
-        /// leave a stale integer behind.
+        /// Only opcodes whose emission always goes through <see cref="IntResult"/>
+        /// belong here: the shadow is declared from this set in the pre-pass, so one
+        /// that sometimes writes a float (<c>and</c> is a masked select when a side is
+        /// a comparison result) would leave a stale integer behind.
         /// </summary>
         private static readonly HashSet<string> IntWrites = new(StringComparer.Ordinal)
         {
@@ -406,10 +376,8 @@ namespace ShaderRipper.Emit
         };
 
         /// <summary>
-        /// Opcodes that READ their sources as integers, so a source lane in the shadow
-        /// is not also a float read.  `itof` / `ftoi` / `ftou` convert BETWEEN the
-        /// domains and read their source through the float spelling, so they are not
-        /// in this set.
+        /// Opcodes that READ their sources as integers.  The conversions are excluded:
+        /// they read their source through the float spelling.
         /// </summary>
         private static readonly HashSet<string> IntReads = new(StringComparer.Ordinal)
         {
@@ -420,22 +388,11 @@ namespace ShaderRipper.Emit
         /// <summary>
         /// The constant-buffer lanes this program only ever reads as integers.
         ///
-        /// `itof r1.x, cb0[12].y` converts an INTEGER to a float, so whatever the
-        /// source declared, the program treats the contents of that slot as an
-        /// integer.  The declaration has to agree: naming it `float` forces the body
-        /// to reinterpret the bits (`float(asint(_Active))`), which is only the same
-        /// value when the slot really holds an integer bit pattern -- and what gets
-        /// written there is decided by the declared type, not by the instruction that
-        /// reads it.
-        ///
-        /// Only the integer-only opcodes qualify: `itof`, integer arithmetic and the
-        /// integer comparisons.  HLSL has no float spelling for any of them -- a
-        /// float compare is `ne`/`lt`, a float conversion is `ftoi` -- so a buffer
-        /// slot read this way was an integer in the source.  A bitwise opcode is
-        /// left out: `and`/`or` also combine boolean values that came out of a
-        /// comparison, so it is not evidence about the slot's own type.  A lane read
-        /// as a float anywhere keeps its float declaration, because there is one slot
-        /// and it cannot be two types.
+        /// <c>itof r1.x, cb0[12].y</c> converts an INTEGER to a float, so the slot
+        /// holds an integer bit pattern and the declaration has to say so.  Only
+        /// integer-only opcodes count, since they have no float spelling in HLSL;
+        /// bitwise ops are excluded because they also combine comparison results.  A
+        /// lane read as a float anywhere keeps its float declaration.
         /// </summary>
         private static Dictionary<(int reg, int row, int col), string> IntCbLanes(Module m)
         {
@@ -598,21 +555,10 @@ namespace ShaderRipper.Emit
         /// The destination lanes a plain `mov` carries an integer through; 0 when the
         /// move is not a pure integer carry.
         ///
-        /// A register file has no types, so an integer loop counter rides in the same
-        /// `float4` as everything else, and reading it back means reinterpreting
-        /// those bits (`asint(r0.z)`).  Tracking it in the `int4` companion keeps the
-        /// integer in an integer: the body then spells `float(i0.z)` and `i0.zz + 2`,
-        /// and no conversion appears that the original program did not contain.
-        ///
-        /// Only the unambiguous shapes qualify -- one lane copied from an explicit
-        /// lane, or the whole register copied from `xyzw`.  A projection
-        /// (`mov r2.xzw, r1.xxyz`) is left alone: the letter order is then positional
-        /// against the destination mask, which is not what <see cref="IntShadow"/>
-        /// models, and a shadow that disagrees with the body is worse than an
-        /// `asint`.
-        ///
-        /// Both sides ask this one question, so the planner can never mark a lane
-        /// integer that the emitter then writes as a float.
+        /// Only unambiguous shapes qualify: one lane copied from an explicit lane, or
+        /// the whole register copied from <c>xyzw</c>.  A projection is left alone
+        /// because its letter order is positional against the destination mask, which
+        /// is not what <see cref="IntShadow"/> models.
         /// </summary>
         private static int IntMoveCarry(Instruction ins, int[] live)
         {
@@ -870,27 +816,6 @@ namespace ShaderRipper.Emit
         }
 
         /// <summary>
-        /// Instruction index -> a single matrix-multiply line that replaces the
-        /// run starting there, and how many instructions the run covers.
-        ///
-        /// fxc expands every `mul(M, v)` into four register instructions:
-        /// <code>
-        ///   mul  r0,  v.yyyy, M[1]
-        ///   mad  r0,  M[0],   v.xxxx, r0
-        ///   mad  r0,  M[2],   v.zzzz, r0
-        ///   add/mad r0, M[3], [v.wwww,] r0
-        /// </code>
-        /// Reproducing that verbatim is exact but unreadable, and the first thing
-        /// anyone does with the output is look for the transform.  Collapsing it
-        /// back to `mul(M, v)` is a pure re-spelling -- HLSL's `mul` on a matrix and
-        /// a column vector IS that sum -- so the emitted program is unchanged.
-        ///
-        /// The match is deliberately narrow: one destination register written by
-        /// all four, rows 0/1/2/3 of the SAME array, the canonical x/y/z/w source
-        /// lanes, and nothing else writing that register in between.  Anything that
-        /// does not match exactly is left as it was.
-        /// </summary>
-        /// <summary>
         /// One recognised matrix-vector product.
         ///
         /// <see cref="Steps"/> are the instructions that built it (three rows plus the
@@ -988,8 +913,8 @@ namespace ShaderRipper.Emit
         /// How far past the third row the completing row may sit.
         ///
         /// fxc schedules the first three rows, then whatever work feeds their vector
-        /// components, and only then the closing row -- four instructions of slack in
-        /// `ADOFAI_HoldShader`.  The scan still stops at the first write of the sum, so
+        /// components, and only then the closing row -- up to four instructions of
+        /// slack in practice.  The scan still stops at the first write of the sum, so
         /// a wider window cannot swallow an unrelated product.
         /// </summary>
         private const int TailSlack = 8;
@@ -997,26 +922,15 @@ namespace ShaderRipper.Emit
         private bool[] _taken = Array.Empty<bool>();
 
         /// <summary>
-        /// True when the program uses <c>UnityObjectToClipPos</c>, so the emitted
-        /// file has to define it.
+        /// True when the emitted file has to define <c>UnityObjectToClipPos</c>
+        /// itself.
         ///
         /// In a ShaderLab file the name comes from <c>UnityCG.cginc</c>, whose
-        /// matrices are <c>float4x4</c>.  The standalone program this route also
-        /// writes declares them as <c>float4 M[4]</c> (the layout the disassembly
-        /// reads), so <c>mul(matrix, vector)</c> does not type-check there and the
-        /// helper has to be supplied -- with the same two multiplies, over the rows
-        /// this declaration has.
-        /// </summary>
-        /// <summary>
-        /// When false, a merged transform is emitted as the two `mul`s instead of
-        /// `UnityObjectToClipPos`.
-        ///
-        /// The ShaderLab wrapper pulls in `UnityCG.cginc`, which defines the macro
-        /// over `float4x4` matrices -- so there the name is free and the wrapper's
-        /// own declaration merging must not see a same-named function.  The
-        /// standalone `--programs` file has no include and declares the matrices as
-        /// row arrays, so it gets the inlined helper (see
-        /// <see cref="DeclareClipPosHelper"/>).
+        /// matrices are <c>float4x4</c>, and the wrapper's declaration merging must
+        /// not see a same-named function.  The standalone <c>--programs</c> file has
+        /// no include and declares the matrices as <c>float4 M[4]</c> row arrays, so
+        /// <c>mul(matrix, vector)</c> does not type-check there and the helper is
+        /// inlined instead (see <see cref="DeclareClipPosHelper"/>).
         /// </summary>
         private bool _needsClipPosHelper;
 
@@ -1048,36 +962,13 @@ namespace ShaderRipper.Emit
         /// <summary>
         /// Rewrite every expanded matrix-vector product as one statement.
         ///
-        /// fxc never emits a `mul(M, v)`: it unrolls it into one instruction per row,
-        ///
-        ///     mul  r0,  v.yyyy, M[1]
-        ///     mad  r0,  M[0],   v.xxxx, r0
-        ///     mad  r0,  M[2],   v.zzzz, r0
-        ///     add  r1,  r0,     M[3]          -- row 3 with the homogeneous 1.0
-        ///     mad  o5,  M[3],   v.wwww, r0    -- row 3 again, this time with a real w
-        ///
-        /// and that last pair is the reason this is not a four-instruction pattern
-        /// match.  A vertex shader needs the world position AND the clip position, so
-        /// the same rows-0..2 sum feeds two different fourth rows; the second one is a
-        /// complete product in its own right, `mul(M, v)`, while the first is
-        /// `mul(M, float4(v.xyz, 1.0))`.  Collapsing only the four-instruction window
-        /// left the partial sum behind as `mul(M, float4(x, y, z, 0.0))` plus a stray
-        /// row -- a half-collapsed product that reads no better than the expansion.
-        ///
-        /// So the recogniser works on the SUM, not on a fixed window:
-        ///
-        ///   * three contiguous terms build a partial sum in one register (any three
-        ///     rows, any lanes, the components need not come from one register);
-        ///   * a fourth row completes it, and may sit a few instructions later as long
-        ///     as nothing in between touches the sum (fxc interleaves unrelated work);
-        ///   * every later reader of the partial sum that is itself a fourth row is
-        ///     another completion of the same product.
-        ///
-        /// All three cases become `mul`, and the registers the sum lived in disappear
-        /// from the output.  When a later reader is NOT a fourth row the sum is
-        /// genuinely live, and only the first three rows fold, into
-        /// `mul(M, float4(x, y, z, 0.0))` -- the same register with the same value,
-        /// since the fourth row contributes nothing to it.
+        /// fxc unrolls <c>mul(M, v)</c> into one instruction per row, and a vertex
+        /// shader usually completes the same rows-0..2 sum twice -- once with the
+        /// homogeneous 1.0 and once with a real w.  So the recogniser works on the
+        /// SUM: three contiguous terms build a partial sum, a fourth row completes it
+        /// and may sit a few instructions later, and every later reader that is itself
+        /// a fourth row is another completion.  When a later reader is NOT a fourth
+        /// row the sum is live, and only the first three rows fold.
         /// </summary>
         private void FoldMatrixMultiplies(Module m)
         {
@@ -1139,20 +1030,12 @@ namespace ShaderRipper.Emit
                 if (!written.Contains(acc)) written.Add(acc);
             }
 
-            // The completing row.  Adjacent in the common case; when fxc scheduled
-            // something else in between, the sum is still untouched and the row still
-            // closes the product.
             // The closing row, and any NARROWER completion that comes first.
             //
-            // A sprite shader wants the world position as well, and fxc emits that one
-            // first because it only needs three columns:
-            //
-            //     mad o5.xyz, M[3].xyz, v.wwww, acc     -- the world position
-            //     mad r0,     M[3],    v.wwww, acc     -- the whole product
-            //
-            // The narrow one is a completion in its own right -- the same product,
-            // written to three lanes -- so it becomes a line of its own and does not
-            // stop the full row from closing the product.
+            // A sprite shader wants the world position too, and fxc emits that one
+            // first because it needs only three columns.  The narrow one is a
+            // completion in its own right, so it becomes a line of its own and does
+            // not stop the full row from closing the product.
             int tailAt = -1;
             RowTerm t3 = null;
             bool one = false;
@@ -1195,17 +1078,11 @@ namespace ShaderRipper.Emit
             }
             if (tailAt < 0)
             {
-                // No completing row at all: then the three rows ARE the product.
-                //
-                //     mul r2.xyz, v.yyy, M[1].yzx     -- normal transform
-                //     mad r2.xyz, M[0].yzx, v.xxx, r2.xyz
-                //     mad r2.xyz, M[2].yzx, v.zzz, r2.xyz
-                //
-                // is `mul(M, float4(v, 0.0)).yzx`, i.e. the same sum the four-row
-                // case folds, with the homogeneous row contributing nothing.  Only a
-                // run that covers rows 0, 1 and 2 of one array exactly and writes
-                // three lanes qualifies -- any other three rows would need the
-                // missing one to be spelled out.
+                // No completing row at all: then the three rows ARE the product, with
+                // the homogeneous row contributing nothing.  Only a run that covers
+                // rows 0, 1 and 2 of one array exactly and writes three lanes
+                // qualifies -- any other three rows would need the missing one spelled
+                // out.
                 if (lead.Count > 0 || width != 3) return null;
                 if (order.Count != 3 || order[0] + order[1] + order[2] != 3) return null;
                 if (t0.Mask.Length != 3) return null;
@@ -1286,10 +1163,8 @@ namespace ShaderRipper.Emit
                 Steps = steps,
                 Pins = pins,
             };
-            // `mul(M, v)` matches the row-sum it replaces, and `.mask` selects the
-            // columns of that result -- `mul(M, v).w` compiles to the fourth column's
-            // dot, which is what a scalarised `M[k].w` chain computes.  Verified with
-            // d3dcompiler: both spellings produce identical DXBC.
+            // `mul(M, v).mask` selects the columns of the product, which is exactly
+            // what a scalarised `M[k].mask` chain computes.
             p.Line = $"{dstText} = mul({p.Matrix}, {vec}){suffix};";
             p.Expanded = $"{dstText} = {ExpandedSum(p.Matrix, p.Mask, comp, order, one)};";
             p.Written.AddRange(written);
@@ -1305,9 +1180,9 @@ namespace ShaderRipper.Emit
             }
 
             // The vector's register, when x/y/z really are the .x/.y/.z of one temp:
-            // that is what makes a later product reading it a chain.  Read from
-            // `src`, not `comp`: a pinned component's `comp` entry holds a local's
-            // name, but the lane relationship the chain test looks at is unchanged.
+            // that is what makes a later product reading it a chain.  Read from `src`,
+            // not `comp`, because a pinned component's `comp` entry holds a local's
+            // name but the lane relationship is unchanged.
             if (p.Mask.Length == 0)
             {
                 if (src[0].reg >= 0 && src[0].reg == src[1].reg && src[0].reg == src[2].reg &&
@@ -1327,17 +1202,11 @@ namespace ShaderRipper.Emit
 
             // Does the partial sum survive?
             //
-            // Two separate questions, and conflating them is what kept the
-            // half-collapsed `mul(M, float4(x, y, z, 0.0))` in the output:
-            //
-            //  * a COMPLETION never needs the sum to be dead.  Re-spelling
-            //    `add dst, acc, M[3]` as `dst = mul(M, float4(x, y, z, 1.0))` recomputes
-            //    those rows instead of reading them, so the register may stay alive;
-            //  * the SUM itself only disappears when nothing but completions read it.
-            //
-            // So every completion folds, and the three-row prefix folds as well when
-            // something else still wants it -- `mul(M, float4(x, y, z, 0.0))` writes
-            // the same register with the same value the four instructions did.
+            // Two separate questions: a COMPLETION never needs the sum to be dead,
+            // since it recomputes those rows instead of reading them; the SUM itself
+            // only disappears when nothing but completions reads it.  So every
+            // completion folds, and the three-row prefix folds too when something else
+            // still wants it.
             var live = written.Where(r => r != p.DstReg).ToList();
             bool sumLive = false;
             for (int k = tailAt + 1; k < code.Count && live.Count > 0; k++)
@@ -1368,9 +1237,8 @@ namespace ShaderRipper.Emit
                     p.Extras.Add((k, text, dm, w, extraOne));
 
                     // A completion that writes the sum's own register replaces it --
-                    // `mad r0, M[3], v.w, r0` is the common shape.  Whatever reads r0
-                    // afterwards reads the completed product, not the sum, so the sum
-                    // is no longer needed and the partial line would be dead code.
+                    // `mad r0, M[3], v.w, r0` is the common shape -- so the sum is no
+                    // longer needed and the partial line would be dead code.
                     if (dst.Kind == RegKind.R && DestMask(dst).Length == 0 &&
                         live.Remove(dst.Index) && live.Count == 0)
                         break;
@@ -1394,9 +1262,7 @@ namespace ShaderRipper.Emit
         private void Register(Product p)
         {
             // The standalone artifact declares its matrices as `float4 M[4]` row
-            // arrays, where `mul` has no overload -- it gets the row-sum spelling of
-            // the same product instead, so the verification artifact still exercises
-            // the fold.
+            // arrays, where `mul` has no overload, so it gets the row-sum spelling.
             bool matrix = !_standalone && IsMulMatrix(p.Matrix);
             foreach (int s in p.Steps) if (s != p.At) _skip.Add(s);
             foreach (int s in p.Steps) _taken[s] = true;
@@ -1452,20 +1318,14 @@ namespace ShaderRipper.Emit
         /// <summary>
         /// Collapse three `dot` instructions into one 3x3 matrix multiply.
         ///
-        ///     r0.x = dot(v.yzx, M[0].xyz)
-        ///     r0.y = dot(v.yzx, M[1].xyz)
-        ///     r0.z = dot(v.yzx, M[2].xyz)
-        ///
-        /// is `mul(v.yzx, (float3x3)M)` -- the transpose form Unity itself writes in
-        /// `UnityObjectToWorldNormal`.  Three rows of one matrix, read at the same
-        /// three columns, dotted against the same vector, landing on one
-        /// destination's three lanes (any order -- the swizzle carries it);
-        /// nothing else is accepted.
+        /// Three rows of one matrix, read at the same three columns, dotted against
+        /// the same vector, landing on one destination's three lanes (in any order --
+        /// the swizzle carries it) become <c>mul(v, (float3x3)M)</c>, the transpose
+        /// form Unity writes in <c>UnityObjectToWorldNormal</c>.
         ///
         /// The vector must be a different register than the destination: an in-place
-        /// run (`r0.x = dot(r0.xyz, ...)` then `r0.y = dot(r0.xyz, ...)`) would read
-        /// the lane the first dot already overwrote, and the single `mul` reads all
-        /// three components before writing anything.
+        /// run would read a lane the first dot already overwrote, while the single
+        /// `mul` reads all three components before writing anything.
         /// </summary>
         private void FoldNormalTransforms()
         {
@@ -1533,20 +1393,12 @@ namespace ShaderRipper.Emit
         }
 
         /// <summary>
-        /// Collapse `mul(VP, mul(M, v))` into `UnityObjectToClipPos(v)`.
-        ///
-        /// That is exactly what the macro is:
-        /// <c>mul(UNITY_MATRIX_VP, mul(unity_ObjectToWorld, float4(pos, 1.0)))</c>.
-        /// Emitting the two `mul`s is correct but says nothing about intent, and the
-        /// two-matrix form is also where a hand-written translation goes wrong:
-        /// the object-to-world step has to append the homogeneous 1.0, and the
-        /// world-to-clip step has to keep the resulting w rather than re-normalise
-        /// it.  Naming the macro removes both chances.
+        /// Collapse `mul(VP, mul(M, v))` into `UnityObjectToClipPos(v)`, which is
+        /// exactly what the macro is.
         ///
         /// Only an exact chain is merged: the second product's vector must be the
-        /// FIRST product's destination register, that register must be dead
-        /// afterwards, and the first product's own w must be the literal 1.0 (the
-        /// object-space position of a vertex).
+        /// first product's destination register, that register must be dead
+        /// afterwards, and the first product's own w must be the literal 1.0.
         /// </summary>
         private void MergeObjectToClipPos()
         {
@@ -1741,35 +1593,25 @@ namespace ShaderRipper.Emit
             return false;
         }
         /// <summary>
-        /// Is the value in register <paramref name="reg"/> read after instruction
-        /// <paramref name="from"/>?
-        ///
-        /// The scan stops at the next COMPLETE write of the register: that write
-        /// destroys the value, and the reads after it belong to the new one.  Scanning
-        /// the rest of the program instead ("is r1 ever read again?") refuses to fold
-        /// almost every product, because fxc reuses its three or four temp registers for
-        /// unrelated work a few lines later.
-        ///
-        /// Lanes, not registers: a PARTIAL write (`r0.x = dot(...)`) kills only the lane
-        /// it covers.  Calling the whole register dead there deletes the lanes that
-        /// still hold the value, and calling it live forever refuses folds that are
-        /// fine -- `r = product; r.x = dot(...)` is the common shape right after a
-        /// matrix product.
-        /// </summary>
-        /// <summary>
         /// May this matrix be handed to `mul`?
         ///
-        /// Only when the file gets the declaration from `UnityCG`, where it is a
+        /// Only when the declaration comes from <c>UnityCG</c>, where the type is
         /// <c>float4x4</c>.  A name the cbuffer header declares itself is a
-        /// <c>float4 name[4]</c> row array, and `mul` has no overload for that
-        /// (<c>error X3013: 'mul': no matching 2 parameter intrinsic function</c>) --
-        /// hit by `unity_WorldToLight` and `unity_ProbeVolumeWorldToObject`, whose
-        /// declarations in the include sit behind a guard the shader does not open.
-        /// The row-sum spelling works for both, so those get that instead.
+        /// <c>float4 name[4]</c> row array, which <c>mul</c> does not accept
+        /// (<c>error X3013</c>), so those get the row-sum spelling instead.
         /// </summary>
         private static bool IsMulMatrix(string name) =>
             UnityIncludes.IsMatrixMember(name) && ShaderLab.CanTakeOver(name);
 
+        /// <summary>
+        /// Is the value in register <paramref name="reg"/> read after instruction
+        /// <paramref name="from"/>?
+        ///
+        /// The scan stops at the next COMPLETE write of the register, since that write
+        /// destroys the value.  Scanning the rest of the program instead would refuse
+        /// to fold almost every product, because fxc reuses its temps for unrelated
+        /// work a few lines later.  A partial write kills only the lanes it covers.
+        /// </summary>
         private bool LiveAfter(int from, int reg, string lanes = "xyzw")
         {
             string still = lanes;
@@ -1790,11 +1632,8 @@ namespace ShaderRipper.Emit
                 if (d.Kind != RegKind.R || d.Index != reg) continue;
                 string w = DestMask(d);
                 if (w.Length == 0) return false;         // the whole value dies here
-                // A partial write only kills the lanes it covers.  `r0.x = dot(...)`
-                // right after a product leaves r0.y/.z/.w holding the partial sum, and
-                // treating that as "the register is dead" would be the mirror image of
-                // the bug this scan fixes -- so the lanes are dropped one by one and
-                // the scan continues while any are still live.
+                // A partial write only kills the lanes it covers, so the lanes are
+                // dropped one by one and the scan continues while any are still live.
                 still = new string(still.Where(c => w.IndexOf(c) < 0).ToArray());
                 if (still.Length == 0) return false;
             }
@@ -2547,18 +2386,14 @@ namespace ShaderRipper.Emit
         }
 
         /// <summary>
-        /// One element of an indexable temp array.
+        /// One element of an indexable temp array (<c>x0[3]</c>,
+        /// <c>x0[r2.z + 0]</c>).
         ///
-        /// `x0[3]` and `x0[r2.z + 0]` are both array accesses, and the constant form
-        /// is what a baked lookup table is written with -- 25 `mov x0[k].x` fills
-        /// followed by `mov r2.z, x0[r2.z + 0].x` to read one back.  Emitting every
-        /// write into element 0 (which is what ignoring the bracket did) left the
-        /// table empty and the read returning whatever the last store wrote.
-        ///
-        /// The dynamic index is an integer held in a float register, so it is read
-        /// back with `asint`; the array length is the one the declaration states, so
-        /// fxc can prove the index in range and does not need the modulo the
-        /// immediate-constant table uses.
+        /// The constant form is what a baked lookup table is written with, so
+        /// ignoring the bracket would collapse every write into element 0.  The
+        /// dynamic index is an integer held in a float register and is read back with
+        /// <c>asint</c>; the array length comes from the declaration, so fxc can prove
+        /// the index in range.
         /// </summary>
         private string IndexableTemp(Operand o)
         {
@@ -2952,17 +2787,15 @@ namespace ShaderRipper.Emit
 
         /// <summary>
         /// The condition of a flow-control instruction, as an HLSL expression that
-        /// fxc turns into a single `if_nz` / `breakc_nz`.
+        /// fxc turns back into a single `if_nz` / `breakc_nz`.
         ///
-        /// DXBC's `_nz` / `_z` tests are <c>any(operand != 0)</c> over the
+        /// DXBC's <c>_nz</c> / <c>_z</c> tests are <c>any(operand != 0)</c> over the
         /// components the operand names, not a read of <c>.x</c>: a program tests a
-        /// packed pair (`if_nz r0.xy`) far more often than a single lane, and
-        /// looking only at x silently takes the wrong branch.
-        ///
-        /// The scalar form is the bare register rather than `x != 0.0`: HLSL's
-        /// implicit conversion already means "non-zero", and spelling the compare
-        /// out makes fxc emit an extra `ne` before every branch.  That still
-        /// compiles, but it doubles the branch cost of a blur loop.
+        /// packed pair far more often than a single lane, and looking only at x
+        /// silently takes the wrong branch.  The scalar form is the bare register
+        /// rather than <c>x != 0.0</c>, because HLSL's implicit conversion already
+        /// means "non-zero" and spelling the compare out makes fxc emit an extra `ne`
+        /// before every branch.
         /// </summary>
         private string Any(Operand o)
         {
@@ -3219,33 +3052,18 @@ namespace ShaderRipper.Emit
                 case "rcp": Line($"{d} = 1.0 / {Scalar(a[1])};"); return true;
                 case "sincos":
                     // DXBC's sincos has TWO destinations plus the source:
-                    //   sincos dst_cos, dst_sin, src
+                    //   sincos dst_sin, dst_cos, src
                     // Either destination may be `null`, which is how fxc splits one
-                    // rotation into two instructions:
-                    //   sincos r3.xz, null,   r2.xxxx     // cos into x,z
-                    //   sincos null,  r3.yw,  r2.yyyy     // sin into y,w
-                    // Reading the form as (dst, src) dropped the sine register
-                    // entirely, and the rotation then read a lane nothing wrote --
-                    // FloorMesh's tile and icon rotation both came out wrong while
-                    // still compiling.
+                    // rotation into two instructions.  Reading the form as (dst, src)
+                    // drops the sine register entirely and leaves the rotation reading
+                    // a lane nothing wrote.
                     //
-                    // The mask applies to the destination that is not null.  A
-                    // `null` operand means "write nothing here"; it is not a
-                    // register.
+                    // Lane i of a destination takes source component i, so
+                    // `sincos r3.xz, null, r2` means sin(r2.x), sin(r2.y) -- not
+                    // sin(r2) splatted twice.  A destination that aliases the source
+                    // must be read before it is written, or the naive spelling becomes
+                    // sin(cos(x)).
                     {
-                        // Operand order is (sine, cosine, source) -- confirmed
-                        // against fxc: `sincos r0.x, r1.x, v0.x` followed by
-                        // `mov o0.x, r1.x` for `return float4(c, s, ...)` puts the
-                        // COSINE in r1.
-                        //
-                        // Lane i of a destination takes source component i, so
-                        // `sincos r3.xz, null, r2` means sin(r2.x), sin(r2.y) --
-                        // NOT sin(r2) splatted twice.
-                        //
-                        // A destination that aliases the source must be read before
-                        // it is written: `sincos r4.x, r5.x, r4.x` spelled naively
-                        // becomes sin(cos(x)), which compiles and renders the wrong
-                        // rotation.
                         Operand srcOp = a.Count > 2 ? a[2] : a[0];
                         Operand sinOp = a[0];
                         Operand cosOp = a.Count > 2 ? a[1] : null;
@@ -3701,21 +3519,15 @@ namespace ShaderRipper.Emit
         }
 
         /// <summary>
-        /// A structured-buffer read.
+        /// A structured-buffer read: <c>ld_structured</c> / <c>ld_structured_indexable</c>,
+        /// with arguments (dst, index, byteOffset, resource).
         ///
-        /// DXBC:
-        /// <code>
-        ///   ld_structured_indexable(structured_buffer, stride=16, mips=0,
-        ///                           r0.x, l(8), r1.xyzw)
-        ///   ld_structured r1.xyzw, v1.x, l(16), t0.xyzw
-        /// </code>
-        /// The arguments are (dst, src0=index, src1=byteOffset, src2=resource).
-        /// Both the index and the offset are in the address's own units: the
+        /// Both the index and the offset are in the address's own units, so the
         /// address is <c>index * stride + byteOffset</c> bytes.  Dividing by an
-        /// element size only works when the stride equals it, and a 12-byte record
-        /// or an unaligned offset then reads the wrong data -- so the resource is
-        /// declared as a <c>ByteAddressBuffer</c> and the byte address is passed
-        /// through unchanged.
+        /// element size only works when the stride equals it, and a 12-byte record or
+        /// an unaligned offset then reads the wrong data -- so the resource is
+        /// declared as a <c>ByteAddressBuffer</c> and the byte address passes through
+        /// unchanged.
         /// </summary>
         private bool LoadStructured(List<Operand> a, string d)
         {

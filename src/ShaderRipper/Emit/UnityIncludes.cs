@@ -11,18 +11,12 @@ namespace ShaderRipper.Emit
     /// Declares Unity's own globals through includes instead of re-declaring them.
     ///
     /// Unity resolves every identifier inside a program block against its built-in
-    /// property table, and a <c>cbuffer</c> member is no exception.  Re-declaring
-    /// <c>unity_MatrixVP</c> therefore makes the ShaderLab compiler reject the file:
+    /// property table, so re-declaring <c>unity_MatrixVP</c> makes the ShaderLab
+    /// compiler reject the file.
     ///
-    /// <code>
-    /// Shader has a float property 'unity_MatrixVP' which clashes with a built-in
-    /// non-float property name.  Use some other name!
-    /// </code>
-    ///
-    /// The table is <c>data/unity_engine_names.json</c>: include file -> the names
-    /// that file declares.  It is generated from Unity's own CGIncludes, so a name
-    /// is only listed when a real file declares it -- removing a name nothing
-    /// declares would leave the body referencing an undefined identifier.
+    /// The table (<c>data/unity_engine_names.json</c>, include file -> the names it
+    /// declares) comes from Unity's own CGIncludes, so a name is only listed when a
+    /// real file declares it.
     /// </summary>
     internal static class UnityIncludes
     {
@@ -72,18 +66,14 @@ namespace ShaderRipper.Emit
         /// <summary>
         /// Load the include index once, under a lock.
         ///
-        /// Lazy and lock-free was fine while an export was single-threaded.  With
-        /// `--jobs`, a worker could see `_tried` set by another that was still
-        /// filling the tables and answer "no include declares this name" for a name
-        /// the table does declare -- which moves the declaration into the shader's
-        /// own buffers, i.e. silently changes the output.  The lock only costs a
-        /// compare after the first load.
+        /// Lazy and lock-free let a <c>--jobs</c> worker see <c>_tried</c> set by
+        /// another that was still filling the tables, and answer "no include declares
+        /// this name" for a name the table does declare -- which silently moves the
+        /// declaration into the shader's own buffers.
         ///
-        /// The flag is tested twice on purpose: this is on the hot path (once per
-        /// declaration of every program), and 8 workers taking the monitor for
-        /// every one of those lookups was measurable -- the workers spent 2.4x the
-        /// single-thread CPU for no wall-clock gain.  After the first load the
-        /// volatile read returns without touching the lock at all.
+        /// The flag is tested before and after: this is on the hot path (once per
+        /// declaration of every program), so after the first load the volatile read
+        /// returns without touching the monitor.
         /// </summary>
         private static void Ensure()
         {
@@ -266,12 +256,11 @@ namespace ShaderRipper.Emit
         /// <summary>
         /// name -> every include that declares it, cheapest file first.
         ///
-        /// One name is normally declared by several cgincs -- `_Color` lives in
-        /// `UnitySprites.cginc`, `SpeedTreeCommon.cginc`, `UnityStandardInput.cginc`
-        /// and more.  Picking the file with the fewest declarations keeps the
-        /// chance of dragging in something the program also declares as low as
-        /// possible: `SpeedTreeCommon.cginc` declares `sampler2D _MainTex`, and a
-        /// shader whose own body declares `Texture2D _MainTex` cannot use it.
+        /// One name is usually declared by several cgincs.  Picking the file with the
+        /// fewest declarations minimises the chance of dragging in something the
+        /// program also declares -- <c>SpeedTreeCommon.cginc</c> declares
+        /// <c>sampler2D _MainTex</c>, which clashes with a body that declares
+        /// <c>Texture2D _MainTex</c>.
         /// </summary>
         private static Dictionary<string, List<string>> _providers;
 
@@ -319,15 +308,10 @@ namespace ShaderRipper.Emit
         }
 
         /// <summary>
-        /// Pick the include that supplies <paramref name="name"/> without
-        /// colliding with anything the program or a previously chosen include
-        /// declares.
-        ///
-        /// Returns null when no file can carry the name, in which case the caller
-        /// keeps its own declaration.  This is what stops `_MainTex` from being
-        /// declared twice: a shader that reads `_Color` would otherwise pull in
-        /// `SpeedTreeCommon.cginc`, whose `sampler2D _MainTex` clashes with the
-        /// `Texture2D _MainTex` the translated body declares.
+        /// Pick the include that supplies <paramref name="name"/> without colliding
+        /// with anything the program or a previously chosen include declares, or null
+        /// when no file can carry it -- in which case the caller keeps its own
+        /// declaration.
         /// </summary>
         private static string ChooseProvider(string name)
         {

@@ -12,11 +12,8 @@ namespace ShaderRipper.Localization
     /// and <c>Strings.zh-Hans.resx</c>; the build turns them into satellite
     /// assemblies, so a new language is a new .resx and no code change.
     ///
-    /// Two properties the tool depends on:
-    ///   * a missing key returns the key itself, never an exception — a translation
-    ///     gap must not take down an export that is otherwise fine;
-    ///   * <c>--lang zh</c> works on a machine whose satellite assembly was stripped,
-    ///     because the fallback is the neutral (English) resource.
+    /// A missing key returns the key itself rather than throwing, so a translation
+    /// gap cannot take down an export that is otherwise fine.
     /// </summary>
     internal static class Strings
     {
@@ -28,12 +25,10 @@ namespace ShaderRipper.Localization
         public static CultureInfo Culture { get; private set; } = CultureInfo.CurrentUICulture;
 
         /// <summary>
-        /// Set the interface language from a command-line value.
-        ///
-        /// Accepts the tags people actually type (<c>en</c>, <c>zh</c>, <c>zh-CN</c>,
-        /// <c>zh-Hans</c>) and maps them onto the cultures this build ships.  An
-        /// unknown tag leaves the current culture alone rather than throwing: a
-        /// typo in <c>--lang</c> should not stop an export.
+        /// Set the interface language from a command-line value, accepting the tags
+        /// people actually type (<c>en</c>, <c>zh</c>, <c>zh-CN</c>,
+        /// <c>zh-Hans</c>).  An unknown tag leaves the current culture alone rather
+        /// than throwing, so a typo in <c>--lang</c> does not stop an export.
         /// </summary>
         public static void SetLanguage(string tag)
         {

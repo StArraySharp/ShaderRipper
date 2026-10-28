@@ -4,12 +4,12 @@ using System.Collections.Generic;
 namespace ShaderRipper
 {
     /// <summary>
-    /// 极简命令行解析：<c>--name value</c> / <c>--flag</c>，其余非选项参数按位置收集。
+    /// Minimal command-line parser: <c>--name value</c> / <c>--flag</c>, with
+    /// everything else collected positionally.
     ///
-    /// 之所以不用库，是因为需要一条特殊规则：<c>--bundles</c> 的值可以省（省掉就等于
-    /// "扫默认目录"），但不能把紧跟其后的位置参数（游戏数据目录）吞掉。所以只有
-    /// 列在 <see cref="Valued"/> 里的选项才会尝试取值，且 <c>--bundles</c> 还要求
-    /// 取到的值确实是个目录。
+    /// Only options listed in <see cref="Valued"/> consume the following token, and
+    /// <c>--bundles</c> additionally requires that value to be a directory -- so an
+    /// omitted <c>--bundles</c> does not swallow the data directory after it.
     /// </summary>
     internal sealed class Argv
     {

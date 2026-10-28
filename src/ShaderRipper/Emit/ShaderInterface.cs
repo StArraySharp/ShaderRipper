@@ -174,12 +174,13 @@ namespace ShaderRipper.Emit
         { "TEXCOORD", "COLOR", "BLENDWEIGHT", "BLENDINDICES" };
 
         /// <summary>
-        /// 必须以整型声明的系统值语义（比较前去掉下划线、转大写，兼容
-        /// SV_VERTEXID / SV_VertexID 两种写法）。
+        /// System-value semantics that must be declared as integers (compared
+        /// underscore-stripped and upper-cased, so both <c>SV_VERTEXID</c> and
+        /// <c>SV_VertexID</c> match).
         ///
-        /// `SV_RENDERTARGETARRAYINDEX` 是 `uint`：fxc 直接拒收 `float` 版本
-        /// （X4555 "invalid type used for 'SV_RENDERTARGETARRAYINDEX', must be
-        /// integral"），而整个声明是以签名里的 float 类型发出去的。
+        /// <c>SV_RENDERTARGETARRAYINDEX</c> is a <c>uint</c> -- fxc rejects the float
+        /// version with X4555 -- while the rest of the declaration is emitted with the
+        /// float type from the signature.
         /// </summary>
         private static readonly HashSet<string> IntegralSemantics = new(StringComparer.Ordinal)
         { "SVVERTEXID", "SVINSTANCEID", "SVPRIMITIVEID", "SVVIEWID",
@@ -263,14 +264,6 @@ namespace ShaderRipper.Emit
 
         private static bool NeedsIndex(Field f) => false;
 
-        /// <summary>
-        /// Declares vN locals initialised from the input struct.  The local keeps
-        /// the field's own type: Cg rejects initialising a float4 from a float2,
-        /// and the declaration mask is exactly what the semantic supplies.  When
-        /// the translated body nevertheless reads beyond that mask the local is
-        /// widened and the missing lanes are zero-filled (the DXBC lanes past the
-        /// mask are undefined, and zero is what the hardware supplies).
-        /// </summary>
         /// <summary>First lane a field occupies inside its register.</summary>
         private static int LaneStart(Field f)
         {

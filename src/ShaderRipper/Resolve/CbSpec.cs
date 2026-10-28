@@ -1,15 +1,8 @@
 namespace ShaderRipper.Resolve
 {
     /// <summary>
-    /// Small helpers for the <c>"type name"</c> member specs the constant-buffer
-    /// analysis passes around, and for the component width of an HLSL type.
-    ///
-    /// These used to hang off <c>GlobalsNames</c>, the curated per-shader
-    /// <c>$Globals</c> row tables.  Those tables turned out to be redundant -- the
-    /// asset's own parameter blob carries the same member table with byte offsets,
-    /// so <c>CbResolver</c> now reads the names from there and the curated
-    /// overrides only ever re-stated what the blob already said.  The helpers are
-    /// what remained useful.
+    /// Helpers for the <c>"type name"</c> member specs the constant-buffer analysis
+    /// passes around, and for the component width of an HLSL type.
     /// </summary>
     internal static class CbSpec
     {

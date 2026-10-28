@@ -10,19 +10,17 @@ using Data = ShaderRipper.Data;
 namespace ShaderRipper.Emit
 {
     /// <summary>
-    /// Wraps translated programs in ShaderLab, and checks the result by parsing
-    /// it back with <c>ShaderLab.g4</c>.
+    /// Wraps translated programs in ShaderLab, and checks the result by parsing it
+    /// back with <c>ShaderLab.g4</c>.
     ///
-    /// Wrapping needs no grammar -- it is a template -- but the check does: a
-    /// missing brace or an empty tag is invisible to the code that wrote it, and
-    /// this is the cheapest place to catch it, before anyone opens the file.
+    /// Wrapping is a template; the check is the point, because a missing brace is
+    /// invisible to the code that wrote it.
     ///
     /// A pass holds both stages in one <c>HLSLPROGRAM</c>, which means merging two
-    /// programs that were emitted independently.  They declare the same globals
-    /// (temporaries, samplers) and often the same constant buffers with different
-    /// extents, so the merge is not concatenation: duplicates are dropped, and a
-    /// buffer declared twice keeps the longer body, which is a superset of the
-    /// shorter one's rows and references.
+    /// independently emitted programs.  They declare the same globals and often the
+    /// same constant buffers with different extents, so the merge is not
+    /// concatenation: duplicates are dropped and a buffer declared twice keeps the
+    /// longer body.
     /// </summary>
     internal static class ShaderLab
     {
@@ -187,15 +185,11 @@ namespace ShaderRipper.Emit
 
         /// <summary>
         /// A <c>Range</c> property's bounds.
-        ///
-        /// The asset does not store min/max -- <c>SerializedProperty</c> has only
-        /// the type code and the default value -- so the range has to be inferred
-        /// from the default.  A hard-coded <c>Range(0, 1)</c> clips the material
-        /// inspector's slider: 58 properties in one game ship defaults above 1
-        /// (<c>_Radius = 700</c>, <c>_Amount = 5</c>), and a slider that cannot
-        /// reach its own default is worse than a wide one.  The lower bound stays 0
-        /// (the overwhelmingly common case) and the upper bound grows to the
-        /// default when the default is larger.
+        /// The asset does not store min/max -- <c>SerializedProperty</c> has only the
+        /// type code and the default value -- so the range is inferred from the
+        /// default.  A hard-coded <c>Range(0, 1)</c> would clip the slider for the
+        /// many properties that ship defaults above 1, so the upper bound grows to
+        /// the default when it is larger.
         /// </summary>
         private static string RangeType(Data.Property p)
         {
@@ -207,25 +201,13 @@ namespace ShaderRipper.Emit
         }
 
         /// <summary>
-        /// The <c>[Attribute]</c> prefixes a property carries.
+        /// The <c>[Attribute]</c> prefixes a property carries, decoded from Unity's
+        /// <c>ShaderPropertyFlags</c> bit set.
         ///
-        /// <c>m_Flags</c> is Unity's <c>ShaderPropertyFlags</c> bit set.  Losing it
-        /// costs more than panel decoration: <c>PerRendererData</c> is what tells
-        /// the renderer to fill the value from a MaterialPropertyBlock, and
-        /// <c>HideInInspector</c> keeps internals out of the panel.
-        ///
-        /// Bit values, from ShaderPropertyFlags (verified against the corpus, which
-        /// only ever uses the first five):
-        /// <code>
-        ///   HideInInspector 0x01   PerRendererData 0x02   NoScaleOffset 0x04
-        ///   Normal          0x08   HDR             0x10   Gamma         0x20
-        ///   NonModifiableTextureData 0x40   MainTexture 0x80   MainColor 0x100
-        /// </code>
-        /// Unity's <c>[Toggle]</c> is deliberately absent: it is not a flag bit but an
-        /// attribute naming a keyword, and the serialized property carries neither
-        /// the attribute nor the keyword link -- only the panel script does, which a
-        /// build strips.  Emitting a guessed <c>[Toggle(X)]</c> would be worse than
-        /// omitting it, because the keyword it names may not exist.
+        /// <c>PerRendererData</c> matters beyond panel decoration: it is what tells the
+        /// renderer to fill the value from a MaterialPropertyBlock.
+        /// <c>[Toggle]</c> is deliberately absent -- it names a keyword rather than a
+        /// flag bit, and a build strips the link.
         /// </summary>
         private static string PropertyAttributes(Data.Property p)
         {
@@ -424,13 +406,11 @@ namespace ShaderRipper.Emit
         /// Keys ShaderLab spells in mixed case, no matter how the serialized data
         /// capitalized them.
         ///
-        /// `resources.assets` stores tag keys upper-cased (`LIGHTMODE`), which is how
-        /// Unity's own serializer writes them into the asset, but a ShaderLab source
-        /// file has to spell them the way Unity's parser documents: `LightMode`,
-        /// `RenderType`, `Queue`.  Copying the asset's casing produces a file that
-        /// still parses -- Unity's tag reader is case-insensitive -- but no longer
-        /// reads like the shader it came from, and tools that match keys exactly (a
-        /// ShaderLab highlighter, a tags-equal diff) see a different tag.
+        /// The asset stores tag keys upper-cased (<c>LIGHTMODE</c>) because that is how
+        /// Unity's serializer writes them, but a ShaderLab source file spells them the
+        /// documented way.  Unity's tag reader is case-insensitive, so either parses;
+        /// copying the asset's casing just stops the file reading like the shader it
+        /// came from.
         /// </summary>
         private static readonly Dictionary<string, string> TagKeyCase =
             new(StringComparer.OrdinalIgnoreCase)
@@ -558,20 +538,14 @@ namespace ShaderRipper.Emit
 
 
         /// <summary>
-        /// One program block for a pass: constant buffers merged by NAME (not by
-        /// register), then the remaining globals once each, then the two entry
-        /// points.
+        /// One program block for a pass: buffers merged by NAME, then the remaining
+        /// globals once each, then the two entry points.
         ///
-        /// Keying by name is the load-bearing decision.  fxc assigns constant-
-        /// buffer slots per stage, so the same pass can legally compile its vertex
-        /// stage with `cb2 = UnityPerDraw` and its fragment stage with
-        /// `cb2 = UnityLighting` -- merging those two row maps by register folds
-        /// two unrelated buffers into one declaration and silently moves every
-        /// member the fragment reads.  Unity binds constant buffers by name at
-        /// runtime, so the slot numbers themselves carry no meaning; what must
-        /// survive the merge is each named buffer's member layout.  A buffer that
-        /// only one stage uses keeps that stage's slot when it is free, and takes
-        /// the lowest free slot otherwise.
+        /// Keying by name is load-bearing: fxc assigns slots per stage, so the same
+        /// pass can have <c>cb2 = UnityPerDraw</c> in the vertex stage and
+        /// <c>cb2 = UnityLighting</c> in the fragment stage.  Unity binds buffers by
+        /// name, so the slot number carries no meaning -- what must survive the merge
+        /// is each named buffer's member layout.
         /// </summary>
         private sealed class Buf
         {
@@ -583,15 +557,14 @@ namespace ShaderRipper.Emit
         /// <summary>
         /// Names the shader's own Properties block declares.
         ///
-        /// A member matching one of these is the game's, never the engine's, even
+        /// A member matching one of these belongs to the game, never the engine, even
         /// when the name also appears in <c>unity_engine_names.json</c>: a material
         /// property has to keep its declaration or the material can no longer drive
-        /// it.  Only names absent here are handed over to the include.
+        /// it.  Only names absent here are handed to the include.
         ///
-        /// Per-thread, not global: <see cref="SetPropertyNames"/> runs once per
-        /// shader and the answer is read throughout that shader's emission.  As a
-        /// plain static, two shaders exported at the same time overwrite each
-        /// other's set and one of them silently loses its material properties.
+        /// Per-thread: <see cref="SetPropertyNames"/> runs once per shader and the
+        /// answer is read throughout that shader's emission, so a plain static would
+        /// let two concurrent exports overwrite each other.
         /// </summary>
         [ThreadStatic]
         private static HashSet<string> _properties;
@@ -615,17 +588,13 @@ namespace ShaderRipper.Emit
         /// <summary>
         /// Is this member one the include chain could declare instead of us?
         ///
-        /// Only engine names qualify.  A name the Properties block lists is a
-        /// material property, and a material property MUST stay a member of
-        /// <c>UnityPerMaterial</c>: that buffer is what Unity fills from the
-        /// Material, and an include's declaration of the same name is a plain
-        /// global the engine never writes.  Handing it over compiled fine and read
-        /// zero at runtime -- which is how `_Color` silently became black in every
-        /// shader that pulled in a tree library for it.
+        /// Only engine names qualify.  A name the Properties block lists is a material
+        /// property and must stay a member of <c>UnityPerMaterial</c>, because that is
+        /// the buffer Unity fills from the Material; handing it to an include produces
+        /// a plain global the engine never writes, so it reads zero.
         ///
-        /// Non-property names keep the old rules: a name no cginc declares stays, a
-        /// name the include only reaches behind a preprocessor guard stays (the
-        /// guard would delete it for a shader without the matching pragma).
+        /// Non-property names keep the old rules: a name no cginc declares stays, and
+        /// so does one the include only reaches behind a preprocessor guard.
         /// </summary>
         internal static bool CanTakeOver(string name)
         {
@@ -662,15 +631,11 @@ namespace ShaderRipper.Emit
         /// <summary>
         /// Re-indent a declaration block to one level inside the program.
         ///
-        /// The translated HLSL is emitted at column zero (`struct appdata` /
-        /// `{` / tab-indented members), because it is a program fragment rather
-        /// than ShaderLab source.  Dropping it into a <c>HLSLPROGRAM</c> unchanged
-        /// leaves the brace and the members hanging outside the surrounding
-        /// indentation -- valid, but the file reads as if it were broken.
-        ///
-        /// The body is normalised rather than shifted: the first line fixes the
-        /// base column, deeper lines keep their relative offset, and tabs become
-        /// spaces so the result is uniform.
+        /// The translated HLSL is emitted at column zero, so dropping it into a
+        /// <c>HLSLPROGRAM</c> unchanged leaves the braces outside the surrounding
+        /// indentation.  The body is normalised rather than shifted: the first line
+        /// fixes the base column, deeper lines keep their relative offset, and tabs
+        /// become spaces.
         /// </summary>
         private static List<string> Reindent(List<string> block, int level)
         {
@@ -908,36 +873,17 @@ namespace ShaderRipper.Emit
                 var keptMembers = kv.Value.Rows.Values.OrderBy(m => m.Row).ThenBy(m => m.Col).ToList();
 
                 // A `$Globals` block holds the engine's own globals beside the
-                // material's properties -- `unity_WorldToLight`, `unity_LightmapST`
-                // and friends land there because the original source declared them
-                // outside any CBUFFER.  Leaving them in makes the ShaderLab compiler
-                // reject the file, exactly like re-declaring `UnityPerFrame` did, so
-                // they are dropped here and come in through the include instead.
+                // material's properties, and leaving them in makes the ShaderLab
+                // compiler reject the file, so they come in through the include
+                // instead.  The check is by member NAME against the engine table, not
+                // by buffer name, and a buffer left empty is dropped whole.
                 //
-                // The check is by member NAME against the engine's own table, not by
-                // buffer name: `unity_WorldToLight` lives in `$Globals` (a game-owned
-                // buffer) and `unity_MatrixVP` in `UnityPerFrame` (an engine one),
-                // and both must go.  A buffer left with no members is dropped whole.
-                //
-                // The shader's own Properties block overrules the table.  A game is
-                // free to declare a material property that merely shares a name with
-                // an engine one, and such a property must keep its declaration: the
-                // material drives it, so dropping it would break the shader.  Only
-                // names the property table does not claim are handed to the include.
-                //
-                // The exception is a name the include declares unconditionally and
-                // that the Properties block also lists -- `_SpecColor` is both, since
-                // `UnityLightingCommon.cginc` opens with `fixed4 _SpecColor;`.  There
-                // the property is only a panel entry (ShaderLab properties are not
-                // declarations) and the include already supplies the variable, so
-                // keeping the cbuffer member would declare it twice.
-                //
-                // A name the include declares only behind a preprocessor guard goes
-                // the other way: `unity_ProbeVolumeParams` and `unity_MatrixVP` sit
-                // below `#if UNITY_LIGHT_PROBE_PROXY_VOLUME` / `#if !defined(
-                // USING_STEREO_MATRICES)`, so for a shader without that pragma the
-                // include says nothing and dropping the member would leave the body
-                // referencing an undefined identifier.  Those keep their declaration.
+                // The Properties block overrules the table: a game may declare a
+                // property that merely shares a name with an engine one, and that
+                // property must keep its declaration.  Only names the property table
+                // does not claim are handed to the include -- except where the include
+                // declares the name unconditionally and the property is only a panel
+                // entry, in which case keeping the member would declare it twice.
                 if (usingIncludes)
                 {
                     var survivors = new List<CbLayout.Member>(keptMembers.Count);

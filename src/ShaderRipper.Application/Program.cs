@@ -14,15 +14,9 @@ namespace ShaderRipper
     /// The command-line front end.
     ///
     /// Everything mechanical lives in the ShaderRipper library; this project only
-    /// parses argv and prints.  Nothing here reads disassembly text by hand: the
-    /// grammar (<c>Grammar/DxbcAsm.g4</c>) is the front end, <c>Ast/</c> is the
-    /// typed view of the tree, and <c>Emit/</c> walks it.
-    ///
-    /// Every message goes through <see cref="Strings"/>, so the tool speaks the
-    /// language <c>--lang</c> asks for (or the system UI language by default).
-    ///
-    ///   ShaderRipper --asm &lt;file.dxbc.asm&gt; [--out &lt;file.hlsl&gt;]
-    ///   ShaderRipper --stats &lt;dir&gt;
+    /// parses argv and prints.  Every message goes through <see cref="Strings"/>, so
+    /// the tool speaks the language <c>--lang</c> asks for (or the system UI language
+    /// by default).
     /// </summary>
     internal static class Program
     {
@@ -213,19 +207,16 @@ namespace ShaderRipper
         /// <summary>
         /// A path argument, as the shell meant it.
         ///
-        /// Git Bash and MSYS rewrite <c>/e/SteamLibrary/...</c> into
-        /// <c>E:\SteamLibrary\...</c> for native programs -- usually.  It does not
-        /// happen for a path assembled inside a script, and the argument as typed is
-        /// then a directory that does not exist, which makes the whole export read
-        /// nothing and look like "globalgamemanagers not found".  So a missing
+        /// Git Bash and MSYS usually rewrite <c>/e/SteamLibrary/...</c> into
+        /// <c>E:\SteamLibrary\...</c> for native programs, but not always, and the
+        /// argument as typed is then a directory that does not exist.  A missing
         /// <c>/&lt;letter&gt;/...</c> is retried as the drive it names; anything that
         /// exists, and anything not in that shape, is returned unchanged.
         /// </summary>
         /// <param name="mustExist">
-        /// An input has to exist for the retry to be worth taking -- a path that is
-        /// missing as typed and missing as mapped is the user's own typo and should
-        /// be reported as typed.  An output directory usually does not exist yet, so
-        /// it is mapped without that check.
+        /// An input has to exist for the retry to be worth taking -- a path missing
+        /// both ways is the user's own typo.  An output directory usually does not
+        /// exist yet, so it is mapped without that check.
         /// </param>
         private static string Input(string path, bool mustExist = true)
         {
@@ -313,16 +304,14 @@ namespace ShaderRipper
         /// <summary>
         /// <c>--jobs N</c>: how many shaders to translate at once.
         ///
-        /// Translation is the whole cost of an export -- the scan that finds the
-        /// shaders is a few percent -- and each shader is independent once its
-        /// output paths are claimed, so this is close to a linear speedup up to the
-        /// core count.  The default is the core count; <c>--jobs 1</c> forces the
-        /// serial run, which is the one whose log lines do not interleave.
+        /// Translation is the whole cost of an export and each shader is independent
+        /// once its output paths are claimed, so this is close to a linear speedup up
+        /// to the core count.  The default is the core count; <c>--jobs 1</c> forces
+        /// the serial run, whose log lines do not interleave.
         ///
-        /// The output is identical either way: which shader keeps a contested
-        /// output path and which one keeps the plain name are both decided before
-        /// the first worker starts (see <c>GameExport.Seat</c>), and every piece of
-        /// per-shader state in the emitters is per-thread.
+        /// The output is identical either way: every contested path is decided before
+        /// the first worker starts (see <c>GameExport.Seat</c>), and all per-shader
+        /// emitter state is per-thread.
         /// </summary>
         private static int Jobs(string value)
         {
