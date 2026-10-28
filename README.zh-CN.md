@@ -24,6 +24,11 @@ dotnet build ShaderRipper.slnx -c Release
 dotnet publish src/ShaderRipper.Application/ShaderRipper.Application.csproj -c Release -r win-x64 -p:PublishAot=true -o publish/aot-win-x64
 mv publish/aot-win-x64/ShaderRipper.Application.exe publish/aot-win-x64/ShaderRipper.exe
 
+# Windows 带 CLR 的裁剪单文件（约 40 MB）。AOT 不可用、或想要一个裁剪过的 CLR 版本时用：
+# 产物与框架版逐字节一致，无裁剪警告。
+dotnet publish src/ShaderRipper.Application/ShaderRipper.Application.csproj -c Release -r win-x64   --self-contained -p:PublishSingleFile=true -p:PublishTrimmed=true -o publish/win-x64-clr
+mv publish/win-x64-clr/ShaderRipper.Application.exe publish/win-x64-clr/ShaderRipper.exe
+
 # Linux：AOT 不能跨 OS 编译，linux AOT 包需在 Linux 上构建；
 # Windows 交叉打包用带 CLR 的裁剪单文件（约 56 MB）
 dotnet publish src/ShaderRipper.Application/ShaderRipper.Application.csproj -c Release -r linux-x64 \

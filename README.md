@@ -24,6 +24,12 @@ dotnet build ShaderRipper.slnx -c Release
 dotnet publish src/ShaderRipper.Application/ShaderRipper.Application.csproj -c Release -r win-x64 -p:PublishAot=true -o publish/aot-win-x64
 mv publish/aot-win-x64/ShaderRipper.Application.exe publish/aot-win-x64/ShaderRipper.exe
 
+# Windows, CLR host with trimming (~40 MB single file).  Use this when AOT is not
+# available or when a trimmed CLR build is preferred: same output, no trimming
+# warnings, and it starts without the AOT compile step.
+dotnet publish src/ShaderRipper.Application/ShaderRipper.Application.csproj -c Release -r win-x64   --self-contained -p:PublishSingleFile=true -p:PublishTrimmed=true -o publish/win-x64-clr
+mv publish/win-x64-clr/ShaderRipper.Application.exe publish/win-x64-clr/ShaderRipper.exe
+
 # Linux: AOT cannot cross-compile across OSes — build the Linux AOT on Linux.
 # Cross-pack from Windows as a trimmed single-file with CLR host (~56 MB):
 dotnet publish src/ShaderRipper.Application/ShaderRipper.Application.csproj -c Release -r linux-x64 \
