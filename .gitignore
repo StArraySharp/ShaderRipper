@@ -8,6 +8,7 @@ publish/
 .idea/
 *.user
 *.suo
+.vscode/
 
 # 输出（工具生成的 ShaderLab）
 game_shaderlab_*/
@@ -17,3 +18,6 @@ game_shaderlab_*/
 .workbuddy/
 # globals_names/ 本地专用修复表，不入库
 globals_names/
+
+# 旧的手写实现，只在本地留作参考与产物对比，不参与构建
+src/*.Old/

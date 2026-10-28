@@ -50,9 +50,17 @@
     <EmbeddedResource Include="Resources/data/*.txt" LogicalName="ShaderRipper.Embed.data/%(Filename)%(Extension)" />
     <EmbeddedResource Include="Resources/data/*.json" LogicalName="ShaderRipper.Embed.data/%(Filename)%(Extension)" />
     <!-- Native libraries are not data: NativeLibLoader extracts them by their
-         own manifest names, so they keep the Native. prefix and stay put. -->
-    <EmbeddedResource Include="NativeLibs/*.dll" LogicalName="ShaderRipper.Native.%(Filename)%(Extension)" />
-    <EmbeddedResource Include="NativeLibs/win-x64/*.dll" LogicalName="ShaderRipper.Native.%(Filename)%(Extension)" />
-    <EmbeddedResource Include="NativeLibs/linux-x64/*.so" LogicalName="ShaderRipper.Native.%(Filename)%(Extension)" />
+         own manifest names, so they keep the Native. prefix and stay put.
+
+         Conditional on the target platform: a single-file publish embeds what is
+         in this ItemGroup, and shipping a Linux binary that carries only Windows
+         DLLs (or the reverse) is a publish that cannot decompile anything.  With
+         no RuntimeIdentifier every library is embedded, which is what a plain
+         `dotnet run` needs to pick whichever one the host can load. -->
+    <EmbeddedResource Include="NativeLibs/D3Dcompiler_47.dll" LogicalName="ShaderRipper.Native.%(Filename)%(Extension)" />
+    <EmbeddedResource Include="NativeLibs/win-x64/*.dll" LogicalName="ShaderRipper.Native.%(Filename)%(Extension)"
+                      Condition="'$(ShaderNativeRid)' == 'win-x64' Or '$(ShaderNativeRid)' == ''" />
+    <EmbeddedResource Include="NativeLibs/linux-x64/*.so" LogicalName="ShaderRipper.Native.%(Filename)%(Extension)"
+                      Condition="'$(ShaderNativeRid)' == 'linux-x64' Or '$(ShaderNativeRid)' == ''" />
   </ItemGroup>
 </Project>
