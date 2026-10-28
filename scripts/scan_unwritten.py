@@ -66,6 +66,12 @@ def check(text):
         if not stmt or stmt.startswith("//"):
             continue
 
+        # `TRANSFORM_TEX(uv, _Tex)` is `uv.xy * _Tex_ST.xy + _Tex_ST.zw`: the
+        # argument is read as two lanes, and the second argument is a uniform's
+        # name, not a register.  Left as written it reads as a whole `rN`.
+        if "TRANSFORM_TEX(" in stmt:
+            stmt = re.sub(r"TRANSFORM_TEX\(\s*(r\d+)(?![\w.])", r"TRANSFORM_TEX(\1.xy", stmt)
+
         # A folded transform names its inputs without a register number
         # (`UnityObjectToClipPos(float4(r0.x, r0.y, r0.z, 1.0))`), and a folded
         # matrix product is written as one `mul` over a vector constructor.  Both

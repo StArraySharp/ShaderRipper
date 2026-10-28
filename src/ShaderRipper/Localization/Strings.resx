@@ -71,7 +71,8 @@
   ShaderRipper --dump &lt;file&gt; [--dump-filter &lt;text&gt;]
 
 Export:
-    --shaderlab      write &lt;Name&gt;.shader (the deliverable)
+    --shaderlab      write &lt;Name&gt;.shader (the deliverable; give at least one of
+                     --shaderlab, --programs or --orig-asm -- otherwise nothing is written)
     --programs       also write per-program HLSL into &lt;Name&gt;/ folders
     --orig-asm       also write the original disassembly / GLSL into them
     --out &lt;dir&gt;      output directory (default "&lt;input&gt;_Ripped")
@@ -115,6 +116,21 @@ Other:
   <data name="OverwriteCleared">
     <value>overwrite: emptied {0} ({1} entries removed)</value>
     <comment>--overwrite deleted the previous run's output before writing. {0} directory, {1} count.</comment>
+  </data>
+
+  <data name="NoShaderMatched">
+    <value>No shader matched --only "{0}".  Nothing was written; check the spelling (the match is a case-insensitive substring of the shader's name).</value>
+    <comment>--only filtered everything out. {0} the filter text.</comment>
+  </data>
+
+  <data name="NothingToWrite">
+    <value>Nothing to write: this command produces no files unless you ask for one of --shaderlab (the .shader files), --programs (each program's HLSL) or --orig-asm (the disassembly).</value>
+    <comment>Refuse a run that would translate everything and write nothing.</comment>
+  </data>
+
+  <data name="OverwriteForeignFile">
+    <value>replaced a file this tool did not write: {0}  (keep it with a different output directory, or pass --overwrite to clear the whole directory first)</value>
+    <comment>A single file, not the directory: the export overwrites it silently otherwise. {0} path.</comment>
   </data>
 
   <data name="OverwriteRefused">

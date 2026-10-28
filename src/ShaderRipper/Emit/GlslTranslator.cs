@@ -152,6 +152,12 @@ namespace ShaderRipper.Emit
         private readonly List<string> _engineNames = new();
 
         /// <summary>
+        /// This stage's body calls <c>TRANSFORM_TEX</c>, so the merged file has to
+        /// define the macro.  See <see cref="TransformTexChain"/>.
+        /// </summary>
+        internal bool _usedTransformTex;
+
+        /// <summary>
         /// name -> HLSL type for every material property the payload declares, in
         /// first-seen order.
         ///
@@ -262,6 +268,7 @@ namespace ShaderRipper.Emit
             var engineNames = new List<string>();
             // One union per payload, shared by its stages and by nothing else.
             var materialUnion = new Dictionary<string, string>(StringComparer.Ordinal);
+            bool usesTransformTex = false;
 
             foreach (var (stage, text) in Branches(glsl))
             {
@@ -279,6 +286,7 @@ namespace ShaderRipper.Emit
                 // after Split() -- reading it before would always see an empty list
                 // and drop the include line.
                 engineNames.AddRange(t._engineNames);
+                usesTransformTex |= t._usedTransformTex;
                 // A struct's members are not free-standing globals: the vertex
                 // stage's `vs_out` and the fragment stage's `vs_in` deliberately
                 // carry the same field lines, so deduplicating them by text empties
@@ -321,7 +329,12 @@ namespace ShaderRipper.Emit
             // under those names.  A private copy would compile and read zero, so the
             // include goes first -- once, at file scope, before any struct or entry
             // point.
-            if (engineNames.Count > 0)
+            // The engine's own globals (`unity_ObjectToWorld`, `_ScreenParams`,
+            // `_Time`) are declared by Unity's CGIncludes and filled by the engine
+            // under those names.  A private copy would compile and read zero, so the
+            // include goes first -- once, at file scope, before any struct or entry
+            // point.  A folded texture transform needs it too: the macro is there.
+            if (engineNames.Count > 0 || usesTransformTex)
                 sb.Append("#include \"UnityCG.cginc\"\n\n");
             // One `UnityPerMaterial` for the whole file, built from both stages'
             // property sets.  This is the buffer Unity fills from the Material; a
@@ -478,6 +491,18 @@ namespace ShaderRipper.Emit
                         raw = raw.Replace(nm, mapped);
 
                     string arr = raw.Contains(mapped) ? raw[(raw.IndexOf(mapped, StringComparison.Ordinal) + mapped.Length)..] : "";
+
+                    // An `hlslcc_mtx4x4` member is a matrix, and four rows of a
+                    // matrix ARE `float4x4` -- the bytes and the `name[i]` spelling
+                    // are unchanged, but `mul` has an overload for the type and none
+                    // for a row array.  Declaring the rows instead is what forced
+                    // every product over this member to be written out one row at a
+                    // time.
+                    if (nm.StartsWith("hlslcc_mtx4x4", StringComparison.Ordinal))
+                    {
+                        type = "float4x4";
+                        arr = "";
+                    }
                     members.Add($"{type}|{mapped}{tarr}{arr}");
                 }
             }
@@ -657,13 +682,13 @@ namespace ShaderRipper.Emit
                 // HLSLcc packs a matrix as `vec4 hlslcc_mtx4x4<name>[4]`; the
                 // prefix is a naming convention, and the array is the matrix.
                 bool matrix = declared.StartsWith("hlslcc_mtx4x4", StringComparison.Ordinal);
-                string text = matrix ? "float4" : MapType(typeName);
+                string text = matrix ? "float4x4" : MapType(typeName);
 
                 // The array suffix belongs to the declarator (`name[4]`).
                 string arr = "";
                 string raw = d.GetText();
                 int br = raw.IndexOf('[');
-                if (br >= 0)
+                if (br >= 0 && !matrix)
                 {
                     int close = raw.IndexOf(']', br);
                     if (close > br) arr = raw[br..(close + 1)];
@@ -1095,6 +1120,10 @@ namespace ShaderRipper.Emit
             // The payload unrolled every matrix-vector product into one assignment
             // per row; put them back.  See MatrixChain.
             var folded = MatrixChain.Fold(_sb.ToString().Split('\n').ToList());
+            // Same idea for Unity's texture transform, which no longer exists as a
+            // macro by the time the GLSL was generated.  See TransformTexChain.
+            var withMacro = TransformTexChain.Fold(folded);
+            if (withMacro != null) { folded = withMacro; _usedTransformTex = true; }
             _sb.Clear();
             foreach (string one in folded) _sb.Append(one).Append('\n');
             return _sb.ToString();

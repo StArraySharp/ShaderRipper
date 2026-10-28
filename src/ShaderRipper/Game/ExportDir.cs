@@ -49,16 +49,24 @@ namespace ShaderRipper.Game
             Log.Note(Strings.F("OverwriteCleared", dir, pulled));
         }
 
-        /// <summary>Record that the directory now holds this tool's output.</summary>
-        internal static void Finish(string dir, int shaders)
+        /// <summary>
+        /// Record that the directory now holds this tool's output.
+        ///
+        /// The counts are the files actually written, not the shaders found: a run
+        /// that translated everything and wrote nothing (an output switch was
+        /// missing) used to leave a marker claiming `shaders: 425` over an empty
+        /// directory, which made the next look at it start from a false premise.
+        /// </summary>
+        internal static void Finish(string dir, int shaders, int programs)
         {
             try
             {
-                File.WriteAllText(Path.Combine(dir, Marker),
-                    "ShaderRipper export directory\n" +
-                    $"shaders: {shaders}\n" +
-                    $"at: {DateTime.Now:yyyy-MM-dd HH:mm:ss}\n" +
-                    "Re-running with --overwrite empties this directory first.\n");
+                var text = "ShaderRipper export directory\n" +
+                           $"shaders: {shaders}\n";
+                if (programs > 0) text += $"programs: {programs}\n";
+                text += $"at: {DateTime.Now:yyyy-MM-dd HH:mm:ss}\n" +
+                        "Re-running with --overwrite empties this directory first.\n";
+                File.WriteAllText(Path.Combine(dir, Marker), text);
             }
             catch (IOException) { }        // a read-only target is not worth failing over
             catch (UnauthorizedAccessException) { }

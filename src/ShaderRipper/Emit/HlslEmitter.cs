@@ -764,6 +764,12 @@ namespace ShaderRipper.Emit
         /// "Provable" means every lane is reached by a comparison write that sits in
         /// the SAME basic block as this read: only then is the linear scan
         /// trustworthy, because no second path can reach the read.
+        ///
+        /// The defining instruction has to be one that MAKES a mask.  A register can
+        /// hold a comparison's all-ones at one point in a function and ordinary
+        /// arithmetic at another -- `r2.x` is a mask before `and r2.x, r2.y, r2.x` and
+        /// an angle right after it -- and asking only "is there a reaching def in this
+        /// block" answers yes for both.  That is what turned the select into `&amp;&amp;`.
         /// </summary>
         private string MaskShape(Operand o)
         {
@@ -776,9 +782,17 @@ namespace ShaderRipper.Emit
             {
                 if (!here.TryGetValue((o.Index, c), out int def)) return null;
                 if (_block[def] != _block[_pc]) return null;
+                if (!MakesMask(_m.Code[def])) return null;
             }
             return m;
         }
+
+        /// <summary>Does this instruction write an all-ones/all-zero mask?</summary>
+        private static bool MakesMask(Instruction ins) => ins.Opcode is
+            "lt" or "le" or "gt" or "ge" or "eq" or "ne" or
+            "ilt" or "ige" or "ieq" or "ine" or "uge" or "ult" or
+            // A bitwise op over masks is still a mask; `lt -> or -> and` is common.
+            "and" or "or" or "not" or "mov";
 
         /// <summary>
         /// The mask as a FLOAT constant: `-1.0f`, never `asfloat(0xFFFFFFFFu)`.
@@ -1261,9 +1275,12 @@ namespace ShaderRipper.Emit
         /// </summary>
         private void Register(Product p)
         {
-            // The standalone artifact declares its matrices as `float4 M[4]` row
-            // arrays, where `mul` has no overload, so it gets the row-sum spelling.
-            bool matrix = !_standalone && IsMulMatrix(p.Matrix);
+            // Every matrix this route names is a `float4x4` now -- from
+            // `UnityCG.cginc`, or from the cbuffer header, which declares the type
+            // instead of the four rows.  So `mul` is available everywhere, and the
+            // row-sum spelling is only the fallback for a name that had to stay an
+            // array.
+            bool matrix = IsMulMatrix(p.Matrix);
             foreach (int s in p.Steps) if (s != p.At) _skip.Add(s);
             foreach (int s in p.Steps) _taken[s] = true;
 
@@ -1378,13 +1395,19 @@ namespace ShaderRipper.Emit
                     vecText = Expr(other, 3);
                     laneOfRow[row.Row] = dm[0];
                 }
-                if (!ok || matrix == null || vecText == null || !IsMulMatrix(matrix)) continue;
+                if (!ok || matrix == null || vecText == null || !IsMatrixType(matrix)) continue;
 
                 string lanes = new(laneOfRow);
                 _taken[i] = _taken[i + 1] = _taken[i + 2] = true;
                 _folded[i] = new Fold
                 {
-                    Lines = { $"r{dst}.{lanes} = mul({vecText}, (float3x3){matrix});" },
+                    // `mul(n, (float3x3)unity_WorldToObject)` IS the macro -- Unity
+                    // spells it that way in UnityObjectToWorldNormal, transposed
+                    // because the matrix multiplies on the right.  Naming it costs
+                    // nothing and says what the three dots were for.
+                    Lines = { matrix == "unity_WorldToObject"
+                        ? $"r{dst}.{lanes} = UnityObjectToWorldNormal({vecText});"
+                        : $"r{dst}.{lanes} = mul({vecText}, (float3x3){matrix});" },
                     Consumed = 3,
                 };
                 _skip.Add(i + 1);
@@ -1595,13 +1618,34 @@ namespace ShaderRipper.Emit
         /// <summary>
         /// May this matrix be handed to `mul`?
         ///
-        /// Only when the declaration comes from <c>UnityCG</c>, where the type is
-        /// <c>float4x4</c>.  A name the cbuffer header declares itself is a
-        /// <c>float4 name[4]</c> row array, which <c>mul</c> does not accept
-        /// (<c>error X3013</c>), so those get the row-sum spelling instead.
+        /// Either the declaration comes from <c>UnityCG</c> -- where the type is
+        /// <c>float4x4</c> -- or this file declared it as one itself.  A name the
+        /// cbuffer header leaves as a <c>float4 name[4]</c> row array is not
+        /// accepted by <c>mul</c> (<c>error X3013</c>), so those get the row-sum
+        /// spelling instead; that is the remaining reason any of them still read
+        /// `M[i]` one row at a time.
         /// </summary>
-        private static bool IsMulMatrix(string name) =>
-            UnityIncludes.IsMatrixMember(name) && ShaderLab.CanTakeOver(name);
+        private bool IsMulMatrix(string name)
+        {
+            // When this file declares the name itself, that declaration decides: a
+            // program that reads only three rows of a matrix gets `float4 M[3]`, and
+            // `mul` has no overload for it no matter what the include says.
+            if (_lay.Declares(name)) return _lay.DeclaredAsMatrix(name);
+            // Not declared here: the include supplies the type, and `CanTakeOver` only
+            // says whether this file may SHADOW it -- either way what is in scope is a
+            // `float4x4`, so `mul` takes it.
+            return UnityIncludes.IsMatrixMember(name);
+        }
+
+        /// <summary>
+        /// Does the include supply this name as a matrix type?
+        ///
+        /// The three-dot form (<c>mul(v, (float3x3)M)</c>, or the macro built on it)
+        /// names the matrix as a whole, so only the include's <c>float4x4</c> matters
+        /// -- unlike a product, which reads the rows a local declaration may or may
+        /// not have.
+        /// </summary>
+        private static bool IsMatrixType(string name) => UnityIncludes.IsMatrixMember(name);
 
         /// <summary>
         /// Is the value in register <paramref name="reg"/> read after instruction
@@ -1844,7 +1888,11 @@ namespace ShaderRipper.Emit
         {
             var e = new HlslEmitter(m, standalone);
             e.Run();
-            e._r.Hlsl = e._sb.ToString();
+            // A matrix-matrix product reaches this route as four blocks of four
+            // `mul`/`mad` instructions whose scalar operand is a matrix element, which
+            // the register-level recogniser cannot read as a product.  The statement
+            // list can, and it is the same shape the GLSL route folds.
+            e._r.Hlsl = MatrixChain.FoldText(e._sb.ToString(), macros: !standalone);
             e._r.Profile = m.Profile;
             return e._r;
         }
@@ -1870,40 +1918,29 @@ namespace ShaderRipper.Emit
         /// <summary>
         /// Define <c>UnityObjectToClipPos</c> when the matrix fold used it.
         ///
-        /// This route's standalone program declares the matrices as
-        /// <c>float4 M[4]</c>, which <c>mul</c> does not accept, so the two
-        /// multiplies are written over the rows the declaration has.  That is the
-        /// same arithmetic as the macro in <c>UnityCG.cginc</c>; a file that carries
-        /// the include gets the macro and never reaches this code.
+        /// The standalone program carries no <c>UnityCG.cginc</c>, so the macro has
+        /// to exist here.  Its matrices are <c>float4x4</c> like the include's, which
+        /// is what lets this be the macro's own arithmetic rather than a row-by-row
+        /// restatement.  A ShaderLab wrapper already defines the macro; the guard
+        /// keeps the two from colliding.
         /// </summary>
         private void DeclareClipPosHelper()
         {
             if (!_needsClipPosHelper) return;
             _sb.Append(
-                "// UnityObjectToClipPos, over the row-array declaration this file uses.\n" +
-                "// A ShaderLab wrapper pulls in UnityCG.cginc, which already defines the\n" +
-                "// macro; this guard keeps the two from colliding.\n" +
+                "// UnityObjectToClipPos, for the standalone file.  A ShaderLab wrapper\n" +
+                "// pulls in UnityCG.cginc, which already defines the macro; this guard\n" +
+                "// keeps the two from colliding.\n" +
                 "#ifndef UNITY_OBJECT_TO_CLIP_POS_DEFINED\n" +
                 "#define UNITY_OBJECT_TO_CLIP_POS_DEFINED\n" +
                 "float4 UnityObjectToClipPos(float4 pos)\n" +
                 "{\n" +
-                "    float4 p = float4(pos.xyz, 1.0);\n" +
-                "    float4 w = float4(\n" +
-                "        dot(p, float4(unity_ObjectToWorld[0].x, unity_ObjectToWorld[1].x, unity_ObjectToWorld[2].x, unity_ObjectToWorld[3].x)),\n" +
-                "        dot(p, float4(unity_ObjectToWorld[0].y, unity_ObjectToWorld[1].y, unity_ObjectToWorld[2].y, unity_ObjectToWorld[3].y)),\n" +
-                "        dot(p, float4(unity_ObjectToWorld[0].z, unity_ObjectToWorld[1].z, unity_ObjectToWorld[2].z, unity_ObjectToWorld[3].z)),\n" +
-                "        dot(p, float4(unity_ObjectToWorld[0].w, unity_ObjectToWorld[1].w, unity_ObjectToWorld[2].w, unity_ObjectToWorld[3].w)));\n" +
-                "    return float4(\n" +
-                "        dot(w, float4(unity_MatrixVP[0].x, unity_MatrixVP[1].x, unity_MatrixVP[2].x, unity_MatrixVP[3].x)),\n" +
-                "        dot(w, float4(unity_MatrixVP[0].y, unity_MatrixVP[1].y, unity_MatrixVP[2].y, unity_MatrixVP[3].y)),\n" +
-                "        dot(w, float4(unity_MatrixVP[0].z, unity_MatrixVP[1].z, unity_MatrixVP[2].z, unity_MatrixVP[3].z)),\n" +
-                "        dot(w, float4(unity_MatrixVP[0].w, unity_MatrixVP[1].w, unity_MatrixVP[2].w, unity_MatrixVP[3].w)));\n" +
+                "    return mul(unity_MatrixVP, mul(unity_ObjectToWorld, pos));\n" +
                 "}\n" +
                 "#endif\n\n");
         }
 
         // ------------------------------------------------------------ declarations
-
         /// <summary>
         /// `dcl_constantbuffer CB1[21]` becomes a real cbuffer bound to b1, with
         /// the declared row count.  Binding it is what makes the emitted
@@ -2728,6 +2765,69 @@ namespace ShaderRipper.Emit
             "and", "or", "xor", "ishl", "ishr", "ushr",
         };
 
+        /// <summary>
+        /// The right-hand side of a texture transform, spelled as the macro, or null.
+        /// </summary>
+        private string TransformTex(List<Operand> a)
+        {
+            // `TRANSFORM_TEX` comes from `UnityCG.cginc`, so it is only spelled when
+            // the wrapper is going to include that file: the `--programs` artifact is
+            // register level and self-contained, and `--self-contained` asks for a
+            // file that compiles with no CGIncludes at all.
+            if (_standalone || !UnityIncludes.Enabled) return null;
+            if (!IsTransformTex(a)) return null;
+
+            string st = StHalf(a[3], "zw");
+            Operand uv = StHalf(a[1], "xy") == st ? a[2] : a[1];
+            return $"TRANSFORM_TEX({Expr(Clone(uv, null))}, {st[..^3]})";
+        }
+
+        /// <summary>
+        /// Does this instruction have the shape of a texture transform?
+        ///
+        /// The operands handed in are already re-indexed through the destination
+        /// mask, so the assignment this replaces is literally the assignment the
+        /// macro expands to -- the spelling changes, the expression does not.
+        ///
+        /// The multiplier has to be read as `xy`: the macro appends `.xy` to its
+        /// argument, so a `v0.yw * ...` multiplier would expand to `v0.yw.xy`, which
+        /// is not HLSL.  Those keep the expanded form.
+        /// </summary>
+        private bool IsTransformTex(List<Operand> a)
+        {
+            if (a.Count < 4 || DestMaskLen(a[0]) != 2) return false;
+
+            // The addend is the `.zw` half of one `_ST` row, and the factor is that
+            // same row's `.xy` half -- either way round, fxc picks its own order.
+            string st = StHalf(a[3], "zw");
+            if (st == null) return false;
+
+            Operand uv;
+            if (StHalf(a[1], "xy") == st) uv = a[2];
+            else if (StHalf(a[2], "xy") == st) uv = a[1];
+            else return false;
+
+            // The macro appends the `.xy`, so the argument has to be the bare
+            // register: one that is already read through `.xy`, or the whole vector.
+            if (uv == null || uv.Negate || uv.Abs) return false;
+            if (uv.Kind is not (RegKind.R or RegKind.V or RegKind.O)) return false;
+            string sw = (uv.Swizzle ?? "").TrimStart('.');
+            return sw.Length == 0 || sw == "xy";
+        }
+
+        /// <summary>
+        /// The `_ST` member name when this operand reads exactly
+        /// <paramref name="lanes"/> of one whole-row `float4` scale/offset member,
+        /// else null.
+        /// </summary>
+        private string StHalf(Operand o, string lanes)
+        {
+            if (o == null || o.Kind != RegKind.Cb || o.Abs || o.Negate) return null;
+            if (_lay.IsArray(o.Index)) return null;              // raw `cbN[i]`, no members
+            if ((o.Swizzle ?? "").TrimStart('.') != lanes) return null;
+            return _lay.StMember(o.Index, o.Row);
+        }
+
         /// <summary>Components a destination assignment writes (4 when unmasked).</summary>
         private static int DestWidth(Operand dst)
         {
@@ -2852,6 +2952,27 @@ namespace ShaderRipper.Emit
             if (a.Count < 3) return false;
             string sym = ins.Opcode switch { "and" => "&", "or" => "|", _ => "^" };
             Operand dst = a[0];
+
+            // `and mask, data` is a data-preserving select and nothing else: the mask
+            // is all-ones where the comparison held, so the result is the data there
+            // and zero elsewhere.  This has to be decided BEFORE the logical case,
+            // because a register can hold a mask at one point in a function and plain
+            // arithmetic at another -- `lt r2.x, ..` early on, `mad r2.x, ..` here.
+            // `IsMaskLane` only knows the register carried a mask somewhere, so it
+            // answered yes for both and spelled the select as `&&`, which collapses a
+            // continuous value (an atan quadrant correction) to 1.0.
+            if (ins.Opcode == "and")
+            {
+                string sm1 = MaskShape(a[1]);
+                string sm2 = MaskShape(a[2]);
+                if ((sm1 != null) != (sm2 != null))
+                {
+                    Operand mOp = sm1 != null ? a[1] : a[2];
+                    Operand val = sm1 != null ? a[2] : a[1];
+                    Line($"{d} = ({Expr(mOp)} != 0.0) ? {Expr(val)} : 0.0;");
+                    return true;
+                }
+            }
 
             // `asuint(a) | asuint(b)` is a LOGICAL or only when both sides are
             // comparison results.  When either is an ordinary number -- the merge
@@ -3045,7 +3166,14 @@ namespace ShaderRipper.Emit
                 case "sub": Line($"{d} = {Expr(a[1])} - {Expr(a[2])};"); return true;
                 case "mul": Line($"{d} = {Expr(a[1])} * {Expr(a[2])};"); return true;
                 case "div": Line($"{d} = {Expr(a[1])} / {Expr(a[2])};"); return true;
-                case "mad": Line($"{d} = {Expr(a[1])} * {Expr(a[2])} + {Expr(a[3])};"); return true;
+                case "mad":
+                    {
+                        // A texture transform is one `mad`: `uv * _Tex_ST.xy + _Tex_ST.zw`.
+                        string tt = TransformTex(a);
+                        if (tt != null) { Line($"{d} = {tt};"); return true; }
+                        Line($"{d} = {Expr(a[1])} * {Expr(a[2])} + {Expr(a[3])};");
+                    }
+                    return true;
                 case "dp2": Line($"{d} = dot({Expr(a[1], 2)}, {Expr(a[2], 2)});"); return true;
                 case "dp3": Line($"{d} = dot({Expr(a[1], 3)}, {Expr(a[2], 3)});"); return true;
                 case "dp4": Line($"{d} = dot({Expr(a[1])}, {Expr(a[2])});"); return true;

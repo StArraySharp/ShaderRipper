@@ -32,6 +32,16 @@ namespace ShaderRipper.Emit
             public string Type = "float4";
             public int Rows = 1;
             public bool IsArray;
+            /// <summary>
+            /// Four rows of a name Unity declares as a matrix, so <c>float4x4</c>.
+            ///
+            /// The bytes and the <c>name[i]</c> spelling are identical to a
+            /// <c>float4 name[4]</c>; what changes is that <c>mul</c> has an overload.
+            /// Without it every product over this member has to be written out row by
+            /// row, and those rows are exactly the `<c>M[i]</c>` references a reader
+            /// cannot tell apart from a hand-indexed array.
+            /// </summary>
+            public bool Matrix;
             /// <summary>Row this member starts at; the packoffset column is 0.</summary>
             public int Row;
             /// <summary>Lane this member starts at (0..3), for a scalar member.</summary>
@@ -98,6 +108,36 @@ namespace ShaderRipper.Emit
 
         public bool IsArray(int reg) => ArrayForm.TryGetValue(reg, out bool a) && a;
 
+        /// <summary>
+        /// Does this layout declare <paramref name="name"/> at all?
+        ///
+        /// If it does, this file's own declaration is the one in force and what it
+        /// says decides everything else -- including whether `mul` has an overload.
+        /// </summary>
+        public bool Declares(string name)
+        {
+            if (string.IsNullOrEmpty(name)) return false;
+            foreach (var list in Members.Values)
+                foreach (var m in list)
+                    if (m.Name == name) return true;
+            return false;
+        }
+
+        /// <summary>
+        /// Does this layout declare <paramref name="name"/> as a <c>float4x4</c>?
+        ///
+        /// That is what makes <c>mul(name, v)</c> legal: a row array has no overload
+        /// (<c>error X3013</c>) even though the bytes are the same.
+        /// </summary>
+        public bool DeclaredAsMatrix(string name)
+        {
+            if (string.IsNullOrEmpty(name)) return false;
+            foreach (var list in Members.Values)
+                foreach (var m in list)
+                    if (m.Matrix && m.Name == name) return true;
+            return false;
+        }
+
         public IReadOnlyList<Member> For(int reg) =>
             Members.TryGetValue(reg, out var m) ? m : Array.Empty<Member>();
 
@@ -118,6 +158,30 @@ namespace ShaderRipper.Emit
                 int n = TypeComps(m.Type);
                 if (col < m.Col || col >= m.Col + n) continue;
                 return n == 1 ? m.Name : $"{m.Name}.{"xyzw"[col - m.Col]}";
+            }
+            return null;
+        }
+
+        /// <summary>
+        /// The <c>_Tex_ST</c> member that covers this whole row, or null.
+        ///
+        /// Unity's tiling/offset uniforms are one <c>float4</c> per texture, so the
+        /// pair of constants a texture transform multiplies by and adds is the
+        /// <c>xy</c> and <c>zw</c> halves of ONE row whose name ends in <c>_ST</c>.
+        /// That is the precondition for reading the pair back as
+        /// <c>TRANSFORM_TEX(uv, _Tex)</c>: the macro expands to
+        /// <c>uv.xy * _Tex_ST.xy + _Tex_ST.zw</c>, which is only the same expression
+        /// when the two halves really are halves of that one member.
+        /// </summary>
+        public string StMember(int reg, int row)
+        {
+            if (row < 0 || !Members.TryGetValue(reg, out var ms)) return null;
+            foreach (var m in ms)
+            {
+                if (m.IsArray || m.Row != row || m.Col != 0) continue;
+                if (TypeComps(m.Type) != 4) continue;
+                if (!m.Name.EndsWith("_ST", StringComparison.Ordinal)) continue;
+                return m.Name;
             }
             return null;
         }
@@ -507,13 +571,28 @@ namespace ShaderRipper.Emit
                         if (span >= 2 && used.Add(bas))
                         {
                             int baseRow = row - idx;
-                            int len = span;
-                            if (baseRow >= 0 && baseRow + len <= extent && IsFree(members, baseRow, len))
+                            // A name Unity declares as a matrix takes FOUR rows even when
+                            // this program only read three of them.  Declaring `float4 M[3]`
+                            // for it hands the body a row array while the include hands it
+                            // a `float4x4` -- and `M[i]` means a constant register under the
+                            // first spelling and a struct row under the second.  Which one
+                            // a reference resolves to then depends on how the passes are
+                            // merged, so the same statement changes meaning.
+                            //
+                            // The rows beyond what this variant read are real buffer rows:
+                            // they are Unity's own per-draw block, and the engine fills
+                            // them whether or not this variant looks at them.
+                            bool matrix = UnityIncludes.IsMatrixMember(bas);
+                            int len = matrix && baseRow >= 0 ? 4 : span;
+                            bool fits = baseRow >= 0 &&
+                                        (matrix || baseRow + len <= extent);
+                            if (fits && IsFree(members, baseRow, len))
                             {
                                 members.Add(new Member
                                 {
                                     Name = bas, Type = "float4", Rows = len, IsArray = true,
                                     Row = baseRow, Col = 0,
+                                    Matrix = matrix,
                                 });
                                 for (int i = 0; i < len; i++)
                                     rows[baseRow + i] = $"{bas}[{i}]";
@@ -1010,6 +1089,7 @@ namespace ShaderRipper.Emit
         public static string Line(Member m)
         {
             string decl = m.IsArray ? $"{m.Type} {m.Name}[{m.Rows}]" : $"{m.Type} {m.Name}";
+            if (m.Matrix) decl = $"float4x4 {m.Name}";
             return $"    {decl} : packoffset(c{m.Row}.{"xyzw"[m.Col]});";
         }
 

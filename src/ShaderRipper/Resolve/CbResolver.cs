@@ -31,7 +31,16 @@ namespace ShaderRipper.Resolve
         public readonly Dictionary<int, string> TexName = new();
         public readonly Dictionary<int, List<(string name, string type)>> GlobalsDecl = new();
         public readonly HashSet<int> FullyMapped = new();
+        /// <summary>
+        /// How each name was decided, for diagnosing a wrong one.  Console-side only:
+        /// a file that repeated this per pass would bury the shader under commentary.
+        /// </summary>
         public readonly List<string> Notes = new();
+        /// <summary>
+        /// Notes a reader of the generated file needs, because they qualify a guess
+        /// the file otherwise presents as fact.  These are written into the pass.
+        /// </summary>
+        public readonly List<string> FileNotes = new();
         /// <summary>Authoritative byte size of each cbuffer, from the parameter blob.</summary>
         public readonly Dictionary<int, int> CbSize = new();
 
@@ -104,8 +113,25 @@ namespace ShaderRipper.Resolve
 
         private Ast.Module _prog;
 
-        /// <summary>Texture properties declared by the shader (name + declared type).</summary>
-        public static readonly HashSet<int> TextureTypes = new() { 4, 5, 6, 7, 8 };
+        /// <summary>
+        /// <c>ShaderPropertyType.Texture</c>, the one property type that binds a
+        /// sampler.  Unity's enum is <c>Color=0, Vector=1, Float=2, Range=3,
+        /// Texture=4, Int=5</c>; the dimension of a texture (2D / 3D / Cube / array)
+        /// is NOT part of it, which the corpus confirms -- a shader whose properties
+        /// include a `3D` texture still reports type 4.
+        ///
+        /// Treating 5..8 as textures as well (as this list used to) makes an `Int`
+        /// property look like a sampler: the naming pass would then hand a sampler
+        /// register the name of a number and shift every real texture by one, and the
+        /// `_ST` inference below would invent a `<name>_ST` row for it.
+        /// </summary>
+        public static readonly HashSet<int> TextureTypes = new() { 4 };
+
+        /// <summary>
+        /// `ShaderPropertyFlags.PerRendererData`: the value arrives with the draw call,
+        /// so the material's own texture table cannot be the source of it.
+        /// </summary>
+        private const int PerRendererData = 2;
 
         /// <summary>Widest component index (+1) a swizzle touches.</summary>
         private static int MaxComponent(string sw)
@@ -1241,10 +1267,18 @@ namespace ShaderRipper.Resolve
                 // The property-order pass below fills the remainder.
             }
 
+            // The declaration order is the only signal left.  Weak, but measured:
+            // over every pass of the reference corpus whose reflection names t0, the
+            // property table lists that texture FIRST -- 849 of 849, whatever the
+            // property flags say.  `[PerRendererData]` is no exception: `_MainTex`
+            // carries it and is still t0 in every sprite shader, because the renderer
+            // binds it to the slot the compiler gave it rather than to a slot of its
+            // own.  (Ordering those last instead measured 206 wrong bindings.)
             var texProps = new List<string>();
             if (props != null)
-                foreach (var p in props)
-                    if (TextureTypes.Contains(p.Type)) texProps.Add(p.Name);
+                foreach (var p in props.Where(p => TextureTypes.Contains(p.Type)))
+                    texProps.Add(p.Name);
+            bool guessed = texParams == null || texParams.Count == 0;
 
             var regs = prog.Decls.Where(d => d.Kind != null && d.Kind.StartsWith("texture"))
                                  .Select(d => d.Register).Distinct().OrderBy(x => x).ToList();
@@ -1269,7 +1303,14 @@ namespace ShaderRipper.Resolve
             int n = Math.Min(spare.Count, open.Count);
             for (int i = 0; i < n; i++) TexName[open[i]] = spare[i];
             if (n == 0)
-                Notes.Add($"// {open.Count} texture register(s) the asset did not name -- left as tN");
+                FileNotes.Add($"{open.Count} texture register(s) the asset did not name -- left as tN");
+            else if (guessed)
+                // The names above are an inference, not a reading: this pass kept no
+                // reflection, so nothing in the asset proves the slot holds that
+                // property rather than one the pass never uses.  Say so in the file
+                // instead of letting the result look authoritative.
+                FileNotes.Add("texture names inferred from property order: " +
+                          string.Join(", ", Enumerable.Range(0, n).Select(i => $"t{open[i]}={spare[i]}")));
         }
     }
 }

@@ -22,6 +22,14 @@ namespace ShaderRipper.Data
         public uint[][] CompressedLengths = System.Array.Empty<uint[]>();
         public uint[][] DecompressedLengths = System.Array.Empty<uint[]>();
         public byte[] CompressedBlob = System.Array.Empty<byte>();
+
+        /// <summary>
+        /// Per platform, a stream of already-decompressed program containers.  A host
+        /// that holds the programs individually (AssetRipper) fills this instead of
+        /// the blob-plus-slot-table layout, and the exporter carves containers from it
+        /// by their own headers.  Null entries mean "use <see cref="CompressedBlob"/>".
+        /// </summary>
+        public byte[][] RawPayloads = System.Array.Empty<byte[]>();
         public string FallbackName => ParsedForm?.FallbackName ?? "";
     }
 
@@ -69,6 +77,17 @@ namespace ShaderRipper.Data
     {
         public string StateName = "";
         public List<(string k, string v)> Tags = new List<(string, string)>();
+
+        /// <summary>
+        /// Render-state statements supplied verbatim by a host that already has
+        /// them rendered (see <c>ShaderDecompiler.ShaderPass.StateLines</c>).
+        ///
+        /// When this is non-empty it replaces the lines derived from the numeric
+        /// fields below: a host that owns the serialized state object can render it
+        /// exactly, which keeps property references (<c>Blend [_SrcBlend] [_DstBlend]</c>)
+        /// and every block shape intact without this class mirroring all of them.
+        /// </summary>
+        public List<string> StateLines = new List<string>();
 
         /// <summary>
         /// <c>SerializedPass.m_NameIndices</c>: the shader's name table.  It lists

@@ -177,20 +177,39 @@ def assignments(text):
 # per-target count instead; everything that is not matrix arithmetic is still
 # compared one for one, which is the part a fold cannot affect.
 
-MATRIX_ROW = re.compile(r"\b\w*(?:unity_|glstate_)\w*\s*\[\s*\d+\s*\]")
+MATRIX_ROW = re.compile(
+    r"\b(?:hlslcc_mtx\w*|\w*(?:unity_|glstate_)\w*)\s*\[\s*\d+\s*\]")
 STATEMENT = re.compile(r"[^;{}\n]+;")
 
 
+SPLIT_ASSIGN = re.compile(r"^(.*?[^=<>!])=([^=].*)$", re.S)
+
+
 def row_assignments(text):
-    """Per-target count of assignments whose right-hand side reads a matrix row."""
-    out = collections.Counter()
+    """Per-target count of assignments the matrix fold is allowed to replace.
+
+    That is every statement whose right-hand side reads a matrix row.  A product of two
+    matrices adds one more kind: its row terms read TWO matrix rows each (a row of one
+    matrix against a row of the other), and every group of four is closed by the
+    statement that scales and accumulates it -- which reads no row itself.
+    """
+    sts = []
     for st in STATEMENT.finditer(text):
         body = st.group(0)
-        if not MATRIX_ROW.search(body):
-            continue
-        m = ASSIGN.search(";" + body)
-        if m:
-            out[normalise_name(m.group(1))] += 1
+        m = SPLIT_ASSIGN.match(body)
+        tgt = re.match(r"\s*([A-Za-z_]\w*)", m.group(1)) if m else None
+        sts.append((normalise_name(tgt.group(1)) if tgt else None,
+                    len(MATRIX_ROW.findall(body))))
+
+    out = collections.Counter()
+    for target, rows in sts:
+        if target is not None and rows:
+            out[target] += 1
+    for k in range(len(sts) - 4):
+        if all(sts[k + j][1] >= 2 for j in range(4)):
+            target, rows = sts[k + 4]
+            if target is not None and rows == 0:
+                out[target] += 1
     return out
 
 

@@ -21,3 +21,5 @@ globals_names/
 
 # 旧的手写实现，只在本地留作参考与产物对比，不参与构建
 src/*.Old/
+# UnityShaderCompiler run log
+scripts/usc_check.log

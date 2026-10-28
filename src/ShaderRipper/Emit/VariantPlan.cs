@@ -40,6 +40,9 @@ namespace ShaderRipper.Emit
         public static List<string> KeywordsOf(SubProgram sp, Dictionary<int, string> indexToName)
         {
             var res = new List<string>();
+            // A host that supplies no per-program reflection arrives here with no
+            // SubProgram at all; that means "no keyword variant", not a crash.
+            if (sp?.KeywordIndices == null) return res;
             foreach (int i in sp.KeywordIndices)
                 if (indexToName != null && indexToName.TryGetValue(i, out var n) && !string.IsNullOrEmpty(n)
                     && !res.Contains(n))

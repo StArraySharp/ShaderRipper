@@ -197,6 +197,19 @@ namespace ShaderRipper
             string outDir = opt.Value("--out")
                             ?? positionalOut
                             ?? dataDir.TrimEnd('/', '\\') + "_Ripped";
+
+            // Every artifact this command can produce is behind a switch: the
+            // `.shader` files need `--shaderlab`, the per-program HLSL needs
+            // `--programs`, the disassembly needs `--orig-asm`.  Asking for none of
+            // them used to mean "translate everything, write nothing" and still exit
+            // 0 -- 3263 programs reported as translated, an empty directory, and a
+            // marker file claiming `shaders: 425`.
+            if (!opt.Has("--shaderlab") && !opt.Has("--programs") && !opt.Has("--orig-asm"))
+            {
+                Console.Error.WriteLine(Strings.Get("NothingToWrite"));
+                return 2;
+            }
+
             return ExportGame(dataDir, Input(outDir, mustExist: false), opt.Value("--only"),
                               opt.Has("--shaderlab"),
                               opt.Has("--orig-asm"), !opt.Has("--no-dedup"), opt.Has("--builtin"),
@@ -237,7 +250,7 @@ namespace ShaderRipper
                                       bool overwrite = false, int jobs = 1) =>
             RunExport(() => ShaderRipper.Game.GameExport.Run(
                 dataDir, outDir, only, shaderLab, origAsm, dedup, builtin, programs,
-                null, overwrite, jobs));
+                null, overwrite, jobs), only);
 
         /// <summary>
         /// Run an export and report it.
@@ -247,9 +260,23 @@ namespace ShaderRipper
         /// trace says "bug", and the whole point of the check is that the user can
         /// act on it.
         /// </summary>
-        private static int RunExport(Func<ShaderRipper.Game.GameExport.Stats> run)
+        private static int RunExport(Func<ShaderRipper.Game.GameExport.Stats> run, string only = null)
         {
-            try { return Report(run()); }
+            try
+            {
+                var stats = run();
+                int code = Report(stats);
+                // A filter that matches nothing is the same trap as a run with no
+                // output switch: the summary says "0 shaders, 0 failed" and the exit
+                // code says success, so a typo in `--only` looks like a clean export
+                // of a game that has no shaders at all.
+                if (code == 0 && stats.Shaders == 0 && !string.IsNullOrEmpty(only))
+                {
+                    Console.Error.WriteLine(Strings.F("NoShaderMatched", only));
+                    return 2;
+                }
+                return code;
+            }
             catch (InvalidOperationException e)
             {
                 Console.Error.WriteLine(e.Message);

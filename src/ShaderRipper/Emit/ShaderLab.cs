@@ -956,6 +956,17 @@ namespace ShaderRipper.Emit
                 outp.AddRange(Reindent(fn.Split('\n').ToList(), 0));
                 outp.Add("");
             }
+
+            // A folded texture transform calls the macro from `UnityCG.cginc`.  The
+            // include is only pulled in when some engine NAME was drawn from it, and
+            // a program built from material properties alone draws on nothing -- so
+            // the include is added here when the body needs it and nothing else
+            // asked for it.
+            if (!outp.Any(line => line.Contains("UnityCG.cginc")) &&
+                outp.Any(line => line.Contains("TRANSFORM_TEX(")))
+            {
+                outp.InsertRange(0, new[] { "#include \"UnityCG.cginc\"", "" });
+            }
             return outp;
         }
 
@@ -1080,9 +1091,14 @@ namespace ShaderRipper.Emit
                 int rows_ = m.Groups[3].Success ? int.Parse(m.Groups[3].Value, CultureInfo.InvariantCulture) : 1;
                 int row = int.Parse(m.Groups[4].Value, CultureInfo.InvariantCulture);
                 char lane = m.Groups[5].Value[0];
+                // A `float4x4` member is four rows, spelled as a type instead of as
+                // an array; the row accounting has to see the same span either way.
+                bool matrix = type == "float4x4";
+                if (matrix) rows_ = 4;
                 rows[(row, "xyzw".IndexOf(lane))] = new CbLayout.Member
                 {
-                    Name = name, Type = type, Rows = rows_, IsArray = rows_ > 1, Row = row,
+                    Name = name, Type = matrix ? "float4" : type, Rows = rows_,
+                    IsArray = rows_ > 1, Matrix = matrix, Row = row,
                     Col = "xyzw".IndexOf(lane),
                 };
             }

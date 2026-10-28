@@ -135,8 +135,14 @@ namespace ShaderRipper.Data
         private static string ReadText(byte[] b, int at, int end)
         {
             int e = Math.Min(end, b.Length);
-            while (e > at && (b[e - 1] == 0 || b[e - 1] == 0xFF)) e--;
-            return Encoding.UTF8.GetString(b, at, e - at).TrimEnd('\0', '\r', '\n', ' ');
+            // The slot holds the source followed by alignment padding and a trailing
+            // marker byte, so the text does not run to `end`.  A NUL is never part of
+            // GLSL or Metal source and it is what the padding starts with; the rest is
+            // control characters (`\0\0\x19` on the GLES payloads of some builds).
+            for (int i = at; i < e; i++)
+                if (b[i] == 0) { e = i; break; }
+            while (e > at && (b[e - 1] < 0x20 || b[e - 1] == 0xFF)) e--;
+            return Encoding.UTF8.GetString(b, at, e - at);
         }
     }
 }

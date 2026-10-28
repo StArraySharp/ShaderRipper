@@ -71,7 +71,7 @@
   ShaderRipper --dump &lt;文件&gt; [--dump-filter &lt;文本&gt;]
 
 导出:
-    --shaderlab      输出 &lt;名字&gt;.shader（交付物）
+    --shaderlab      输出 &lt;名字&gt;.shader（交付物；与 --programs / --orig-asm 至少给一个）
     --programs       额外把每个程序的 HLSL 写进 &lt;名字&gt;/ 子目录
     --orig-asm       额外把原始反汇编 / 原 GLSL 写进 &lt;名字&gt;/ 子目录
     --out &lt;目录&gt;     输出目录（默认 "&lt;输入&gt;_Ripped"）
@@ -115,6 +115,21 @@
   <data name="OverwriteCleared">
     <value>覆盖导出：已清空 {0}（删除 {1} 项）</value>
     <comment>--overwrite 在写出前删掉了上一次的产物。{0} 目录，{1} 项数。</comment>
+  </data>
+
+  <data name="NoShaderMatched">
+    <value>--only "{0}" 没有匹配到任何 shader，未写出任何文件。请检查拼写（匹配规则是名字的不区分大小写子串）。</value>
+    <comment>--only 把全部 shader 过滤掉了。{0} 过滤文本。</comment>
+  </data>
+
+  <data name="NothingToWrite">
+    <value>没有产物可写：本命令只有在指定 --shaderlab（输出 .shader）、--programs（输出每个 program 的 HLSL）或 --orig-asm（输出反汇编）之一时才会写文件。</value>
+    <comment>拒绝一次「全部翻译但什么都不写」的运行。</comment>
+  </data>
+
+  <data name="OverwriteForeignFile">
+    <value>覆盖了不是本工具写的文件：{0}（想保留请换输出目录，或用 --overwrite 先清空整个目录）</value>
+    <comment>单个文件级别，不是目录级别。{0} 路径。</comment>
   </data>
 
   <data name="OverwriteRefused">

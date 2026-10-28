@@ -685,6 +685,7 @@ namespace ShaderRipper.Data
                     ReadTextureParams(pvd, idxToName, prog.TextureParams);
                     o.SubPrograms.Add(prog);
                 }
+
             }
             return o;
         }
