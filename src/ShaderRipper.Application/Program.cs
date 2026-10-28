@@ -1,1425 +1,605 @@
 using System;
-using System.Collections.Concurrent;
 using System.Collections.Generic;
-using System.Globalization;
 using System.IO;
 using System.Linq;
-using System.Text;
-using ShaderRipper.Cg;
+using ShaderRipper.Ast;
+using ShaderRipper.Emit;
+using ShaderRipper.Resolve;
+using ShaderRipper.Data;
+using ShaderRipper.Localization;
 
 namespace ShaderRipper
 {
+    /// <summary>
+    /// The command-line front end.
+    ///
+    /// Everything mechanical lives in the ShaderRipper library; this project only
+    /// parses argv and prints.  Nothing here reads disassembly text by hand: the
+    /// grammar (<c>Grammar/DxbcAsm.g4</c>) is the front end, <c>Ast/</c> is the
+    /// typed view of the tree, and <c>Emit/</c> walks it.
+    ///
+    /// Every message goes through <see cref="Strings"/>, so the tool speaks the
+    /// language <c>--lang</c> asks for (or the system UI language by default).
+    ///
+    ///   ShaderRipper --asm &lt;file.dxbc.asm&gt; [--out &lt;file.hlsl&gt;]
+    ///   ShaderRipper --stats &lt;dir&gt;
+    /// </summary>
     internal static class Program
     {
         private static int Main(string[] args)
         {
-            var cli = Argv.Parse(args);
+            // UTF-8 on the console: the localized strings are Chinese in one of
+            // the two languages, and a console left on the legacy code page turns
+            // every character into '□'.  Failure is not fatal (a redirected stdout
+            // on some hosts refuses the change).
+            try { Console.OutputEncoding = System.Text.Encoding.UTF8; } catch { }
 
-            try { Console.OutputEncoding = System.Text.Encoding.UTF8; } catch {  }
+            // One parse for every command below.  Which token is an input, which is
+            // an option's value and which is an output directory is the whole job of
+            // the parser; reading a positional as `args[2]` instead is what turned
+            // `--game <dir> --shaderlab out` into an export into a directory *named*
+            // "--shaderlab".
+            var opt = Argv.Parse(args);
 
-            Strings.SetLang(cli.Value("--lang"));
+            // Language is set before anything can print: --lang wins, otherwise
+            // the resource manager follows the system UI culture on its own.
+            Strings.SetLanguage(opt.Value("--lang"));
 
-            if (cli.Has("--help") || cli.Has("-h")) { Usage(); return 0; }
-            string disasmFile = cli.Value("--disasm");
-            if (disasmFile != null) return DisasmFile(disasmFile);
-            // Which reader parses GLSL payloads.  Default is the grammar
-            // (Antlr/Glsl.g4); --glsl-parser regex falls back to the line scanner.
-            // Both feed the same emitter, so this picks the mechanism, not the
-            // output -- verified by byte-comparing a full export through each.
-            if (string.Equals(cli.Value("--glsl-parser"), "regex", StringComparison.OrdinalIgnoreCase))
-                Cg.GlslToCg.Parser = "regex";
+            // How much the run says.  Default is one line per shader; --quiet
+            // keeps the final tally only, --verbose adds per-file headings,
+            // structure counts and timings.
+            Game.Log.Level = opt.Has("--quiet") ? Game.LogLevel.Quiet
+                           : opt.Has("--verbose") ? Game.LogLevel.Verbose
+                           : Game.LogLevel.Normal;
 
-            string glslFile = cli.Value("--glsl2cg");
-            if (glslFile != null)
+            // Engine declarations come from #include by default, which is what
+            // makes the output re-importable.  --self-contained inlines them
+            // instead, so the result compiles without Unity's CGIncludes (useful
+            // for a standalone d3dcompiler check, at the cost of a file Unity
+            // will reject on import).
+            if (opt.Has("--self-contained")) Emit.UnityIncludes.Enabled = false;
+
+            // Resolve the command BEFORE the "too few arguments" test, so a
+            // mistyped option reports itself instead of printing the usage text and
+            // leaving the caller to guess which token it did not recognise.
+            string command = Command(args);
+            bool knownCommand = Array.IndexOf(Commands, command) >= 0;
+
+            if (args.Length < 2 || args[0] is "-h" or "--help")
             {
-                Cg.GlslToCg.AnnotateSource = cli.Has("--asm");
-                Console.Write(Cg.GlslToCg.Translate(File.ReadAllText(glslFile)).Cg);
-                return 0;
-            }
-
-            string rootArg = cli.Value("--root") ?? Environment.GetEnvironmentVariable("SHADERRIPPER_ROOT") ?? Environment.GetEnvironmentVariable("SHADERRIP_ROOT");
-            Paths.SetRoot(rootArg);
-            if (!string.IsNullOrWhiteSpace(rootArg) && !Directory.Exists(rootArg))
-                Console.Error.WriteLine(Strings.F("RootDirMissing", rootArg));
-
-            // --list-shaders works standalone: it takes a file directly and
-            // must not require --data/--file.
-            string dumpObjects = cli.Value("--dump-objects");
-            if (dumpObjects != null)
-            {
-                Paths.SetRoot(cli.Value("--root"));
-                var dRoot = TypeNode.LoadSchema(Paths.Schema(
-                    ReadSerializedFileVersion(dumpObjects) >= 22 ? "shader_typetypes_6000.json" : "shader_typetypes.json",
-                    cli.Value("--schema")));
-                var dTpk = new Func<string, int, TypeNode>((ver, id) =>
-                    TpkSchema.Available ? TpkSchema.BuildClass(id, ver) : null);
-                var dsf = SerializedFile.Load(dumpObjects, dRoot, dTpk);
-                Console.WriteLine($"version={dsf.UnityVersion} objects={dsf.Objects.Count} externals={dsf.Externals.Count}");
-                var seen = new HashSet<int>();
-                foreach (var (pid, tid, off, size) in dsf.Objects)
+                // `--help`/`-h` is a request, not a mistake: print the usage text.
+                if (args.Length >= 1 && args[0] is "-h" or "--help")
                 {
-                    int cls = tid >= 0 && tid < dsf.ClassIds.Count ? dsf.ClassIds[tid] : -1;
-                    TypeNode tree = null;
-                    try { tree = cls > 0 ? dTpk(dsf.UnityVersion, cls) : null; } catch { }
-                    string kids = tree == null ? "<no tree>" : string.Join(",", tree.Children.ConvertAll(c => c.Name));
-                    if (seen.Add(cls))
-                        Console.WriteLine($"  class={cls} size={size} children=[{kids}]  (pathId={pid})");
+                    Console.Error.WriteLine(Strings.Get("Usage"));
+                    return 2;
                 }
-                foreach (var e in dsf.Externals) Console.WriteLine("  ext: " + e);
-                return 0;
-            }
-
-            string listPath = cli.Value("--list-shaders");
-            if (listPath != null && !File.Exists(listPath) && cli.Bare.Count > 0 && File.Exists(cli.Bare[0]))
-                listPath = cli.Bare[0];
-            if (listPath != null)
-            {
-                if (!File.Exists(listPath)) { Console.Error.WriteLine(Strings.F("ResourcesAssetsMissing", listPath)); return 2; }
-                Paths.SetRoot(cli.Value("--root"));
-                var listRoot = TypeNode.LoadSchema(Paths.Schema(
-                    ReadSerializedFileVersion(listPath) >= 22 ? "shader_typetypes_6000.json" : "shader_typetypes.json",
-                    cli.Value("--schema")));
-                if (listRoot == null) { Console.Error.WriteLine("schema not found"); return 3; }
-                Func<string, int, TypeNode> listTpk = (ver, classId) =>
-                    TpkSchema.Available ? TpkSchema.BuildClass(classId, ver) : null;
-                return ListShaders(listPath, listRoot, listTpk);
-            }
-
-            string dataDir = FirstNonEmpty(cli.Value("--data"),
-                                           Environment.GetEnvironmentVariable("SHADERRIPPER_DATA") ?? Environment.GetEnvironmentVariable("SHADERRIP_DATA"),
-                                           cli.Bare.Count > 0 ? cli.Bare[0] : null);
-            if (dataDir == null && cli.Value("--file") == null)
-            {
-                Console.Error.WriteLine(Strings.Get("NoDataDir"));
-                Console.Error.WriteLine();
-                Usage();
+                // Otherwise a leading token this tool does not accept is a typo, and
+                // saying WHICH token is more useful than five lines of usage.
+                if (!knownCommand && args.Length >= 1 &&
+                    args[0].StartsWith("-", StringComparison.Ordinal))
+                {
+                    Console.Error.WriteLine(Strings.F("UnknownOption", args[0]));
+                    return 2;
+                }
+                Console.Error.WriteLine(Strings.Get("Usage"));
                 return 2;
             }
 
-            // Collect input files: repeatable --file, comma/semicolon separated
-            // values, wildcards, and bare args that point at existing files.
-            var inputFiles = new List<string>();
-            foreach (var rawVal in cli.Values("--file"))
-                foreach (var seg in rawVal.Split(',', ';'))
-                {
-                    string v = seg.Trim();
-                    if (v.Length == 0) continue;
-                    if (v.Contains('*') || v.Contains('?'))
-                    {
-                        string dir = Path.GetDirectoryName(Path.GetFullPath(v));
-                        string pat = Path.GetFileName(v);
-                        if (Directory.Exists(dir))
-                            foreach (var hit in Directory.GetFiles(dir, pat)) inputFiles.Add(hit);
-                    }
-                    else inputFiles.Add(v);
-                }
-            foreach (var b in cli.Bare)
-                if (File.Exists(b)) inputFiles.Add(b);
-            // dedupe, keep order
-            var seenInputs = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
-            inputFiles = inputFiles.Select(Path.GetFullPath).Where(f => seenInputs.Add(f)).ToList();
-            bool fileMode = inputFiles.Count > 0;
-            if (fileMode)
+            // The name tables the constant-buffer analysis reads: the TMP layout
+            // rows and the list of Unity's own shaders.  Both are embedded in the
+            // binary and unpacked to a temp directory on first use, so a single
+            // file is self-contained; a checkout picks up the files directly.
+            //
+            // $Globals member names are NOT among these: the asset's own parameter
+            // blob carries them with byte offsets, which is authoritative in every
+            // case a curated table used to cover.
+            TmpLayouts.Load(opt.Value("--tmp-layouts"));
+            if (opt.Has("--no-tmp-layout")) TmpLayouts.Enabled = false;
+            BuiltinIndex.Load(opt.Value("--builtin-index"));
+
+            // The command word is one of the tokens, not necessarily the FIRST one:
+            // `--shaderlab <dir> --game <dir>` is a legitimate spelling, and reading
+            // args[0] as the command made it fail with "unknown option --shaderlab"
+            // even though the parser had already understood it as a flag.
+
+            // How many input arguments this command needs.  `--file` names its
+            // inputs through the option itself (variadic), so it needs none; `--game`
+            // takes its input from `--game`, so it needs no positional either (an
+            // extra one is the output directory).
+            int need = command switch
             {
-                foreach (var f in inputFiles)
-                    if (!File.Exists(f)) { Console.Error.WriteLine(Strings.F("ResourcesAssetsMissing", f)); return 2; }
-                if (dataDir == null) dataDir = Path.GetDirectoryName(inputFiles[0]);
-            }
-            dataDir = Path.GetFullPath(dataDir);
-            string assets = fileMode ? inputFiles[0] : null;
-            if (!fileMode)
+                "--file" or "--file-bare" => 0,
+                "--game" => 0,
+                "--emit" => 2,
+                _ => 1,
+            };
+            if (!Positionals(opt, need)) return 2;
+            switch (command)
             {
-                assets = Path.Combine(dataDir, "resources.assets");
-                if (!File.Exists(assets)) { Console.Error.WriteLine(Strings.F("ResourcesAssetsMissing", assets)); return 2; }
-            }
-
-            GlobalsNames.TableDir = cli.Value("--names")
-                                ?? Paths.FindDir(Path.Combine("data", "globals_names"))
-                                ?? Paths.FindDir(Path.Combine("..", "data", "globals_names"));
-
-            string only = cli.Value("--only");
-
-            string syntax = Cg.CgSyntax.Normalize(cli.Value("--syntax"));
-
-            int? forcedPlatform = Platforms.ByName(cli.Value("--platform"));
-
-            bool dumpMode = cli.Has("--dump");
-            bool matCheck = cli.Has("--mat-check");
-            bool dedup = cli.Has("--dedup");
-            string dumpFilter = cli.Value("--dump") ?? "";
-
-            string bundleDir = cli.Value("--bundles") ?? dataDir;
-
-            if (cli.Has("--asm"))
-            {
-                global::ShaderRipper.Cg.CgProgramWriter.AnnotateAsm = true;
-                global::ShaderRipper.Cg.GlslToCg.AnnotateSource = true;
-            }
-
-            global::ShaderRipper.Antlr.AntlrCheck.Enabled = cli.Has("--validate");
-
-            // Which route reads the DXBC disassembly.  Both produce the same
-            // model (verified field by field over 77,155 files), so this picks
-            // the mechanism, not the output.  The grammar is the default, like
-            // the GLSL reader; --asm-parser regex falls back to the hand parser.
-            bool asmAntlr = !string.Equals(cli.Value("--asm-parser"), "regex",
-                                           StringComparison.OrdinalIgnoreCase);
-
-            // Which route drives emission of a translated program.  "model" (the
-            // default) walks the flattened instruction list; "antlr" walks the
-            // parse tree and lets each instruction node call the translator.  Both
-            // write the same text -- the flag chooses the mechanism.
-            global::ShaderRipper.Cg.CgTranslator.TreeDriven = string.Equals(
-                cli.Value("--asm-translate"), "antlr", StringComparison.OrdinalIgnoreCase);
-
-            int indexCount = BuiltinIndex.Load(cli.Value("--builtin-index"));
-
-            int matrixCount = MatrixNames.Load(cli.Value("--matrix-names"));
-
-            int tmpLayoutCount = Cg.TmpLayouts.Load(cli.Value("--tmp-layouts"));
-            if (cli.Has("--no-tmp-layout")) Cg.TmpLayouts.Enabled = false;
-
-            // ---- preload inputs: bundle/apk payloads are read once up front ----
-            // sources = (bytes, path, container): exactly one of bytes/path is set;
-            // container is the bundle-node or apk-entry path used for the output tree.
-            var sources = new List<(byte[] bytes, string path, string container, string sourceFile)>();
-            uint sfVersion = 0;
-            if (fileMode)
-            {
-                foreach (var f in inputFiles)
-                {
-                    try
-                    {
-                        switch (SniffFile(f))
-                        {
-                            case InputKind.Bundle:
-                                foreach (var nd in Bundle.Read(f))
-                                {
-                                    if (SkipNode(nd.Path)) continue;
-                                    sources.Add((nd.Data, null, nd.Path, null));
-                                    if (sfVersion == 0) { uint v = ReadVersionFromBytes(nd.Data); if (v > 10 && v < 1000) sfVersion = v; }
-                                }
-                                break;
-
-                            case InputKind.Zip:
-                                using (var zip = System.IO.Compression.ZipFile.OpenRead(f))
-                                    foreach (var entry in zip.Entries)
-                                    {
-                                        string n = entry.FullName;
-                                        if (SkipNode(n) || entry.Length < 12) continue;
-                                        byte[] head = ReadHead(entry, 12);
-                                        switch (SniffHead(head))
-                                        {
-                                            case InputKind.Bundle:
-                                            {
-                                                using var es = entry.Open();
-                                                var ms = new MemoryStream();
-                                                es.CopyTo(ms);
-                                                List<Bundle.Node> nodes;
-                                                try { nodes = Bundle.Read(ms.ToArray()); }
-                                                catch (Exception e) { Console.Error.WriteLine($"    entry {n}: {e.Message}"); continue; }
-                                                foreach (var nd in nodes)
-                                                {
-                                                    if (SkipNode(nd.Path)) continue;
-                                                    // node paths are already project-relative; the
-                                                    // apk entry name must not leak into them.
-                                                    sources.Add((nd.Data, null, nd.Path, null));
-                                                    if (sfVersion == 0) { uint v = ReadVersionFromBytes(nd.Data); if (v > 10 && v < 1000) sfVersion = v; }
-                                                }
-                                                break;
-                                            }
-                                            case InputKind.Serialized:
-                                            {
-                                                // Unity data files inside an apk often have no
-                                                // extension at all (GUID-named) — sniff by header.
-                                                using var es = entry.Open();
-                                                var ms = new MemoryStream();
-                                                es.CopyTo(ms);
-                                                sources.Add((ms.ToArray(), null, null, Path.GetFileName(n)));
-                                                if (sfVersion == 0) { uint v = ReadVersionFromBytes(ms.ToArray()); if (v > 10 && v < 1000) sfVersion = v; }
-                                                break;
-                                            }
-                                        }
-                                    }
-                                break;
-
-                            case InputKind.Serialized:
-                                sources.Add((null, f, null, Path.GetFileName(f)));
-                                if (sfVersion == 0) sfVersion = ReadSerializedFileVersion(f);
-                                break;
-
-                            default:
-                                Console.Error.WriteLine($"  [!] unrecognised container format, skipped: {f}");
-                                break;
-                        }
-                    }
-                    catch (Exception e)
-                    {
-                        Console.Error.WriteLine(Strings.F("BundleSkipped", Path.GetFileName(f), e.Message));
-                    }
-                }
-                if (sources.Count == 0) { Console.Error.WriteLine("no shader-bearing files found in the given inputs"); return 2; }
-            }
-            else
-            {
-                sfVersion = ReadSerializedFileVersion(assets);
-            }
-            string schemaName = sfVersion >= 22 ? "shader_typetypes_6000.json" : "shader_typetypes.json";
-            string schema = Paths.Schema(schemaName, cli.Value("--schema"));
-            if (schema == null)
-            {
-                Console.Error.WriteLine(Strings.F("SchemaNotFound", schemaName));
-                return 3;
-            }
-
-            string gameName = fileMode
-                ? SanitizeName(Path.GetFileNameWithoutExtension(inputFiles[0]))
-                : ReadProductName(dataDir);
-            if (gameName == null)
-            {
-                string dn = Path.GetFileName(dataDir.TrimEnd('/', '\\'));
-                gameName = dn.EndsWith("_Data", StringComparison.OrdinalIgnoreCase) ? dn[..^5] : dn;
-            }
-            string outDir = FirstNonEmpty(cli.Value("--out"),
-                                          Environment.GetEnvironmentVariable("SHADERRIPPER_OUT") ?? Environment.GetEnvironmentVariable("SHADERRIP_OUT"),
-                                          cli.Bare.Where((b2, idx) => idx > 0 && !File.Exists(b2)).FirstOrDefault())
-                            ?? Path.Combine(Directory.GetCurrentDirectory(), gameName + "_ShaderLabs");
-            outDir = Path.GetFullPath(outDir);
-            if (!dumpMode && !matCheck)
-            {
-                Directory.CreateDirectory(outDir);
-            }
-
-            Console.WriteLine(Strings.Get("Banner"));
-            Console.WriteLine(Strings.F("SFV_Schema", sfVersion, schemaName));
-            var root = TypeNode.LoadSchema(schema);
-            Func<string, int, TypeNode> tpkClass = (ver, classId) =>
-                TpkSchema.Available ? TpkSchema.BuildClass(classId, ver) : null;
-
-            // Resources.Load paths only exist in globalgamemanagers (ResourceManager
-            // m_Container); load it so Resources assets land in Assets/Resources/...
-            Dictionary<(string file, long pathId), string> resMap = null;
-            {
-                byte[] gg = FindGlobalGameManagers(inputFiles, dataDir);
-                if (gg != null) resMap = ResourceMap.Load(gg, root, tpkClass);
-                Console.WriteLine(resMap != null
-                    ? $"resources map: {resMap.Count} entrie(s)"
-                    : "resources map: not found (globalgamemanagers missing)");
-                if (resMap != null && resMap.Count == 0 && ResourceMap.LastError != null)
-                    Console.Error.WriteLine("  [resmap] " + ResourceMap.LastError);
-                string resDump = Environment.GetEnvironmentVariable("SHADERRIPPER_DEBUG_RESMAP_FILE");
-                if (resMap != null && !string.IsNullOrEmpty(resDump))
-                    File.WriteAllLines(resDump, resMap.Select(kv => $"{kv.Key.file}\t{kv.Key.pathId}\t{kv.Value}"));
-                if (resMap != null && Environment.GetEnvironmentVariable("SHADERRIPPER_DEBUG_RESMAP") != null)
-                    foreach (var kv in resMap.Take(5))
-                        Console.Error.WriteLine($"  [resmap] {kv.Key.file} :: {kv.Key.pathId} -> {kv.Value}");
-            }
-
-            var allShaders = new List<Shader>();
-            SerializedFile sf = null;
-            string shownVersion = null;
-            if (fileMode)
-            {
-                int nodes = 0, found = 0, failed = 0;
-                var seen = new HashSet<string>(StringComparer.Ordinal);
-                foreach (var (bytes, path, container, sourceFile) in sources)
-                {
-                    SerializedFile inner;
-                    try { inner = bytes != null ? SerializedFile.Load(bytes, root, tpkClass)
-                                               : SerializedFile.Load(path, root, tpkClass); }
-                    catch
-                    {
-                        // apk/zip containers hold hundreds of non-shader assets
-                        // (textures, materials) whose type trees are outside our
-                        // schema — skip them silently and report a count instead.
-                        failed++;
-                        continue;
-                    }
-                    shownVersion ??= inner.UnityVersion;
-                    if (inner.Shaders.Count == 0) continue;
-                    nodes++;
-                    if (container != null)
-                        foreach (var sh2 in inner.Shaders) sh2.ContainerPath = container;
-                    if (sourceFile != null)
-                        foreach (var sh2 in inner.Shaders) sh2.SourceFile = sourceFile;
-                    foreach (var sh in inner.Shaders)
-                    {
-                        string nm = !string.IsNullOrEmpty(sh.Name) ? sh.Name : sh.ParsedForm?.Name ?? "";
-                        if (!string.IsNullOrEmpty(nm) && !seen.Add(nm)) continue;
-                        allShaders.Add(sh);
-                        found++;
-                    }
-                }
-                Console.WriteLine(Strings.F("Unity_Shaders", shownVersion ?? "?", found)
-                                  + (TpkSchema.Available ? "  tpk=on" : "  tpk=off (data/sourcetpk.tpk missing)"));
-                Console.WriteLine(Strings.F("BundlesScanned", inputFiles.Count, nodes, found)
-                                  + (failed > 0 ? $"  ({failed} file(s) skipped)" : ""));
-            }
-            else
-            {
-                sf = SerializedFile.Load(assets, root, tpkClass);
-                Console.WriteLine(Strings.F("Unity_Shaders", sf.UnityVersion, sf.Shaders.Count)
-                                  + (TpkSchema.Available ? "  tpk=on" : "  tpk=off (data/sourcetpk.tpk missing)"));
-                // remember which file these came from so the Resources map can key them
-                string assetsName = Path.GetFileName(assets);
-                foreach (var sh0 in sf.Shaders) sh0.SourceFile = assetsName;
-                allShaders.AddRange(sf.Shaders);
-
-                // --scan-all: also sweep every other serialized container in the
-                // data directory — built-in shader files (Resources/unity default
-                // resources, unity_builtin_extra), globalgamemanagers.assets,
-                // sharedassets*, level*.  Built-in names are still filtered later
-                // by BuiltinIndex, so the default export stays clean.
-                if (cli.Has("--scan-all"))
-                {
-                    var seenNames = new HashSet<string>(StringComparer.Ordinal);
-                    foreach (var sh0 in sf.Shaders)
-                        seenNames.Add(!string.IsNullOrEmpty(sh0.Name) ? sh0.Name : sh0.ParsedForm?.Name ?? "");
-
-                    var extraFiles = new List<string>();
-                    string resDir = Path.Combine(dataDir, "Resources");
-                    if (Directory.Exists(resDir))
-                        extraFiles.AddRange(Directory.EnumerateFiles(resDir));
-                    foreach (var f in Directory.EnumerateFiles(dataDir))
-                    {
-                        string n = Path.GetFileName(f);
-                        if (n.Equals(Path.GetFileName(assets), StringComparison.OrdinalIgnoreCase)) continue;
-                        bool isAssets = n.EndsWith(".assets", StringComparison.OrdinalIgnoreCase)
-                                        && (n.StartsWith("globalgamemanagers", StringComparison.OrdinalIgnoreCase)
-                                            || n.StartsWith("sharedassets", StringComparison.OrdinalIgnoreCase));
-                        bool isLevel = n.StartsWith("level", StringComparison.OrdinalIgnoreCase) && !n.Contains('.');
-                        if (isAssets || isLevel) extraFiles.Add(f);
-                    }
-
-                    int extraFound = 0;
-                    foreach (var f in extraFiles)
-                    {
-                        SerializedFile inner;
-                        try { inner = SerializedFile.Load(f, root, tpkClass); }
-                        catch (Exception e)
-                        {
-                            Console.Error.WriteLine($"  [scan-all] {Path.GetFileName(f)}: {e.Message}");
-                            continue;
-                        }
-                        if (inner.Shaders.Count == 0) continue;
-                        string fname = Path.GetFileName(f);
-                        int added = 0;
-                        foreach (var sh in inner.Shaders)
-                        {
-                            sh.SourceFile = fname;
-                            string nm = !string.IsNullOrEmpty(sh.Name) ? sh.Name : sh.ParsedForm?.Name ?? "";
-                            if (!string.IsNullOrEmpty(nm) && !seenNames.Add(nm)) continue;
-                            allShaders.Add(sh);
-                            added++;
-                        }
-                        if (added > 0)
-                            Console.WriteLine($"  [scan-all] {fname}: {added} shader(s)");
-                        extraFound += added;
-                    }
-
-                    // header-sniff every remaining file (any extension or none):
-                    // bundles, nested containers, GUID-named serialized files.
-                    var sniffed = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
-                    foreach (var f in extraFiles) sniffed.Add(Path.GetFullPath(f));
-                    sniffed.Add(Path.GetFullPath(assets));
-                    foreach (var f in Directory.EnumerateFiles(dataDir, "*", SearchOption.AllDirectories))
-                    {
-                        if (sniffed.Contains(Path.GetFullPath(f))) continue;
-                        var fi = new FileInfo(f);
-                        if (fi.Length < 40 || fi.Length > 512 * 1024 * 1024) continue;
-                        InputKind kind;
-                        try { kind = SniffFile(f); }
-                        catch { continue; }
-                        if (kind == InputKind.Serialized)
-                        {
-                            sniffed.Add(Path.GetFullPath(f));
-                            SerializedFile inner;
-                            try { inner = SerializedFile.Load(f, root, tpkClass); }
-                            catch (Exception e)
-                            {
-                                Console.Error.WriteLine($"  [scan-all] {Path.GetFileName(f)}: {e.Message}");
-                                continue;
-                            }
-                            if (inner.Shaders.Count == 0) continue;
-                            string fname = Path.GetFileName(f);
-                            int added = 0;
-                            foreach (var sh in inner.Shaders)
-                            {
-                                sh.SourceFile = fname;
-                                string nm = !string.IsNullOrEmpty(sh.Name) ? sh.Name : sh.ParsedForm?.Name ?? "";
-                                if (!string.IsNullOrEmpty(nm) && !seenNames.Add(nm)) continue;
-                                allShaders.Add(sh);
-                                added++;
-                            }
-                            if (added > 0)
-                                Console.WriteLine($"  [scan-all] {fname}: {added} shader(s)");
-                            extraFound += added;
-                        }
-                        else if (kind == InputKind.Bundle)
-                        {
-                            sniffed.Add(Path.GetFullPath(f));
-                            List<Bundle.Node> nodes2;
-                            try { nodes2 = Bundle.Read(f); }
-                            catch (Exception e)
-                            {
-                                Console.Error.WriteLine($"  [scan-all] {Path.GetFileName(f)}: {e.Message}");
-                                continue;
-                            }
-                            foreach (var nd in nodes2)
-                            {
-                                if (SkipNode(nd.Path)) continue;
-                                SerializedFile inner;
-                                try { inner = SerializedFile.Load(nd.Data, root, tpkClass); }
-                                catch { continue; }
-                                if (inner.Shaders.Count == 0) continue;
-                                foreach (var sh in inner.Shaders)
-                                {
-                                    sh.ContainerPath = nd.Path;
-                                    string nm = !string.IsNullOrEmpty(sh.Name) ? sh.Name : sh.ParsedForm?.Name ?? "";
-                                    if (!string.IsNullOrEmpty(nm) && !seenNames.Add(nm)) continue;
-                                    allShaders.Add(sh);
-                                    extraFound++;
-                                }
-                            }
-                        }
-                    }
-                    if (extraFound > 0)
-                        Console.WriteLine(Strings.F("Unity_Shaders", sf.UnityVersion, sf.Shaders.Count + extraFound)
-                                          + $"  (scan-all: +{extraFound})");
-                }
-            }
-            if (indexCount > 0)
-                Console.WriteLine(Strings.F("BuiltinIndex", indexCount, BuiltinIndex.ResolvedPath));
-            if (matrixCount > 0)
-                Console.WriteLine(Strings.F("MatrixNames", matrixCount, MatrixNames.ResolvedPath));
-            if (tmpLayoutCount > 0)
-                Console.WriteLine(Strings.F("TmpLayouts", tmpLayoutCount, Cg.TmpLayouts.ResolvedDir));
-            else
-                Console.Error.WriteLine(Strings.Get("TmpLayoutsMissing"));
-            if (indexCount <= 0)
-                Console.Error.WriteLine(Strings.Get("BuiltinIndexMissing"));
-
-            if (!fileMode)
-            {
-                int bundleFiles = 0, nodes = 0, found = 0, skippedSources = 0;
-                var seen = new HashSet<string>(StringComparer.Ordinal);
-                foreach (var sh in sf.Shaders)
-                    seen.Add(!string.IsNullOrEmpty(sh.Name) ? sh.Name : sh.ParsedForm?.Name ?? "");
-
-                var enumOpts = new EnumerationOptions
-                {
-                    RecurseSubdirectories = true,
-                    IgnoreInaccessible = true,
-                };
-                foreach (var path in Directory.EnumerateFiles(bundleDir, "*", enumOpts))
-                {
-                    if (!path.EndsWith(".bundle", StringComparison.OrdinalIgnoreCase)) continue;
-                    if (BuiltinSource.IsBuiltin(path))
-                    {
-                        skippedSources++;
-                        Console.WriteLine(Strings.F("BuiltinSourceSkipped", Path.GetFileName(path)));
-                        continue;
-                    }
-                    bundleFiles++;
-                    List<Bundle.Node> list;
-                    try { list = Bundle.Read(path); }
-                    catch (Exception e)
-                    {
-                        Console.Error.WriteLine(Strings.F("BundleSkipped", Path.GetFileName(path), e.Message));
-                        continue;
-                    }
-                    foreach (var node in list)
-                    {
-                        if (node.Path.EndsWith(".resS", StringComparison.OrdinalIgnoreCase) ||
-                            node.Path.EndsWith(".resource", StringComparison.OrdinalIgnoreCase)) continue;
-                        SerializedFile inner;
-                        try { inner = SerializedFile.Load(node.Data, root, tpkClass); }
-                        catch (Exception e)
-                        {
-                            Console.Error.WriteLine($"    node {node.Path}: {e}");
-                            continue;
-                        }
-                        if (inner.Shaders.Count == 0) continue;
-                        nodes++;
-                        foreach (var sh2 in inner.Shaders) sh2.ContainerPath = node.Path;
-                        foreach (var sh in inner.Shaders)
-                        {
-                            string nm = !string.IsNullOrEmpty(sh.Name) ? sh.Name
-                                      : sh.ParsedForm?.Name ?? "";
-                            if (!string.IsNullOrEmpty(nm) && !seen.Add(nm)) continue;
-                            allShaders.Add(sh);
-                            found++;
-                        }
-                    }
-                }
-                Console.WriteLine(Strings.F("BundlesScanned", bundleFiles, nodes, found));
-            }
-            Console.WriteLine(Strings.F("Output", outDir));
-
-            if (matCheck)
-            {
-                if (fileMode)
-                {
-                    Console.Error.WriteLine(Strings.Get("MatCheckNeedsGameDir") ?? "--mat-check requires a game data directory, not a single file.");
+                case "--asm": return Asm(opt);
+                case "--stats": return Stats(opt.Bare[0]);
+                case "--emit": return EmitAll(opt.Bare[0], opt.Bare[1]);
+                case "--glsl": return Glsl(opt.Bare[0], opt.Has("--shaderlab"));
+                case "--list-shaders": return ListShaders(opt.Bare[0]);
+                case "--dump": return Dump(opt.Bare[0], opt.Value("--dump-filter") ?? "");
+                case "--file": return ExportFiles(args);
+                case "--file-bare": return ExportFiles(args);
+                case "--game": return ExportGame(opt);
+                default:
+                    Console.Error.WriteLine(Strings.F("UnknownOption", command));
                     return 2;
-                }
-                string report = cli.Value("--mat-check");
-                if (string.IsNullOrWhiteSpace(report)) report = "mat_check.json";
-                return MatCheck.Run(Path.GetDirectoryName(Path.GetFullPath(assets)), root, tpkClass, report);
+            }
+        }
+
+        /// <summary>The command words this tool accepts, in the order to test them.</summary>
+        private static readonly string[] Commands =
+        {
+            "--game", "--file", "--file-bare", "--asm", "--emit", "--glsl",
+            "--stats", "--list-shaders", "--dump",
+        };
+
+        /// <summary>
+        /// The command word on this command line.
+        ///
+        /// Every token is checked, not just the first: the parser accepts options in
+        /// any position, so `--shaderlab out --game &lt;dir&gt;` has to resolve to
+        /// <c>--game</c> the same way `--game &lt;dir&gt; --shaderlab out` does.
+        /// Returns the FIRST token when none matches, so the "unknown option" message
+        /// names what the caller actually typed first.
+        /// </summary>
+        private static string Command(string[] args)
+        {
+            foreach (string c in Commands)
+                if (args.Contains(c, StringComparer.OrdinalIgnoreCase)) return c;
+            return args.Length > 0 ? args[0] : "";
+        }
+
+        /// <summary>
+        /// Does the command line carry at least <paramref name="count"/> input
+        /// arguments, or did it stop after the command word?  Says so once, here,
+        /// instead of letting a null path reach a directory enumeration.
+        /// </summary>
+        private static bool Positionals(Argv opt, int count)
+        {
+            if (opt.Bare.Count >= count) return true;
+            Console.Error.WriteLine(Strings.Get("Usage"));
+            return false;
+        }
+
+        /// <summary><c>--asm &lt;file&gt; [--out &lt;file&gt;]</c>: one disassembly to HLSL.</summary>
+        private static int Asm(Argv opt) => One(opt.Bare[0], opt.Value("--out"));
+
+        private static int One(string path, string outPath)
+        {
+            var m = Module.Read(File.ReadAllText(path));
+            var r = HlslEmitter.Emit(m);
+            if (outPath != null) File.WriteAllText(outPath, r.Hlsl);
+            else Console.Write(r.Hlsl);
+
+            Console.Error.WriteLine(Strings.F("AsmSummary", m.Profile, r.Instructions,
+                                              r.Translated, r.Todo, m.ParseErrors));
+            if (r.Todo > 0)
+                Console.Error.WriteLine(Strings.F("AsmMissingHandlers", string.Join(", ", r.Missing)));
+            return r.Todo == 0 && m.ParseErrors == 0 ? 0 : 1;
+        }
+
+        /// <summary>
+        /// <c>--game &lt;data dir|game root&gt; [out dir]</c>: rip a whole install.
+        ///
+        /// The output directory is <c>--out</c>, else the positional after the
+        /// input, else "&lt;input&gt;_Ripped".  Every option the parser knows is
+        /// skipped, so <c>--game X --shaderlab out</c> writes to <c>out</c> -- reading
+        /// the positional as <c>args[2]</c> instead is what made the run create a
+        /// directory literally named "--shaderlab".
+        /// </summary>
+        private static int ExportGame(Argv opt)
+        {
+            // `--game` names its input through the option, so the input does not
+            // depend on where the token sits on the command line.  The output
+            // directory is `--out`, else the first positional that is not the input.
+            string dataDir = Input(opt.Value("--game") ?? (opt.Bare.Count > 0 ? opt.Bare[0] : ""));
+            string positionalOut = opt.Bare
+                .FirstOrDefault(b => !string.Equals(b, opt.Value("--game"), StringComparison.Ordinal));
+            string outDir = opt.Value("--out")
+                            ?? positionalOut
+                            ?? dataDir.TrimEnd('/', '\\') + "_Ripped";
+            return ExportGame(dataDir, Input(outDir, mustExist: false), opt.Value("--only"),
+                              opt.Has("--shaderlab"),
+                              opt.Has("--orig-asm"), !opt.Has("--no-dedup"), opt.Has("--builtin"),
+                              opt.Has("--programs"), Overwrite(opt),
+                              Jobs(opt.Value("--jobs")));
+        }
+
+        /// <summary>
+        /// A path argument, as the shell meant it.
+        ///
+        /// Git Bash and MSYS rewrite <c>/e/SteamLibrary/...</c> into
+        /// <c>E:\SteamLibrary\...</c> for native programs -- usually.  It does not
+        /// happen for a path assembled inside a script, and the argument as typed is
+        /// then a directory that does not exist, which makes the whole export read
+        /// nothing and look like "globalgamemanagers not found".  So a missing
+        /// <c>/&lt;letter&gt;/...</c> is retried as the drive it names; anything that
+        /// exists, and anything not in that shape, is returned unchanged.
+        /// </summary>
+        /// <param name="mustExist">
+        /// An input has to exist for the retry to be worth taking -- a path that is
+        /// missing as typed and missing as mapped is the user's own typo and should
+        /// be reported as typed.  An output directory usually does not exist yet, so
+        /// it is mapped without that check.
+        /// </param>
+        private static string Input(string path, bool mustExist = true)
+        {
+            if (string.IsNullOrEmpty(path) || !OperatingSystem.IsWindows()) return path;
+            if (Directory.Exists(path) || File.Exists(path)) return path;
+            // "/tmp/x" is a path rooted at the current drive on Windows, not drive
+            // T:, so only a one-letter first segment is rewritten.
+            if (path.Length < 3 || path[0] != '/' || path[2] != '/' || !char.IsLetter(path[1]))
+                return path;
+            string mapped = char.ToUpperInvariant(path[1]) + ":\\" + path[3..].Replace('/', '\\');
+            return !mustExist || Directory.Exists(mapped) || File.Exists(mapped) ? mapped : path;
+        }
+
+        /// <summary>Read a game's data directory and translate every shader in it.</summary>
+        private static int ExportGame(string dataDir, string outDir, string only, bool shaderLab,
+                                      bool origAsm = false, bool dedup = true, bool builtin = false,
+                                      bool programs = false,
+                                      bool overwrite = false, int jobs = 1) =>
+            RunExport(() => ShaderRipper.Game.GameExport.Run(
+                dataDir, outDir, only, shaderLab, origAsm, dedup, builtin, programs,
+                null, overwrite, jobs));
+
+        /// <summary>
+        /// Run an export and report it.
+        ///
+        /// <c>--overwrite</c> refuses a directory it cannot prove is its own by
+        /// throwing, and that refusal is a message for the user, not a crash: a stack
+        /// trace says "bug", and the whole point of the check is that the user can
+        /// act on it.
+        /// </summary>
+        private static int RunExport(Func<ShaderRipper.Game.GameExport.Stats> run)
+        {
+            try { return Report(run()); }
+            catch (InvalidOperationException e)
+            {
+                Console.Error.WriteLine(e.Message);
+                return 2;
+            }
+        }
+
+        /// <summary>
+        /// <c>--file a.bundle,b.assets out/</c> -- the same export driven by an
+        /// explicit input list instead of a data directory.  Each value may be a
+        /// SerializedFile, a bundle, a comma/semicolon list or a wildcard; the
+        /// output directory is the last non-option argument.
+        /// </summary>
+        private static int ExportFiles(string[] args)
+        {
+            var opt = Argv.Parse(args);
+
+            // `--file`'s values come from the parser (`Valued` + `Variadic`), so the
+            // whole "does this token take a value" question is answered once, there.
+            // Re-deriving it here is what made the two disagree.
+            var values = opt.Values("--file").ToList();
+            if (values.Count == 0) values.AddRange(opt.Values("--file-bare"));
+
+            // The output directory is `--out`, else the last positional.  `--file`
+            // writes next to the first input when neither is given.
+            string explicitOut = opt.Value("--out");
+            string outDir = explicitOut;
+            if (outDir == null && opt.Bare.Count > 0) outDir = opt.Bare[^1];
+            outDir = Input(outDir, mustExist: false);
+
+            if (values.Count == 0)
+            {
+                Console.Error.WriteLine(Strings.Get("UsageFile"));
+                return 2;
+            }
+            values = values.Select(v => Input(v)).ToList();
+            if (outDir == null)
+            {
+                string first = values[0].Split(',', ';')[0].Trim();
+                outDir = Path.Combine(Path.GetDirectoryName(Path.GetFullPath(first))!, "_Ripped");
             }
 
-            if (dumpMode)
+            var s = RunExport(() => ShaderRipper.Game.GameExport.Run(
+                Path.GetDirectoryName(Path.GetFullPath(outDir)) ?? ".", outDir,
+                opt.Value("--only"), opt.Has("--shaderlab"), opt.Has("--orig-asm"),
+                !opt.Has("--no-dedup"), opt.Has("--builtin"),
+                opt.Has("--programs"), values,
+                Overwrite(opt), Jobs(opt.Value("--jobs"))));
+            return s;
+        }
+
+        /// <summary>
+        /// <c>--jobs N</c>: how many shaders to translate at once.
+        ///
+        /// Translation is the whole cost of an export -- the scan that finds the
+        /// shaders is a few percent -- and each shader is independent once its
+        /// output paths are claimed, so this is close to a linear speedup up to the
+        /// core count.  The default is the core count; <c>--jobs 1</c> forces the
+        /// serial run, which is the one whose log lines do not interleave.
+        ///
+        /// The output is identical either way: which shader keeps a contested
+        /// output path and which one keeps the plain name are both decided before
+        /// the first worker starts (see <c>GameExport.Seat</c>), and every piece of
+        /// per-shader state in the emitters is per-thread.
+        /// </summary>
+        private static int Jobs(string value)
+        {
+            int fallback = Math.Max(1, Environment.ProcessorCount);
+            if (string.IsNullOrEmpty(value)) return fallback;
+            return int.TryParse(value, out int n) && n > 0 ? n : fallback;
+        }
+
+        /// <summary>
+        /// <c>--overwrite</c> (alias <c>--clean</c>): empty the output directory
+        /// before writing, so one path can be reused instead of a new one per run.
+        /// Off by default: an export normally adds to what is there.
+        /// </summary>
+        private static bool Overwrite(Argv opt) =>
+            opt.Has("--overwrite") || opt.Has("--clean");
+
+        private static int Report(ShaderRipper.Game.GameExport.Stats s)
+        {
+            string summary = Strings.F("ExportSummary", s.Files, s.Shaders, s.Emitted,
+                                       s.Programs, s.Disassembled, s.Translated,
+                                       s.Skipped, s.Failed);
+            if (s.BuiltinSkipped > 0)
+                summary += Strings.F("ExportSummaryBuiltinSkipped", s.BuiltinSkipped);
+            Console.WriteLine(summary);
+            foreach (var n in s.Notes.Take(NoteLimit()))
+                Game.Log.Note(Strings.F("Note", n));
+            return s.Failed == 0 ? 0 : 1;
+        }
+
+        /// <summary>
+        /// How many diagnostics to print.  The default is small because a clean
+        /// run has nothing to say; a run with many failures is exactly when the
+        /// full list is wanted, and <c>SHADERRIP_NOTES=all</c> prints all of it.
+        /// </summary>
+        private static int NoteLimit() =>
+            string.Equals(Environment.GetEnvironmentVariable("SHADERRIP_NOTES"), "all",
+                          StringComparison.OrdinalIgnoreCase)
+                ? int.MaxValue
+                : 8;
+
+        /// <summary>
+        /// <c>--list-shaders &lt;file&gt;</c>: every shader inside an input, one
+        /// per line.  Works on a SerializedFile or a bundle, which is how a build
+        /// is surveyed before exporting any of it.
+        /// </summary>
+        private static int ListShaders(string path)
+        {
+            Func<string, int, TypeNode> tpk = (ver, id) => TpkSchema.BuildClass(id, ver);
+            var files = new List<(string name, byte[] bytes, string file)>();
+            if (Data.Bundle.IsBundle(path))
+                foreach (var (n, d) in Data.Bundle.SerializedFiles(path))
+                    files.Add((n, d, path));
+            else
+                files.Add((Path.GetFileName(path), null, path));
+
+            int total = 0;
+            foreach (var (name, bytes, file) in files)
             {
-                string filter = dumpFilter;
-                foreach (var dsh in allShaders)
-                {
-                    string dn = dsh.ParsedForm?.Name ?? dsh.Name ?? "";
-                    if (!dn.Contains(filter)) continue;
-                    Console.WriteLine($"=== {dn} pathID={dsh.PathId}");
-                    Console.WriteLine($"    platforms   = [{string.Join(",", dsh.Platforms)}]");
-                    for (int p = 0; p < dsh.Offsets.Length; p++)
-                    {
-                        Console.WriteLine($"    platform[{p}] offsets = [{string.Join(",", dsh.Offsets[p])}]");
-                        Console.WriteLine($"                clens   = [{string.Join(",", dsh.CompressedLengths[p])}]");
-                        Console.WriteLine($"                dlens   = [{string.Join(",", dsh.DecompressedLengths[p])}]");
-                    }
-                    Console.WriteLine($"    blob bytes  = {dsh.CompressedBlob.Length}");
-                    for (int p = 0; p < dsh.Offsets.Length; p++)
-                    {
-                        var pb = BlobTool.DecodeBlob(dsh, p);
-                        string dumpDir = Environment.GetEnvironmentVariable("SHADERRIPPER_DUMP_BLOBS");
-                        if (!string.IsNullOrEmpty(dumpDir))
-                        {
-                            Directory.CreateDirectory(dumpDir);
-                            string safe = string.Concat((dn ?? "shader").Select(ch => Path.GetInvalidFileNameChars().Contains(ch) ? '_' : ch));
-                            File.WriteAllBytes(Path.Combine(dumpDir, $"{safe}_p{p}_{(p < dsh.Platforms.Length ? dsh.Platforms[p] : 0)}.bin"), pb);
-                        }
-                        int pid = p < dsh.Platforms.Length ? (int)dsh.Platforms[p] : -1;
-                        var fmt = BlobFormatDetect.Detect(pb);
-                        string extra = "";
-                        if (fmt == BlobFormat.Metal &&
-                            BlobFormatDetect.MetalSplit(pb, 0, out var ent, out var so))
-                            extra = $" metalEntry={ent} srcOff={so}";
-                        Console.WriteLine($"    platform[{p}] id={pid} {pb.Length}B format={fmt}{extra} head={BlobFormatDetect.Hex(pb, 0, 24)}");
-                        int cnt = pb.Length >= 4 ? BitConverter.ToInt32(pb, 0) : 0;
-                        {
-                            int dx = 0, sp = 0, mt = 0, gl = 0, first = -1; BlobFormat ff = BlobFormat.Unknown;
-                            for (int q = 0; q + 4 <= pb.Length; q++)
-                            {
-                                uint u = BitConverter.ToUInt32(pb, q);
-                                BlobFormat f2 = u == 0x43425844 ? BlobFormat.Dxbc
-                                             : u == 0x07230203 ? BlobFormat.SpirV
-                                             : u == 0xF00DCAFE ? BlobFormat.Metal : BlobFormat.Unknown;
-                                if (f2 == BlobFormat.Unknown && pb[q] == (byte)'#')
-                                {
-                                    string h = System.Text.Encoding.ASCII.GetString(pb, q, Math.Min(16, pb.Length - q));
-                                    if (h.StartsWith("#version")) f2 = BlobFormat.Glsl;
-                                }
-                                if (f2 == BlobFormat.Unknown) continue;
-                                if (first < 0) { first = q; ff = f2; }
-                                switch (f2) { case BlobFormat.Dxbc: dx++; break; case BlobFormat.SpirV: sp++; break;
-                                              case BlobFormat.Metal: mt++; break; case BlobFormat.Glsl: gl++; break; }
-                            }
-                            Console.WriteLine($"      payload scan: dxbc={dx} spirv={sp} metal={mt} glsl={gl} first={ff}@{first}");
-                            int tblEnd = 4 + cnt * 12;
-                            if (tblEnd > 0 && tblEnd < pb.Length)
-                            {
-                                int nz = tblEnd;
-                                while (nz < pb.Length && pb[nz] == 0) nz++;
-                                Console.WriteLine($"      after table({tblEnd}): firstNonZero@{nz} head={BlobFormatDetect.Hex(pb, nz, 48)}");
-                            }
-                        }
-                        if (cnt > 0 && cnt < 4096 && 4 + (long)cnt * 12 <= pb.Length)
-                            for (int e = 0; e < Math.Min(cnt, 3); e++)
-                            {
-                                int so2 = BitConverter.ToInt32(pb, 4 + e * 12);
-                                int sz2 = BitConverter.ToInt32(pb, 4 + e * 12 + 4);
-                                if (so2 < 0 || sz2 <= 0 || (long)so2 + sz2 > pb.Length) continue;
-                                var (pf2, po2) = BlobFormatDetect.FindProgram(pb, so2, so2 + sz2);
-                                Console.WriteLine($"      slot[{e}] off={so2} size={sz2} prog={pf2}@{po2 - so2} head={BlobFormatDetect.Hex(pb, so2 + Math.Max(0, po2 - so2), 48)}");
-                            }
-                    }
-                    foreach (var ss in dsh.ParsedForm.SubShaders)
-                    {
-                        Console.WriteLine($"    subshader: {ss.Passes.Count} pass(es)  tags=[{string.Join(", ", ss.Tags.Select(t => t.k + "=" + t.v))}]");
-                        foreach (var ps in ss.Passes)
-                        {
-                            Console.WriteLine($"      pass '{ps.StateName}': ZTest={ps.ZTest}{ps.ZTestName} ZWrite={ps.ZWrite}{ps.ZWriteName} "
-                                              + $"Cull={ps.Culling}{ps.CullingName} ZClip={ps.ZClip}{ps.ZClipName} "
-                                              + $"stencil(ref={ps.StencilRef},rd={ps.StencilReadMask},wr={ps.StencilWriteMask}) "
-                                              + $"tags=[{string.Join(", ", ps.Tags.Select(t => t.k + "=" + t.v))}]");
-                            foreach (var bs in ps.Blends)
-                                Console.WriteLine($"        blend: src={bs.SrcBlend}{bs.SrcBlendName} dst={bs.DestBlend}{bs.DestBlendName} "
-                                                  + $"op={bs.BlendOp}{bs.BlendOpName} a=({bs.SrcBlendAlpha},{bs.SrcBlendAlphaName},{bs.DestBlendAlpha},{bs.DestBlendAlphaName})");
-                        }
-                    }
-                    foreach (var ss in dsh.ParsedForm.SubShaders)
-                        foreach (var ps in ss.Passes)
-                            foreach (var sp in ps.SubPrograms)
-                            {
-                                Console.WriteLine($"    subprogram: stage={sp.Stage,-9} blobIndex={sp.BlobIndex} "
-                                                  + $"paramBlob={sp.ParameterBlobIndex} gpuProgramType={sp.GpuProgramType}");
-                                foreach (var acb in sp.ConstantBuffers)
-                                {
-                                    Console.WriteLine($"        cb {acb.Name} ({acb.Size} bytes)"
-                                                      + (acb.Partial ? "  partial" : "")
-                                                      + $"  members={acb.Members.Count}");
-                                    foreach (var am in acb.Members.OrderBy(x => x.Offset))
-                                        Console.WriteLine($"            {am.Name,-28} at {am.Offset,-5} "
-                                                          + (am.IsMatrix ? $"matrix rows={am.RowCount}" : $"dim={am.Dim}") + $" type={am.Type}"
-                                                          + (am.ArraySize > 1 ? $" x{am.ArraySize}" : ""));
-                                }
-                            }
-                    var dd = BlobTool.DecodeBlob(dsh);
-                    try { File.WriteAllBytes(Path.Combine(Paths.TempDir,
-                        "sr_blob_" + dn.Replace('/', '_') + ".bin"), dd); }
-                    catch { }
-                    Console.WriteLine($"    decoded     = {dd.Length} bytes");
-                    var pbs = BlobTool.ParseParamBlobs(dd);
-                    Console.WriteLine($"    paramBlobs  = {pbs.Count} program(s) with cbuffer tables");
-                    foreach (var kv in pbs.OrderBy(k => k.Key).Take(64))
-                    {
-                        Console.WriteLine($"      blobIndex {kv.Key}:");
-                        foreach (var cb in kv.Value)
-                        {
-                            Console.WriteLine($"        {cb.Name,-18} size={cb.Size} members={cb.Members.Count}"
-                                              + (cb.Register >= 0 ? $" reg={cb.Register}" : ""));
-                            for (int mi = 0; mi < cb.Members.Count; mi++)
-                            {
-                                var m = cb.Members[mi];
-                                var t = cb.MemberTails[mi];
-                                Console.WriteLine($"          {m.name,-28} @{m.offset,-4} tail=[{string.Join(", ", t)}]");
-                            }
-                        }
-                    }
-                    Console.WriteLine("    --- head hex ---");
-                    for (int h = 0; h < Math.Min(0x100, dd.Length); h += 16)
-                    {
-                        var sbHex = new System.Text.StringBuilder();
-                        for (int q = 0; q < 16 && h + q < dd.Length; q++) sbHex.Append(dd[h + q].ToString("x2")).Append(' ');
-                        Console.WriteLine($"      {h:x4}  {sbHex}");
-                    }
-                    var hh = BlobTool.FindDxbc(dd);
-                    if (dd.Length >= 8)
-                    {
-                        int cnt = BitConverter.ToInt32(dd, 0);
-                        Console.WriteLine($"    [table] declared count = {cnt}");
-                        if (cnt > 0 && cnt < 4096 && 4 + cnt * 12 <= dd.Length)
-                        {
-                            for (int e = 0; e < cnt; e++)
-                            {
-                                int eo = BitConverter.ToInt32(dd, 4 + e * 12);
-                                int es = BitConverter.ToInt32(dd, 4 + e * 12 + 4);
-                                int dx = -1;
-                                if (eo >= 0 && es > 0 && eo + es <= dd.Length)
-                                {
-                                    for (int q = eo; q + 0x20 <= eo + es; q++)
-                                        if (dd[q] == 0x44 && dd[q + 1] == 0x58 && dd[q + 2] == 0x42 && dd[q + 3] == 0x43)
-                                        { dx = q; break; }
-                                }
-                                Console.WriteLine($"    [table] blobIndex {e}: off={eo} size={es} spanEnd={eo + es} dxbcAt={dx}"
-                                    + (dx >= 0 ? $" (+{dx - eo} into blob)" : ""));
-                            }
-                        }
-                    }
-                    for (int k = 0; k < hh.Count; k++)
-                    {
-                        var (o, t) = hh[k];
-                        var cont = new byte[t];
-                        Array.Copy(dd, o, cont, 0, t);
-                        string asm = BlobTool.Disassemble(cont);
-                        string head = asm == null ? "<disasm failed>" : asm.Split('\n')[0].Trim();
-                        string prof = "?";
-                        if (asm != null)
-                            foreach (var ln in asm.Split('\n'))
-                            {
-                                string t2 = ln.TrimStart('/', ' ', '\t');
-                                if (System.Text.RegularExpressions.Regex.IsMatch(t2, @"^(vs|ps|gs|hs|ds|cs)_\d_\d"))
-                                { prof = t2.Trim(); break; }
-                            }
-                        Console.WriteLine($"    hit[{k}] bufOff={o} size={t}  profile={prof}  asmHeader: {head}");
-                        if (asm != null)
-                        {
-                            var lines = asm.Split('\n');
-                            for (int q = 0; q < Math.Min(400, lines.Length); q++)
-                                Console.WriteLine($"        | {lines[q].TrimEnd('\r')}");
-                        }
-                    }
-                }
-                return 0;
-            }
-
-            int ok = 0;
-            int skippedBuiltin = 0;
-            var opStats = new ConcurrentDictionary<string, int>();
-            var usedNames = new ConcurrentDictionary<string, byte>(StringComparer.Ordinal);
-            var printLock = new object();
-            void Log(string s) { lock (printLock) Console.WriteLine(s); }
-            void LogErr(string s) { lock (printLock) Console.Error.WriteLine(s); }
-
-            string NameOf(Shader sh) => !string.IsNullOrEmpty(sh.Name) ? sh.Name
-                        : !string.IsNullOrEmpty(sh.ParsedForm?.Name) ? sh.ParsedForm.Name
-                        : "Shader_" + sh.PathId;
-            // File name = shader name with the hierarchy separators turned into
-            // underscores, and nothing else touched: "UI/Pause Planets" becomes
-            // "UI_Pause Planets.shader".  Chars the filesystem cannot represent
-            // are the only exception (no shader name seen so far has any).
-            string SafeOf(Shader sh)
-            {
-                string safe = NameOf(sh).Replace('/', '_').Replace('\\', '_');
-                foreach (char c in Path.GetInvalidFileNameChars())
-                    if (c != '/' && c != '\\') safe = safe.Replace(c, '_');
-                return safe;
-            }
-            // A shader "has a fixed path" when its destination comes from the
-            // asset itself (m_Container or the resources map) instead of the
-            // Assets/Shader/<Name>.shader fallback the bundles get.
-            bool HasFixedPath(Shader sh) =>
-                !string.IsNullOrEmpty(sh.ContainerPath) ||
-                (resMap != null && sh.SourceFile != null &&
-                 resMap.TryGetValue((sh.SourceFile, sh.PathId), out _));
-            // The name-based destination every shader falls back to when its
-            // resource path is taken: Assets/Shader/<shader name>.shader.
-            string NamedPath(Shader sh) => Path.Combine(outDir, "Assets", "Shader", SafeOf(sh) + ".shader");
-
-            // Resource container paths can be claimed by more than one shader (the
-            // same asset may ship in several data files).  The winner must not depend
-            // on thread scheduling, so the claim is resolved here, single-threaded,
-            // in the exact list order a sequential run would use: first occurrence
-            // keeps the plain name, every later one gets its path id appended.
-            var resourceOutPath = new Dictionary<Shader, string>(ReferenceEqualityComparer.Instance);
-            {
-                var claimed = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
-                foreach (var sh in allShaders)
-                {
-                    if (sh.ContainerPath != null || resMap == null || sh.SourceFile == null ||
-                        !resMap.TryGetValue((sh.SourceFile, sh.PathId), out var mapped))
-                        continue;
-                    string rel = "Resources/" + mapped.Replace('\\', '/');
-                    if (!rel.EndsWith(".shader", StringComparison.OrdinalIgnoreCase)) rel += ".shader";
-                    var rparts = rel.Split('/');
-                    for (int i = 0; i < rparts.Length; i++)
-                        foreach (char c in Path.GetInvalidFileNameChars()) rparts[i] = rparts[i].Replace(c, '_');
-                    string p = Path.Combine(new[] { outDir, "Assets" }.Concat(rparts).ToArray());
-                    if (!claimed.Add(p))
-                        // Another shader already owns that resource path.  Name this
-                        // one after the shader itself instead of appending an opaque
-                        // path id, so the file says what it contains; the path id is
-                        // only the last resort when even the name is taken.
-                        p = claimed.Add(NamedPath(sh)) ? NamedPath(sh)
-                                                       : NamedPath(sh)[..^".shader".Length] + "_" + sh.PathId + ".shader";
-                    resourceOutPath[sh] = p;
-                }
-            }
-
-            // Shaders are independent: parse, disassemble, write.  The only shared
-            // state is the counters and the name/path claims above, all of which are
-            // concurrency-safe.
-            var shaderSet = (IEnumerable<Shader>)allShaders;
-            if (dedup)
-            {
-                // The same shader can ship in several data files; only one copy is
-                // worth emitting.  Prefer the one with a fixed container path (it
-                // lands on the plain file name), then the lowest path id so the
-                // winner never depends on thread scheduling.
-                var winners = new List<Shader>();
-                int dropped = 0;
-                foreach (var g in allShaders.GroupBy(SafeOf, StringComparer.Ordinal))
-                {
-                    winners.Add(g.OrderByDescending(HasFixedPath).ThenBy(s => s.PathId).First());
-                    dropped += g.Count() - 1;
-                }
-                winners.Sort((a, b) => a.PathId.CompareTo(b.PathId));
-                shaderSet = winners;
-                Console.WriteLine($"// dedup: {allShaders.Count} -> {winners.Count} shader(s), "
-                                  + $"{dropped} duplicate(s) dropped (fixed-path copy preferred)");
-            }
-
-            Parallel.ForEach(shaderSet, sh =>
-            {
-                string name = NameOf(sh);
-                if (only != null && !name.Contains(only, StringComparison.OrdinalIgnoreCase)) return;
-                if (only == null && BuiltinIndex.Contains(name)) { Interlocked.Increment(ref skippedBuiltin); return; }
-                string safe = SafeOf(sh);
-                // Deduplicate before anything is written: the Disassembly/<name>/
-                // directory is created below, so a late rename would make two
-                // same-named shaders overwrite each other's disassembly.
-                if (!usedNames.TryAdd(safe, 0))
-                {
-                    safe = safe + "_" + sh.PathId;
-                    usedNames.TryAdd(safe, 0);
-                }
-
+                SerializedFile sf;
                 try
                 {
-                    int mainPlat = Platforms.PickMain(sh.Platforms, forcedPlatform);
-                    if (mainPlat < 0)
-                    {
-                        if (forcedPlatform != null)
-                            LogErr(Strings.F("PlatformNotPresent", forcedPlatform));
-                        mainPlat = 0;
-                    }
-                    int mainPlatId = mainPlat < sh.Platforms.Length ? (int)sh.Platforms[mainPlat] : -1;
-                    var mainInfo = Platforms.Get(mainPlatId);
-                    byte[] decoded = BlobTool.DecodeBlob(sh, mainPlat);
-                    var usedBlobs = sh.ParsedForm.SubShaders
-                        .SelectMany(ss => ss.Passes)
-                        .SelectMany(p => p.SubPrograms)
-                        .Select(sp => sp.BlobIndex).ToHashSet();
-                    var slots = mainInfo.Format == "dxbc"
-                        ? BlobTool.DecodeSlots(decoded, usedBlobs)
-                        : new List<BlobTool.BlobSlot>();
-                    var paramBlobs = BlobTool.ParseParamBlobs(decoded);
-
-                    var progs = new Dictionary<int, Cg.AsmParser.Program>();
-                    var subByBlob = sh.ParsedForm.SubShaders
-                        .SelectMany(ss => ss.Passes)
-                        .SelectMany(p => p.SubPrograms)
-                        .GroupBy(sp => sp.BlobIndex)
-                        .ToDictionary(g => g.Key, g => g.First());
-                    var kwIndex = new Dictionary<int, string>();
-                    for (int ki = 0; ki < sh.ParsedForm.KeywordNames.Count; ki++)
-                        if (!string.IsNullOrEmpty(sh.ParsedForm.KeywordNames[ki]))
-                            kwIndex[ki] = sh.ParsedForm.KeywordNames[ki];
-
-                    string disDir = Path.Combine(outDir, "Disassembly", safe);
-                    string DisName(int blobIndex)
-                    {
-                        string stage = "prog";
-                        string kw = "";
-                        if (subByBlob.TryGetValue(blobIndex, out var sp))
-                        {
-                            stage = sp.Stage.ToLowerInvariant();
-                            var names = Cg.VariantPlan.KeywordsOf(sp, kwIndex);
-                            if (names.Count > 0)
-                                kw = "_" + Cg.VariantPlan.Key(names).Replace(',', '_');
-                        }
-                        foreach (char c in Path.GetInvalidFileNameChars()) kw = kw.Replace(c, '_');
-                        return $"{blobIndex}_{stage}{kw}";
-                    }
-
-                    if (mainInfo.Format == "d3d9")
-                    {
-                        foreach (var pr in ProgramSource.Extract(decoded))
-                        {
-                            if (pr.Format != BlobFormat.D3d9 || pr.Length <= 0) continue;
-                            string asm9 = D3D9Asm.Disassemble(decoded, pr.Offset, pr.Length);
-                            if (asm9 == null)
-                                asm9 = $"// d3d9 token stream at 0x{pr.Offset:X} len={pr.Length}: disassembly failed\n";
-                            Directory.CreateDirectory(disDir);
-                            File.WriteAllText(Path.Combine(disDir, DisName(pr.BlobIndex) + ".d3d9.asm"), asm9);
-                        }
-                    }
-
-                    bool anyDxil = false;
-                    foreach (var slot in slots)
-                    {
-                        var container = new byte[slot.DxbcSize];
-                        Array.Copy(decoded, slot.DxbcOffset, container, 0, slot.DxbcSize);
-                        string asm = BlobTool.Disassemble(container);
-                        if (asm == null) continue;
-
-                        bool dxil = BlobTool.HasDxilChunk(container);
-                        if (dxil) anyDxil = true;
-
-                        Directory.CreateDirectory(disDir);
-                        File.WriteAllText(Path.Combine(disDir,
-                            DisName(slot.BlobIndex) + (dxil ? ".dxil.asm" : ".dxbc.asm")), asm);
-                        if (dxil) continue;
-
-                        var prog = asmAntlr
-                            ? global::ShaderRipper.Antlr.DxbcAsmReader.Parse(asm)
-                            : global::ShaderRipper.Cg.AsmParser.Parse(asm);
-                        foreach (var ins in prog.Code)
-                            opStats.AddOrUpdate(ins.Opcode, 1, (_, c) => c + 1);
-                        progs[slot.BlobIndex] = prog;
-                    }
-
-                    ExportOtherPlatforms(sh, mainPlat, safe, outDir, only);
-
-                    Dictionary<int, ExtractedProgram> srcByBlob = null;
-                    if (mainInfo.Format != "dxbc")
-                    {
-                        var extracted = ProgramSource.Extract(decoded);
-                        var order = sh.ParsedForm.SubShaders
-                            .SelectMany(ss => ss.Passes)
-                            .SelectMany(p2 => p2.SubPrograms)
-                            .Select(sp => sp.BlobIndex).Distinct().OrderBy(x => x).ToList();
-                        srcByBlob = new Dictionary<int, ExtractedProgram>();
-                        for (int q = 0; q < extracted.Count && q < order.Count; q++)
-                            srcByBlob[order[q]] = extracted[q];
-
-                        foreach (var kv in srcByBlob)
-                        {
-                            if (kv.Value.Text.Length == 0) continue;
-                            Directory.CreateDirectory(disDir);
-                            string ext = kv.Value.Format switch
-                            {
-                                BlobFormat.Glsl => "glsl",
-                                BlobFormat.Metal => "metal",
-                                _ => "spv",
-                            };
-                            File.WriteAllText(Path.Combine(disDir,
-                                DisName(kv.Key) + "." + ext), kv.Value.Text);
-                        }
-                    }
-
-                    string writerFormat = mainInfo.Format == "dxbc" && progs.Count == 0 && anyDxil
-                        ? "dxil" : mainInfo.Format;
-                    string lab = ShaderLabWriter.Write(sh, name, progs, paramBlobs, safe,
-                                                       writerFormat, mainPlatId, srcByBlob, syntax);
-                    // --validate: re-parse the emitted text with the ANTLR
-                    // grammars, so a malformed product is reported instead of
-                    // silently written.
-                    if (global::ShaderRipper.Antlr.AntlrCheck.Enabled)
-                        global::ShaderRipper.Antlr.AntlrCheck.CheckEmitted(name, lab);
-                    string outPath;
-                    {
-                        // Prefer the asset's real container path from the bundle
-                        // node ("assets/resources/foo.shader" -> Assets/Resources/...);
-                        // fall back to AR's default Assets/Shader/<Name>.shader.
-                        string rel;
-                        string container = sh.ContainerPath;
-                        bool fromResources = false;
-                        if (container == null && resMap != null && sh.SourceFile != null &&
-                            resMap.TryGetValue((sh.SourceFile, sh.PathId), out var mapped))
-                        {
-                            container = mapped;
-                            fromResources = true;
-                        }
-                        if (fromResources)
-                        {
-                            // m_Container names are Resources-relative
-                            // ("achievements/foo", "camerafilterpack_rainfx")
-                            rel = "Resources/" + container.Replace('\\', '/');
-                            if (!rel.EndsWith(".shader", StringComparison.OrdinalIgnoreCase)) rel += ".shader";
-                            var rparts0 = rel.Split('/');
-                            for (int i = 0; i < rparts0.Length; i++)
-                                foreach (char c2 in Path.GetInvalidFileNameChars()) rparts0[i] = rparts0[i].Replace(c2, '_');
-                            // Ownership was decided up front, in list order, so the
-                            // name a shader gets no longer depends on which worker
-                            // finishes first.
-                            if (!resourceOutPath.TryGetValue(sh, out string outPathR))
-                                outPathR = Path.Combine(new[] { outDir, "Assets" }.Concat(rparts0).ToArray());
-                            Directory.CreateDirectory(Path.GetDirectoryName(outPathR)!);
-                            File.WriteAllText(outPathR, lab);
-                            Interlocked.Increment(ref ok);
-                            return;
-                        }
-                        if (container == null && resMap != null &&
-                            Environment.GetEnvironmentVariable("SHADERRIPPER_DEBUG_RESMAP") != null)
-                            LogErr($"  [resmap] miss {name} :: {sh.SourceFile} :: {sh.PathId}");
-                        if (!string.IsNullOrEmpty(container))
-                        {
-                            rel = container.Replace('\\', '/');
-                            if (rel.StartsWith("assets/", StringComparison.OrdinalIgnoreCase)) rel = rel["assets/".Length..];
-                            // builds store container paths lowercase; restore Unity's canonical
-                            // casing for the special folders so the tree drops into a project
-                            foreach (var (low, canon) in SpecialFolders)
-                                if (rel.StartsWith(low, StringComparison.OrdinalIgnoreCase))
-                                {
-                                    rel = canon + rel[low.Length..];
-                                    break;
-                                }
-                            if (!rel.EndsWith(".shader", StringComparison.OrdinalIgnoreCase))
-                            {
-                                // Unity sometimes stores shader nodes under a data-ish
-                                // name; AssetRipper keeps the directory but names the
-                                // file after the shader.
-                                string dir2 = Path.GetDirectoryName(rel)?.Replace('\\', '/');
-                                rel = (string.IsNullOrEmpty(dir2) ? "" : dir2 + "/") + safe + ".shader";
-                            }
-                        }
-                        else
-                        {
-                            LogErr($"  [ar] no container path: \"{name}\" -> Assets/Shader/{safe}.shader");
-                            rel = "Shader/" + safe + ".shader";
-                        }
-                        var parts = rel.Split('/');
-                        for (int i = 0; i < parts.Length; i++)
-                            if (i == parts.Length - 1 || parts[i].Length > 0)
-                                foreach (char c in Path.GetInvalidFileNameChars()) parts[i] = parts[i].Replace(c, '_');
-                        outPath = Path.Combine(new[] { outDir, "Assets" }.Concat(parts).ToArray());
-                    }
-                    Directory.CreateDirectory(Path.GetDirectoryName(outPath)!);
-                    File.WriteAllText(outPath, lab);
-                    Interlocked.Increment(ref ok);
+                    sf = bytes != null ? SerializedFile.Load(bytes, tpk)
+                                       : SerializedFile.Load(file, tpk);
                 }
                 catch (Exception e)
                 {
-                    LogErr(Strings.F("ShaderFailed", name, e.Message));
-                    LogErr(e.StackTrace);
+                    Console.Error.WriteLine(Strings.F("DumpEntryError", name, e.Message));
+                    continue;
                 }
-            });
-
-            Console.WriteLine();
-            Console.WriteLine(Strings.F("Done", ok)
-                + (skippedBuiltin > 0 ? Strings.F("DoneSkippedSuffix", skippedBuiltin) : ""));
-            Console.WriteLine();
-            Console.WriteLine(Strings.Get("OpcodeCoverage"));
-            foreach (var kv in opStats.OrderByDescending(k => k.Value).Take(40))
-                Console.WriteLine($"  {kv.Key,-20} {kv.Value}");
-
-            int unsupported = global::ShaderRipper.Cg.CgTranslator.UnsupportedTotal;
-            Console.WriteLine();
-            Console.WriteLine(Strings.F("DistinctOpcodes", opStats.Count, unsupported));
-
-            if (global::ShaderRipper.Antlr.AntlrCheck.Enabled)
-            {
-                string validation = global::ShaderRipper.Antlr.AntlrCheck.Summary();
-                if (validation != null) Console.WriteLine(validation);
+                foreach (var sh in sf.Shaders)
+                {
+                    string n = !string.IsNullOrEmpty(sh.Name) ? sh.Name
+                             : sh.ParsedForm?.Name ?? ("Shader_" + sh.PathId);
+                    string container = sh.ContainerPath ?? "";
+                    Console.WriteLine(n + "\tpathId=" + sh.PathId + "\tcontainer=" + container);
+                    total++;
+                }
             }
+            Console.Error.WriteLine(Strings.F("ListShadersSummary", total, files.Count));
             return 0;
         }
 
         /// <summary>
-        /// 把非主平台（GLES3/OpenGLCore/Metal/Vulkan）的编译结果落盘。
+        /// <c>--dump &lt;file&gt;</c>: what the exporter sees, without writing anything.
         ///
-        /// 这些平台里 GLSL 与 Metal 是**源码文本** —— Unity 存的就是 HLSLcc 的输出，
-        /// 比从 DXBC 直译回来的 HLSL 更接近作者原意；Vulkan 则是 SMOL-V 压缩的 SPIR-V，
-        /// 没有 0x07230203 魔数，解压器不在本工具范围内，只报告。
+        /// One line per shader (name, path id, platforms, pass/sub-program count)
+        /// plus one line per platform slot saying where the payload came from.  A
+        /// translation that comes out wrong is nearly always a slot that was
+        /// picked up wrongly or a pass that has no program.
         /// </summary>
-        private static void ExportOtherPlatforms(Shader sh, int mainPlat, string safe,
-                                                 string outDir, string only)
+        private static int Dump(string path, string filter)
         {
-            if (sh.Platforms.Length <= 1) return;
+            Func<string, int, TypeNode> tpk = (ver, id) => TpkSchema.BuildClass(id, ver);
+            var files = new List<(string name, byte[] bytes, string file)>();
+            if (Data.Bundle.IsBundle(path))
+                foreach (var (n, d) in Data.Bundle.SerializedFiles(path))
+                    files.Add((n, d, path));
+            else
+                files.Add((Path.GetFileName(path), null, path));
 
-            var stages = sh.ParsedForm.SubShaders
-                .SelectMany(ss => ss.Passes)
-                .SelectMany(p => p.SubPrograms)
-                .OrderBy(sp => sp.BlobIndex)
-                .Select(sp => sp.Stage.ToLowerInvariant())
-                .ToList();
-
-            for (int pi = 0; pi < sh.Platforms.Length; pi++)
+            int total = 0;
+            foreach (var (name, bytes, file) in files)
             {
-                int pid = (int)sh.Platforms[pi];
-                var info = Platforms.Get(pid);
-                if (info.Format is not ("glsl" or "metal" or "spirv" or "d3d9")) continue;
-
-                byte[] payload;
-                try { payload = BlobTool.DecodeBlob(sh, pi); }
-                catch { continue; }
-                if (payload.Length == 0) continue;
-
-                string dir = Path.Combine(outDir, "Disassembly", safe);
-                string prefix = info.Name + ".";
-                var progs = ProgramSource.Extract(payload);
-
-                if (info.Format == "d3d9")
-                {
-                    int k9 = 0;
-                    bool wrote = false;
-                    foreach (var pr in progs)
-                    {
-                        if (pr.Format != BlobFormat.D3d9 || pr.Length <= 0) continue;
-                        string asm9 = D3D9Asm.Disassemble(payload, pr.Offset, pr.Length);
-                        if (asm9 == null) continue;
-                        Directory.CreateDirectory(dir);
-                        File.WriteAllText(Path.Combine(dir, prefix + $"{safe}.{k9}" + ".d3d9.asm"), asm9);
-                        wrote = true;
-                        k9++;
-                    }
-                    if (wrote) continue;
-                }
-
-                var text = progs.Where(p => p.Text.Length > 0).ToList();
-
-                if (text.Count == 0)
-                {
-                    if (!ProgramSource.LooksSmolV(payload)) continue;
-                    Directory.CreateDirectory(dir);
-                    File.WriteAllText(Path.Combine(dir, prefix + safe + ".smolv.txt"),
-                        $"// {info.Name} ({pid}): SMOL-V compressed SPIR-V\n"
-                        + $"// payload {payload.Length} bytes, no plain SPIR-V header.\n"
-                        + "// Unity encodes Vulkan programs with smol-v, so the module has no\n"
-                        + "// 0x07230203 magic and must be decoded before it can be disassembled.\n");
-                    continue;
-                }
-
-                Directory.CreateDirectory(dir);
-                for (int k = 0; k < text.Count; k++)
-                {
-                    var prog = text[k];
-                    string stage = prog.Format == BlobFormat.Glsl ? "" : (k < stages.Count ? stages[k] : "blob" + k);
-                    string ext = prog.Format switch
-                    {
-                        BlobFormat.Glsl => "glsl",
-                        BlobFormat.Metal => "metal",
-                        _ => "spv",
-                    };
-                    string file = Path.Combine(dir, prefix + $"{safe}.{k}" + (stage == "" ? "" : "_" + stage) + "." + ext);
-                    File.WriteAllText(file, prog.Text);
-                }
-            }
-        }
-
-        /// <summary>--disasm &lt;file&gt;：反汇编单个程序文件（DXBC/DXIL 或 d3d9 token 流）。</summary>
-        private static int DisasmFile(string path)
-        {
-            byte[] b;
-            try { b = File.ReadAllBytes(path); }
-            catch (Exception e) { Console.Error.WriteLine(e.Message); return 1; }
-            if (b.Length >= 4 && BitConverter.ToUInt32(b, 0) == 0x43425844)
-            {
-                bool dxil = BlobTool.HasDxilChunk(b);
-                Console.WriteLine(dxil ? Strings.Get("DxbcContainerDxil") : Strings.Get("DxbcContainerSm45"));
-                string s = BlobTool.Disassemble(b);
-                if (s == null) { Console.Error.WriteLine(Strings.Get("DisasmFailed")); return 1; }
-                Console.Write(s);
-                return 0;
-            }
-            for (int i = 0; i + 4 <= b.Length; i++)
-            {
-                if (BlobFormatDetect.LooksD3d9(b, i, b.Length))
-                {
-                    int len = BlobFormatDetect.D3d9TokenEnd(b, i + 4, b.Length);
-                    string s = D3D9Asm.Disassemble(b, i, len > 0 ? len - i : b.Length - i);
-                    if (s == null) { Console.Error.WriteLine(Strings.Get("D3d9DisasmFailed")); return 1; }
-                    Console.Write(s);
-                    return 0;
-                }
-            }
-            Console.Error.WriteLine(Strings.Get("UnrecognizedFormat"));
-            return 1;
-        }
-
-        /// <summary>第一个非空字符串。</summary>
-        private static string FirstNonEmpty(params string[] xs) =>
-            xs.FirstOrDefault(x => !string.IsNullOrWhiteSpace(x));
-
-        private static void Usage()
-        {
-            Console.Write(Strings.Get("HelpText"));
-            Console.WriteLine();
-        }
-
-        /// <summary>
-        /// Product name from <c>&lt;data&gt;/app.info</c> (Unity standard: two
-        /// UTF-8 lines, company then product).  Falls back to the data directory
-        /// name minus its <c>_Data</c> suffix.
-        /// </summary>
-        private static string ReadProductName(string dataDir)
-        {
-            try
-            {
-                string info = Path.Combine(dataDir, "app.info");
-                if (File.Exists(info))
-                {
-                    var lines = File.ReadAllLines(info)
-                                    .Select(l => l.Trim()).Where(l => l.Length > 0).ToList();
-                    if (lines.Count >= 2) return SanitizeName(lines[1]);
-                    if (lines.Count == 1) return SanitizeName(lines[0]);
-                }
-            }
-            catch { }
-            return null;
-        }
-
-        private static string SanitizeName(string n)
-        {
-            foreach (char c in Path.GetInvalidFileNameChars()) n = n.Replace(c, '_');
-            return n.Trim();
-        }
-
-        /// <summary>SerializedFile version from the big-endian header (offset 8).</summary>
-        private static uint ReadSerializedFileVersion(string path)
-        {
-            try
-            {
-                using var fs = File.OpenRead(path);
-                var h = new byte[12];
-                int n = fs.Read(h, 0, 12);
-                if (n < 12) return 0;
-                return (uint)((h[8] << 24) | (h[9] << 16) | (h[10] << 8) | h[11]);
-            }
-            catch { return 0; }
-        }
-
-        /// <summary>
-        /// Locate globalgamemanagers for the current input set: next to a loose
-        /// .assets, inside the game data dir, or as an entry of an apk/zip.
-        /// Windows and Linux builds use the same file (and the same format).
-        /// </summary>
-        private static byte[] FindGlobalGameManagers(List<string> inputFiles, string dataDir)
-        {
-            var names = new[] { "globalgamemanagers", "globalgamemanagers.assets" };
-            var dirs = new List<string>();
-            if (!string.IsNullOrEmpty(dataDir)) dirs.Add(dataDir);
-            foreach (var f in inputFiles)
-                if (dirs.Count == 0 || !string.Equals(Path.GetDirectoryName(f), dirs[0], StringComparison.OrdinalIgnoreCase))
-                    dirs.Add(Path.GetDirectoryName(f) ?? "");
-
-            foreach (var d in dirs)
-                foreach (var n in names)
-                {
-                    string pth = Path.Combine(d, n);
-                    if (File.Exists(pth))
-                    {
-                        try { return File.ReadAllBytes(pth); } catch { }
-                    }
-                }
-
-            foreach (var f in inputFiles)
-            {
-                if (SniffFile(f) != InputKind.Zip) continue;
+                SerializedFile sf;
                 try
                 {
-                    using var zip = System.IO.Compression.ZipFile.OpenRead(f);
-                    foreach (var n in names)
-                        foreach (var entry in zip.Entries)
-                            if (string.Equals(Path.GetFileName(entry.FullName), n, StringComparison.OrdinalIgnoreCase))
-                            {
-                                using var es = entry.Open();
-                                var ms = new MemoryStream();
-                                es.CopyTo(ms);
-                                return ms.ToArray();
-                            }
+                    sf = bytes != null ? SerializedFile.Load(bytes, tpk)
+                                       : SerializedFile.Load(file, tpk);
                 }
-                catch { }
-            }
-            return null;
-        }
-
-        private enum InputKind { Unknown, Serialized, Bundle, Zip }
-
-        /// <summary>Lowercase container prefixes that map back to Unity's canonical folder names.</summary>
-        private static readonly (string low, string canon)[] SpecialFolders =
-        {
-            ("resources/", "Resources/"),
-            ("streamingassets/", "StreamingAssets/"),
-            ("plugins/", "Plugins/"),
-            ("editor/", "Editor/"),
-            ("gizmos/", "Gizmos/"),
-        };
-
-        private static bool SkipNode(string path) =>
-            path.EndsWith(".resS", StringComparison.OrdinalIgnoreCase) ||
-            path.EndsWith(".resource", StringComparison.OrdinalIgnoreCase);
-
-        /// <summary>Content sniffing by file head — extensions are advisory only
-        /// (downloaded apks are often renamed to .1, Unity data files inside
-        /// apks are GUID-named with no extension).</summary>
-        private static InputKind SniffFile(string path)
-        {
-            using var fs = File.OpenRead(path);
-            var h = new byte[12];
-            int n = fs.Read(h, 0, 12);
-            return SniffHead(h, n);
-        }
-
-        private static InputKind SniffHead(byte[] h, int n = 12)
-        {
-            if (n >= 4 && h[0] == 0x50 && h[1] == 0x4B && h[2] is 3 or 5 or 7) return InputKind.Zip;
-            if (n >= 7 && Encoding.ASCII.GetString(h, 0, 7) == "UnityFS") return InputKind.Bundle;
-            if (n >= 12)
-            {
-                uint v = (uint)((h[8] << 24) | (h[9] << 16) | (h[10] << 8) | h[11]);
-                if (v >= 6 && v <= 1000) return InputKind.Serialized;
-            }
-            return InputKind.Unknown;
-        }
-
-        private static byte[] ReadHead(System.IO.Compression.ZipArchiveEntry entry, int count)
-        {
-            using var s = entry.Open();
-            var b = new byte[count];
-            int n = 0;
-            while (n < count)
-            {
-                int r = s.Read(b, n, count - n);
-                if (r <= 0) break;
-                n += r;
-            }
-            return b;
-        }
-
-        /// <summary>SerializedFile version from an in-memory header (bundle node data).</summary>
-        private static uint ReadVersionFromBytes(byte[] b)        {
-            if (b == null || b.Length < 12) return 0;
-            return (uint)((b[8] << 24) | (b[9] << 16) | (b[10] << 8) | b[11]);
-        }
-
-        /// <summary>--list-shaders: print every shader name in a SerializedFile,
-        /// bundle or apk/zip container (detected by content, not extension).</summary>
-        private static int ListShaders(string path, TypeNode root, Func<string, int, TypeNode> tpkClass)
-        {
-            try
-            {
-                var names = new List<string>();
-                void Collect(byte[] data, string path2, string container)
+                catch (Exception e)
                 {
-                    SerializedFile inner = data != null ? SerializedFile.Load(data, root, tpkClass)
-                                                        : SerializedFile.Load(path2, root, tpkClass);
-                    if (container != null)
-                        foreach (var sh in inner.Shaders) sh.ContainerPath = container;
-                    foreach (var sh in inner.Shaders)
-                        names.Add(!string.IsNullOrEmpty(sh.Name) ? sh.Name : sh.ParsedForm?.Name ?? "");
+                    Console.Error.WriteLine(Strings.F("DumpEntryError", name, e.Message));
+                    continue;
                 }
-
-                switch (SniffFile(path))
+                Console.WriteLine(Strings.F("DumpFileHeader", name, sf.UnityVersion,
+                                            sf.Objects.Count));
+                foreach (var sh in sf.Shaders)
                 {
-                    case InputKind.Zip:
-                        using (var zip = System.IO.Compression.ZipFile.OpenRead(path))
-                            foreach (var entry in zip.Entries)
-                            {
-                                string n = entry.FullName;
-                                if (SkipNode(n) || entry.Length < 12) continue;
-                                byte[] head = ReadHead(entry, 12);
-                                try
-                                {
-                                    switch (SniffHead(head))
-                                    {
-                                        case InputKind.Bundle:
-                                            using (var es = entry.Open())
-                                            {
-                                                var ms = new MemoryStream();
-                                                es.CopyTo(ms);
-                                                foreach (var nd in Bundle.Read(ms.ToArray()))
-                                                {
-                                                    if (SkipNode(nd.Path)) continue;
-                                                    Collect(nd.Data, null, n + "/" + nd.Path);
-                                                }
-                                            }
-                                            break;
-                                        case InputKind.Serialized:
-                                            using (var es = entry.Open())
-                                            {
-                                                var ms = new MemoryStream();
-                                                es.CopyTo(ms);
-                                                Collect(ms.ToArray(), null, n);
-                                            }
-                                            break;
-                                    }
-                                }
-                                catch (Exception e) { Console.Error.WriteLine($"    entry {n}: {e.Message}"); }
-                            }
-                        break;
+                    string n = !string.IsNullOrEmpty(sh.Name) ? sh.Name
+                             : sh.ParsedForm?.Name ?? ("Shader_" + sh.PathId);
+                    if (filter.Length > 0 && n.IndexOf(filter, StringComparison.OrdinalIgnoreCase) < 0)
+                        continue;
+                    total++;
 
-                    case InputKind.Bundle:
-                        foreach (var nd in Bundle.Read(path))
+                    int passes = 0, subs = 0;
+                    foreach (var ss in sh.ParsedForm?.SubShaders ?? new List<SubShader>())
+                        foreach (var p in ss.Passes)
                         {
-                            if (SkipNode(nd.Path)) continue;
-                            try { Collect(nd.Data, null, nd.Path); }
-                            catch (Exception e) { Console.Error.WriteLine($"    node {nd.Path}: {e.Message}"); }
+                            passes++;
+                            subs += p.SubPrograms.Count;
                         }
-                        break;
+                    var plats = (sh.Platforms ?? Array.Empty<uint>())
+                                .Select(p => Platforms.Get((int)p)?.Name ?? p.ToString());
+                    string none = Strings.Get("DumpNone");
+                    string container2 = sh.ContainerPath ?? none;
 
-                    case InputKind.Serialized:
-                        Collect(null, path, null);
-                        break;
+                    // Two passes out of three inherit every state from the
+                    // ShaderLab default, so only the ones that differ are listed;
+                    // this is the same information AppendRenderState writes into
+                    // the output file, shown before anything is written.
+                    var states = RenderStateLines(sh);
+                    string source = sh.SourceFile ?? none;
+                    Console.WriteLine("  " + n);
+                    Console.WriteLine(Strings.F("DumpShaderSummary", sh.PathId, passes, subs,
+                                                sh.ParsedForm?.Props.Count ?? 0,
+                                                sh.ParsedForm?.KeywordNames.Count ?? 0));
+                    Console.WriteLine(Strings.F("DumpPlatforms", string.Join(", ", plats)));
+                    Console.WriteLine(Strings.F("DumpOrigin", container2, source, sh.FallbackName));
+                    foreach (string line in states) Console.WriteLine("      " + line);
                 }
+            }
+            Console.Error.WriteLine(Strings.F("ListShadersSummary", total, files.Count));
+            return 0;
+        }
 
-                foreach (var n in names.Where(n => !string.IsNullOrEmpty(n)).Distinct().OrderBy(n => n, StringComparer.Ordinal))
-                    Console.WriteLine(n);
-                Console.Error.WriteLine($"({names.Count} shader object(s))");
-                return 0;
-            }
-            catch (Exception e)
+        /// <summary>
+        /// Every non-default render-state statement of a shader's passes, one per
+        /// line, prefixed with the pass index when there is more than one pass.
+        ///
+        /// This mirrors what <c>GameExport.AppendRenderState</c> writes into the
+        /// .shader, which is the only way to tell "the exporter dropped this
+        /// state" from "the asset never carried it".
+        /// </summary>
+        private static List<string> RenderStateLines(Shader sh)
+        {
+            var lines = new List<string>();
+            var subs = sh.ParsedForm?.SubShaders ?? new List<SubShader>();
+            int passIndex = 0;
+            foreach (var ss in subs)
+                foreach (var p in ss.Passes)
+                {
+                    var states = ShaderRipper.Game.GameExport.DescribeRenderState(p);
+                    if (states.Count == 0) { passIndex++; continue; }
+                    string prefix = subs.Sum(s2 => s2.Passes.Count) > 1 ? $"pass {passIndex}: " : "";
+                    foreach (string s in states)
+                        foreach (string one in s.Split('\n'))
+                            lines.Add(prefix + one.Trim());
+                    passIndex++;
+                }
+            return lines;
+        }
+
+        /// <summary>GLSL payload -> HLSL (optionally wrapped in ShaderLab).</summary>
+        private static int Glsl(string path, bool shaderLab)
+        {
+            var r = GlslTranslator.Translate(File.ReadAllText(path));
+            string text = r.Hlsl;
+            if (shaderLab)
             {
-                Console.Error.WriteLine("[list-shaders] " + e.Message);
-                return 2;
+                // A standalone GLSL payload has no asset behind it: no properties,
+                // no pass tags.  One pass, both entry points it defines.
+                var pass = new Emit.ShaderLab.PassText
+                {
+                    Vertex = r.Hlsl.Contains("float4 vert()", StringComparison.Ordinal)
+                        ? new Emit.ShaderLab.Stage { Hlsl = r.Hlsl, Entry = "vert" } : null,
+                    Fragment = r.Hlsl.Contains("float4 frag()", StringComparison.Ordinal)
+                        ? new Emit.ShaderLab.Stage { Hlsl = r.Hlsl, Entry = "frag" } : null,
+                };
+                var sub = new Emit.ShaderLab.SubShaderText();
+                sub.Passes.Add(pass);
+                text = Emit.ShaderLab.Wrap(Path.GetFileNameWithoutExtension(path), null,
+                                           new[] { sub }, Array.Empty<ShaderRipper.Data.Property>());
+                var errs = Emit.ShaderLab.Check(text);
+                Console.Error.WriteLine(errs.Count == 0
+                    ? Strings.Get("ShaderLabWellFormed")
+                    : Strings.F("ShaderLabErrors", string.Join("; ", errs)));
             }
+            Console.Write(text);
+            Console.Error.WriteLine(Strings.F("GlslParseErrors", r.ParseErrors));
+            return r.ParseErrors == 0 ? 0 : 1;
+        }
+
+        /// <summary>
+        /// Write one HLSL file per disassembly, mirroring the input tree.  The
+        /// output is what a compiler check runs against: a translation that does
+        /// not compile is not a translation.
+        /// </summary>
+        private static int EmitAll(string dir, string outDir)
+        {
+            int ok = 0, todo = 0;
+            foreach (var f in Directory.EnumerateFiles(dir, "*.asm", SearchOption.AllDirectories))
+            {
+                var m = Module.Read(File.ReadAllText(f));
+                if (m.ParseErrors > 0 || m.Code.Count == 0) continue;
+                var r = HlslEmitter.Emit(m);
+                string rel = Path.GetRelativePath(dir, f) + ".hlsl";
+                string dst = Path.Combine(outDir, rel);
+                Directory.CreateDirectory(Path.GetDirectoryName(dst)!);
+                File.WriteAllText(dst, r.Hlsl);
+                if (r.Todo == 0) ok++; else todo++;
+            }
+            // GLSL payloads go through their own translator, same output tree.
+            foreach (var f in Directory.EnumerateFiles(dir, "*.glsl", SearchOption.AllDirectories))
+            {
+                var g = GlslTranslator.Translate(File.ReadAllText(f));
+                if (g.ParseErrors > 0) continue;
+                string rel = Path.GetRelativePath(dir, f) + ".hlsl";
+                string dst = Path.Combine(outDir, rel);
+                Directory.CreateDirectory(Path.GetDirectoryName(dst)!);
+                File.WriteAllText(dst, g.Hlsl);
+                if (g.Todo == 0) ok++; else todo++;
+            }
+            Console.WriteLine(Strings.F("EmitAllSummary", ok, todo, outDir));
+            return 0;
+        }
+
+        /// <summary>
+        /// Corpus report: how much of the real disassembly this slice can already
+        /// turn into HLSL, counted per instruction rather than per file, because a
+        /// file is only as useful as the instructions inside it.
+        /// </summary>
+        private static int Stats(string dir)
+        {
+            var files = Directory.EnumerateFiles(dir, "*.asm", SearchOption.AllDirectories)
+                                 .OrderBy(f => f, StringComparer.Ordinal).ToList();
+            int parsed = 0, failed = 0, instructions = 0, translated = 0, todo = 0;
+            var missing = new Dictionary<string, int>(StringComparer.Ordinal);
+
+            foreach (var f in files)
+            {
+                var m = Module.Read(File.ReadAllText(f));
+                if (m.ParseErrors > 0 || m.Code.Count == 0) { failed++; continue; }
+                parsed++;
+                var r = HlslEmitter.Emit(m);
+                instructions += r.Instructions;
+                translated += r.Translated;
+                todo += r.Todo;
+                foreach (var name in r.Missing) missing[name] = missing.GetValueOrDefault(name) + 1;
+            }
+
+            Console.WriteLine(Strings.F("StatsSummary", files.Count, parsed, failed));
+            double pct = instructions == 0 ? 0 : 100.0 * translated / instructions;
+            Console.WriteLine(Strings.F("StatsInstructions", instructions, translated, todo,
+                                        pct.ToString("F1", Strings.Culture)));
+            foreach (var kv in missing.OrderByDescending(k => k.Value).Take(15))
+                Console.WriteLine(Strings.F("StatsNoHandler", kv.Key, kv.Value));
+            return 0;
         }
     }
 }

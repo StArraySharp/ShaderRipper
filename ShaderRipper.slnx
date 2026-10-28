@@ -1,7 +1,10 @@
 <Solution>
   <Folder Name="/src/">
+    <!-- src/ShaderRipper.Old is the previous hand-written implementation.  It is
+         kept on disk as a reference (and for diffing output) but is not part of
+         the build: src/ShaderRipper now produces the ShaderRipper library.
+         Re-add it here to build it again. -->
     <Project Path="src/ShaderRipper/ShaderRipper.csproj" />
     <Project Path="src/ShaderRipper.Application/ShaderRipper.Application.csproj" />
-    <Project Path="src/ShaderRipper.Antlr/ShaderRipper.Antlr.csproj" />
   </Folder>
 </Solution>

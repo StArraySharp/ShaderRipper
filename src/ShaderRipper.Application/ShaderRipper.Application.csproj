@@ -8,10 +8,23 @@
     <RootNamespace>ShaderRipper</RootNamespace>
     <PlatformTarget>x64</PlatformTarget>
     <AllowUnsafeBlocks>true</AllowUnsafeBlocks>
-    <InvariantGlobalization>true</InvariantGlobalization>
-    <SatelliteResourceLanguages>en</SatelliteResourceLanguages>
+    <!-- No language filter and no InvariantGlobalization: the localized strings
+         ship in the ShaderRipper library (Localization/Strings.*.resx), their
+         satellite assemblies must reach this exe's output directory, and the
+         runtime must be able to resolve the cultures they are keyed by. -->
+    <!-- Server GC.  An export translates shaders in parallel (see the jobs
+         option) and every translation allocates disassembly text, an AST and
+         HLSL; with the default workstation GC those allocations serialise on a
+         single stop-the-world heap, which measured as 8 workers spending 2.5x the
+         CPU of one worker for almost no wall-clock gain.  Server GC gives each
+         core its own heap. -->
+    <ServerGarbageCollection>true</ServerGarbageCollection>
   </PropertyGroup>
   <ItemGroup>
+    <!-- The single library the tool is built on: src/ShaderRipper
+         (AssemblyName ShaderRipper).  The old hand-written implementation,
+         src/ShaderRipper.Old, is kept on disk for reference only and is not
+         referenced by anything. -->
     <ProjectReference Include="..\ShaderRipper\ShaderRipper.csproj"
                       AdditionalProperties="ShaderNativeRid=$(RuntimeIdentifier)" />
   </ItemGroup>

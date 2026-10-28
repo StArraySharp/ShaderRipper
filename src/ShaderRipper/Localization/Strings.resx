@@ -1,0 +1,344 @@
+<?xml version="1.0" encoding="utf-8"?>
+<root>
+  <xsd:schema id="root" xmlns="" xmlns:xsd="http://www.w3.org/2001/XMLSchema" xmlns:msdata="urn:schemas-microsoft-com:xml-msdata">
+    <xsd:import namespace="http://www.w3.org/XML/1998/namespace" />
+    <xsd:element name="root" msdata:IsDataSet="true">
+      <xsd:complexType>
+        <xsd:choice maxOccurs="unbounded">
+          <xsd:element name="metadata">
+            <xsd:complexType>
+              <xsd:sequence>
+                <xsd:element name="value" type="xsd:string" minOccurs="0" />
+              </xsd:sequence>
+              <xsd:attribute name="name" use="required" type="xsd:string" />
+              <xsd:attribute name="type" type="xsd:string" />
+              <xsd:attribute name="mimetype" type="xsd:string" />
+              <xsd:attribute ref="xml:space" />
+            </xsd:complexType>
+          </xsd:element>
+          <xsd:element name="assembly">
+            <xsd:complexType>
+              <xsd:attribute name="alias" type="xsd:string" />
+              <xsd:attribute name="name" type="xsd:string" />
+            </xsd:complexType>
+          </xsd:element>
+          <xsd:element name="data">
+            <xsd:complexType>
+              <xsd:sequence>
+                <xsd:element name="value" type="xsd:string" minOccurs="0" msdata:Ordinal="1" />
+                <xsd:element name="comment" type="xsd:string" minOccurs="0" msdata:Ordinal="2" />
+              </xsd:sequence>
+              <xsd:attribute name="name" type="xsd:string" use="required" msdata:Ordinal="1" />
+              <xsd:attribute name="type" type="xsd:string" msdata:Ordinal="3" />
+              <xsd:attribute name="mimetype" type="xsd:string" msdata:Ordinal="4" />
+              <xsd:attribute ref="xml:space" />
+            </xsd:complexType>
+          </xsd:element>
+          <xsd:element name="resheader">
+            <xsd:complexType>
+              <xsd:sequence>
+                <xsd:element name="value" type="xsd:string" minOccurs="0" msdata:Ordinal="1" />
+              </xsd:sequence>
+              <xsd:attribute name="name" type="xsd:string" use="required" />
+            </xsd:complexType>
+          </xsd:element>
+        </xsd:choice>
+      </xsd:complexType>
+    </xsd:element>
+  </xsd:schema>
+  <resheader name="resmimetype">
+    <value>text/microsoft-resx</value>
+  </resheader>
+  <resheader name="version">
+    <value>2.0</value>
+  </resheader>
+  <resheader name="reader">
+    <value>System.Resources.ResXResourceReader, System.Windows.Forms, Version=4.0.0.0, Culture=neutral, PublicKeyToken=b77a5c561934e089</value>
+  </resheader>
+  <resheader name="writer">
+    <value>System.Resources.ResXResourceWriter, System.Windows.Forms, Version=4.0.0.0, Culture=neutral, PublicKeyToken=b77a5c561934e089</value>
+  </resheader>
+
+  <data name="Usage" xml:space="preserve">
+    <value>usage:
+  ShaderRipper --game &lt;dataDir|gameRoot&gt; [outDir] [options]
+  ShaderRipper --file &lt;path[,;path|wildcard]&gt;... [outDir] [options]
+  ShaderRipper --asm &lt;file.dxbc.asm&gt; [--out &lt;file.hlsl&gt;]
+  ShaderRipper --glsl &lt;file.glsl&gt; [--shaderlab]
+  ShaderRipper --emit &lt;dir&gt; &lt;outDir&gt;
+  ShaderRipper --stats &lt;dir-with-asm-files&gt;
+  ShaderRipper --list-shaders &lt;file&gt;
+  ShaderRipper --dump &lt;file&gt; [--dump-filter &lt;text&gt;]
+
+Export:
+    --shaderlab      write &lt;Name&gt;.shader (the deliverable)
+    --programs       also write per-program HLSL into &lt;Name&gt;/ folders
+    --orig-asm       also write the original disassembly / GLSL into them
+    --out &lt;dir&gt;      output directory (default "&lt;input&gt;_Ripped")
+    --jobs &lt;N&gt;       translate N shaders at once (default: logical cores)
+    --overwrite      empty the output directory first (alias --clean), so one
+                     path can be reused instead of one folder per run
+    --no-dedup       keep every copy of a shader (default: one copy per path)
+    --builtin        include Unity's own shaders as well
+    --only &lt;text&gt;    only shaders whose name contains this
+    --self-contained inline the engine declarations instead of #include
+                     (compiles standalone; Unity will reject it on import)
+
+Name tables:
+    --tmp-layouts &lt;file|dir&gt; TMP layout rows (JSON)
+    --builtin-index &lt;file&gt;   Unity's own shader list
+    --no-tmp-layout          ignore the TMP layout rows
+
+Other:
+    --quiet                only the final tally
+    --verbose              per-file headings, structure and timings
+    --lang &lt;en|zh&gt;         interface language (default: system UI language)
+    -h, --help             show this help</value>
+    <comment>Command-line usage text. Keep the alignment: the options are column-aligned.</comment>
+  </data>
+
+  <data name="UsageFile" xml:space="preserve">
+    <value>usage: ShaderRipper --file &lt;path|list|wildcard&gt;... [outDir]</value>
+    <comment>Printed when --file is given without any input path.</comment>
+  </data>
+
+  <data name="UnknownOption">
+    <value>unknown option: {0}</value>
+    <comment>{0} = the unrecognised argument</comment>
+  </data>
+
+  <data name="ExportSummary">
+    <value>files={0} shaders={1} emitted={2} programs={3} disassembled={4} translated={5} skipped={6} failed={7}</value>
+    <comment>One-line export tally. Files read, shaders seen, shaders written, programs translated.</comment>
+  </data>
+
+  <data name="OverwriteCleared">
+    <value>overwrite: emptied {0} ({1} entries removed)</value>
+    <comment>--overwrite deleted the previous run's output before writing. {0} directory, {1} count.</comment>
+  </data>
+
+  <data name="OverwriteRefused">
+    <value>--overwrite refuses to empty {0}: it looks like a game install (it holds a *_Data folder). Pick a different output directory.</value>
+    <comment>Safety stop: the target is an input, not an export. {0} directory.</comment>
+  </data>
+
+  <data name="OverwriteForeign">
+    <value>--overwrite refuses to empty {0}: it holds files this tool did not write ({1}). Point it at an export directory, or delete the contents yourself.</value>
+    <comment>Safety stop: the target is not exclusively a previous export. {0} directory, {1} example names.</comment>
+  </data>
+
+  <data name="OverwriteBusy">
+    <value>--overwrite could not empty {0}: {1} is still in use (close whatever is holding it, then rerun). Nothing was written.</value>
+    <comment>An entry inside the export directory could not be deleted. {0} directory, {1} entry name.</comment>
+  </data>
+
+  <data name="ExportSummaryBuiltinSkipped">
+    <value> builtin-skipped={0}</value>
+    <comment>Appended to ExportSummary when Unity's own shaders were filtered out. Leading space is deliberate.</comment>
+  </data>
+
+  <data name="Note">
+    <value>  note: {0}</value>
+    <comment>One diagnostic note, indented under the summary.</comment>
+  </data>
+
+  <data name="AsmSummary">
+    <value>profile={0} instructions={1} translated={2} todo={3} parseErrors={4}</value>
+    <comment>Statistics for --asm on a single disassembly.</comment>
+  </data>
+
+  <data name="AsmMissingHandlers">
+    <value>no handler yet: {0}</value>
+    <comment>{0} = comma-separated opcode list</comment>
+  </data>
+
+  <data name="GlslParseErrors">
+    <value>parseErrors={0}</value>
+    <comment>GLSL translator error count.</comment>
+  </data>
+
+  <data name="ShaderLabWellFormed">
+    <value>shaderlab: well-formed</value>
+    <comment>The generated ShaderLab parses back cleanly.</comment>
+  </data>
+
+  <data name="ShaderLabErrors">
+    <value>shaderlab: {0}</value>
+    <comment>{0} = semicolon-separated parse errors</comment>
+  </data>
+
+  <data name="EmitAllSummary">
+    <value>clean={0} with-todo={1} out={2}</value>
+    <comment>--emit tally.</comment>
+  </data>
+
+  <data name="StatsSummary">
+    <value>files={0} parsed={1} empty-or-failed={2}</value>
+    <comment>--stats: corpus file counts.</comment>
+  </data>
+
+  <data name="StatsInstructions">
+    <value>instructions={0} translated={1} todo={2} ({3}%)</value>
+    <comment>--stats: instruction coverage. {3} is already formatted to one decimal.</comment>
+  </data>
+
+  <data name="StatsNoHandler">
+    <value>  no handler: {0} ({1} file(s))</value>
+    <comment>--stats: opcodes with no emitter.</comment>
+  </data>
+
+  <data name="ListShadersSummary">
+    <value>shaders={0} file(s)={1}</value>
+    <comment>--list-shaders tally, printed to stderr so stdout stays a clean list.</comment>
+  </data>
+
+  <data name="DumpFileHeader">
+    <value># {0}  unity={1} objects={2}</value>
+    <comment>--dump: one heading per serialized file.</comment>
+  </data>
+
+  <data name="DumpShaderSummary">
+    <value>    pathId={0} passes={1} subprograms={2} props={3} keywords={4}</value>
+    <comment>--dump: per-shader counts.</comment>
+  </data>
+
+  <data name="DumpPlatforms">
+    <value>    platforms=[{0}]</value>
+    <comment>--dump: the platform list a shader ships.</comment>
+  </data>
+
+  <data name="DumpOrigin">
+    <value>    container={0} source={1} fallback={2}</value>
+    <comment>--dump: where the shader came from and what it falls back to.</comment>
+  </data>
+
+  <data name="DumpNone">
+    <value>(none)</value>
+    <comment>Stand-in for a missing optional value in --dump output.</comment>
+  </data>
+
+  <data name="DumpEntryError">
+    <value>  {0}: {1}</value>
+    <comment>A file that could not be read during --list-shaders / --dump.</comment>
+  </data>
+
+  <data name="ResourcesMapNotFound">
+    <value>resources map: globalgamemanagers not found</value>
+    <comment>No Resources.Load path table; shaders are named after themselves.</comment>
+  </data>
+
+  <data name="ResourcesMapLoaded">
+    <value>resources map: {0} entries</value>
+    <comment>{0} = how many (file, pathID) -> path mappings were recovered.</comment>
+  </data>
+
+  <data name="ResourcesMapFrom">
+    <value>resources map: read {0}</value>
+    <comment>{0} = globalgamemanagers path, reported when it is not in the directory the user named.</comment>
+  </data>
+
+  <data name="ResourcesMapError">
+    <value>resources map: {0}</value>
+    <comment>{0} = the exception message</comment>
+  </data>
+
+  <data name="DedupSummary">
+    <value>dedup: {0} -&gt; {1} shader(s), {2} duplicate(s) dropped</value>
+    <comment>--dedup tally.</comment>
+  </data>
+
+  <data name="PathTaken">
+    <value>{0}: path taken, written as {1}</value>
+    <comment>Two shaders resolved to the same file; the second got a suffix.</comment>
+  </data>
+
+  <data name="ShaderLabNotWellFormed">
+    <value>{0}: shaderlab not well-formed: {1}</value>
+    <comment>A shader whose generated ShaderLab failed the parse-back check, so nothing was written.</comment>
+  </data>
+
+  <data name="PlanErrors">
+    <value>plan: {0}</value>
+    <comment>{0} = a planning-stage message (which input is read, what was chosen)</comment>
+  </data>
+
+  <data name="LogInfo">
+    <value>info</value>
+    <comment>Level tag: a shader was written.</comment>
+  </data>
+
+  <data name="LogRead">
+    <value>read</value>
+    <comment>Level tag: one input file was parsed, followed by how many shaders it held.</comment>
+  </data>
+
+  <data name="LogWarn">
+    <value>warn</value>
+    <comment>Level tag: something the export had to work around.</comment>
+  </data>
+
+  <data name="LogError">
+    <value>err</value>
+    <comment>Level tag: a shader could not be written.</comment>
+  </data>
+
+  <data name="LogSkip">
+    <value>skip</value>
+    <comment>Level tag: a shader left out on purpose (Unity's own).</comment>
+  </data>
+
+  <data name="LogDup">
+    <value>dup</value>
+    <comment>Level tag: a duplicate copy dropped by --dedup.</comment>
+  </data>
+
+  <data name="LogReadShaders">
+    <value>{0} shader(s)</value>
+    <comment>{0} = how many shaders the file in the same line contained.</comment>
+  </data>
+
+  <data name="LogSkipBuiltin">
+    <value>Unity built-in</value>
+    <comment>Why a shader was skipped: it is one of Unity's own.</comment>
+  </data>
+
+  <data name="LogKeptFrom">
+    <value>kept {0}</value>
+    <comment>{0} = the path of the copy that was kept.</comment>
+  </data>
+
+  <data name="LogThisCopy">
+    <value>this copy: {0}</value>
+    <comment>{0} = the source file of the discarded copy.</comment>
+  </data>
+
+  <data name="LogKeptSource">
+    <value>kept {0} from {1}</value>
+    <comment>{0} = path, {1} = source file.</comment>
+  </data>
+
+  <data name="LogStructure">
+    <value>{0} pass  {1} variant(s)  {2} prop(s)  {3} platform(s)</value>
+    <comment>Per-shader structure counts, printed under the info line when verbose.</comment>
+  </data>
+
+  <data name="LogStructureTarget">
+    <value>{0} target {1}</value>
+    <comment>{0} = the structure line, {1} = shader model like 4.0</comment>
+  </data>
+
+  <data name="LogElapsed">
+    <value>{0} ms</value>
+    <comment>{0} = elapsed milliseconds</comment>
+  </data>
+
+  <data name="WarnPassNoProgram">
+    <value>pass {0} has no program in the build</value>
+    <comment>{0} = pass label such as "#0" or "0 \"Main\""</comment>
+  </data>
+
+  <data name="WarnPassNoVertex">
+    <value>pass {0} ships only a fragment program - a fullscreen vertex program was supplied</value>
+    <comment>{0} = pass label; the vertex program had to be synthesised.</comment>
+  </data>
+</root>

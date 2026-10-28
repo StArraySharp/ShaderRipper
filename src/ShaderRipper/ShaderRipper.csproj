@@ -1,5 +1,8 @@
 <Project Sdk="Microsoft.NET.Sdk">
   <PropertyGroup>
+    <!-- Library, not exe: this project replaced the old ShaderRipper library
+         (src/ShaderRipper.Old, unloaded from the solution).  Command-line front
+         ends live in ShaderRipper.Application, which references this. -->
     <OutputType>Library</OutputType>
     <TargetFramework>net10.0</TargetFramework>
     <Nullable>disable</Nullable>
@@ -8,44 +11,48 @@
     <RootNamespace>ShaderRipper</RootNamespace>
     <PlatformTarget>x64</PlatformTarget>
     <AllowUnsafeBlocks>true</AllowUnsafeBlocks>
-    <InvariantGlobalization>true</InvariantGlobalization>
-    <SatelliteResourceLanguages>en</SatelliteResourceLanguages>
+    <!-- Localized interface strings live here (Localization/Strings.*.resx):
+         the library owns every message, the exe only formats them.  No language
+         filter, so each .resx becomes a satellite assembly in the output.
+
+         InvariantGlobalization is deliberately NOT set: it disables every
+         non-invariant culture, so the "zh" language option could not resolve
+         zh-Hans and the satellite assembly would never be found. -->
     <ShaderNativeRid Condition="'$(ShaderNativeRid)' == ''">$(RuntimeIdentifier)</ShaderNativeRid>
   </PropertyGroup>
   <ItemGroup>
     <InternalsVisibleTo Include="ShaderRipper.Application" />
   </ItemGroup>
   <ItemGroup>
-    <EmbeddedResource Include="schema/*.json" LogicalName="ShaderRipper.Embed.%(Identity)" />
-    <EmbeddedResource Include="data/*.txt" LogicalName="ShaderRipper.Embed.%(Identity)" />
-    <EmbeddedResource Include="data/*.tpk" LogicalName="ShaderRipper.Embed.%(Identity)" />
-    <EmbeddedResource Include="data/tmp_layouts/*.txt" LogicalName="ShaderRipper.Embed.%(Identity)" />
-    <None Remove="data/globals_names/**" />
-    <EmbeddedResource Include="NativeLibs/D3Dcompiler_47.dll"
-                      LogicalName="ShaderRipper.Native.D3Dcompiler_47.dll" />
-    <EmbeddedResource Include="NativeLibs/win-x64/dxcompiler.dll"
-                      LogicalName="ShaderRipper.Native.dxcompiler.dll"
-                      Condition="'$(ShaderNativeRid)' == 'win-x64' Or '$(ShaderNativeRid)' == ''" />
-    <EmbeddedResource Include="NativeLibs/win-x64/dxil.dll"
-                      LogicalName="ShaderRipper.Native.dxil.dll"
-                      Condition="'$(ShaderNativeRid)' == 'win-x64' Or '$(ShaderNativeRid)' == ''" />
-    <EmbeddedResource Include="NativeLibs/linux-x64/libdxcompiler.so"
-                      LogicalName="ShaderRipper.Native.libdxcompiler.so"
-                      Condition="'$(ShaderNativeRid)' == 'linux-x64'" />
-    <EmbeddedResource Include="NativeLibs/linux-x64/libdxil.so"
-                      LogicalName="ShaderRipper.Native.libdxil.so"
-                      Condition="'$(ShaderNativeRid)' == 'linux-x64'" />
-  </ItemGroup>
-  <ItemGroup>
+    <!-- Runtime only: the lexer/parser under Grammar/ are generated ahead of
+         time and checked in (src/ShaderRipper/Grammar/*.g4 plus their four
+         outputs each), so building this project needs no JVM.  Regenerate them
+         with scripts/gen_grammar.py after editing a grammar. -->
+    <PackageReference Include="Antlr4.Runtime.Standard" Version="4.13.1" />
+    <!-- LZ4: Unity's shader blobs are LZ4 block-compressed. -->
+    <PackageReference Include="K4os.Compression.LZ4" Version="1.3.8" />
+    <!-- Unity's typetree database and endian primitives, needed to read a
+         SerializedFile without a per-version hand-written schema. -->
     <PackageReference Include="AssetRipper.Tpk" Version="2.0.0" />
     <PackageReference Include="AssetRipper.IO.Endian" Version="2.1.0" />
     <PackageReference Include="AssetRipper.Primitives" Version="3.2.0" />
-    <PackageReference Include="K4os.Compression.LZ4" Version="1.3.8" />
     <PackageReference Include="LZMA-SDK" Version="22.1.1" />
+    <!-- d3d9 token streams and the DXBC->DXIL fallback. -->
     <PackageReference Include="DXDecompiler-ly" Version="0.0.1" />
-    <!-- ANTLR runtime only: the C# lexer/parser under Antlr/ is generated ahead of
-         time and checked in, so building this project needs no JVM.  Regenerate
-         with the command documented in Antlr/README.md after editing CgExpr.g4. -->
-    <PackageReference Include="Antlr4.Runtime.Standard" Version="4.13.1" />
+  </ItemGroup>
+  <ItemGroup>
+    <!-- Every data file the library reads at runtime, embedded so the binary is
+         self-contained.  They live under Resources/ (not next to the code) and
+         are unpacked to %TEMP%\ShaderRipper\embed on first use, where
+         Paths.ExtractEmbedded looks for "data/<name>".  The manifest name keeps
+         the "data/" prefix so the existing lookups do not have to change. -->
+    <EmbeddedResource Include="Resources/data/*.tpk" LogicalName="ShaderRipper.Embed.data/%(Filename)%(Extension)" />
+    <EmbeddedResource Include="Resources/data/*.txt" LogicalName="ShaderRipper.Embed.data/%(Filename)%(Extension)" />
+    <EmbeddedResource Include="Resources/data/*.json" LogicalName="ShaderRipper.Embed.data/%(Filename)%(Extension)" />
+    <!-- Native libraries are not data: NativeLibLoader extracts them by their
+         own manifest names, so they keep the Native. prefix and stay put. -->
+    <EmbeddedResource Include="NativeLibs/*.dll" LogicalName="ShaderRipper.Native.%(Filename)%(Extension)" />
+    <EmbeddedResource Include="NativeLibs/win-x64/*.dll" LogicalName="ShaderRipper.Native.%(Filename)%(Extension)" />
+    <EmbeddedResource Include="NativeLibs/linux-x64/*.so" LogicalName="ShaderRipper.Native.%(Filename)%(Extension)" />
   </ItemGroup>
 </Project>

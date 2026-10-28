@@ -13,17 +13,33 @@ namespace ShaderRipper
     /// </summary>
     internal sealed class Argv
     {
+        /// <summary>
+        /// Options that consume the token after them.
+        ///
+        /// Commands are NOT in this set: <c>--list-shaders</c> and <c>--dump</c> name
+        /// their input as the next positional (like <c>--game</c> and <c>--asm</c>),
+        /// so listing them here would eat that path and leave the command with no
+        /// argument at all.
+        ///
+        /// <c>--game</c> IS in this set: it always takes a path, and leaving it out
+        /// put that path in the positional list where its position decided whether it
+        /// was read as the input or as the output directory.  `--shaderlab out --game
+        /// &lt;dir&gt;` then exported the wrong tree, because `out` came first.
+        /// </summary>
         private static readonly HashSet<string> Valued = new(StringComparer.OrdinalIgnoreCase)
         {
-            "--data", "--out", "--root", "--bundles", "--names", "--builtin-index",
-            "--matrix-names", "--schema", "--tmp-layouts", "--only", "--dump",
-            "--list-shaders", "--platform", "--glsl2cg", "--disasm", "--lang",
-            "--syntax", "--mat-check", "--file", "--dump-objects", "--asm-parser",
-            "--glsl-parser", "--asm-translate",
+            "--game", "--data", "--out", "--root", "--bundles", "--names", "--builtin-index",
+            "--matrix-names", "--schema", "--tmp-layouts", "--only", "--dump-filter",
+            "--platform", "--glsl2cg", "--disasm", "--lang",
+            "--syntax", "--mat-check", "--file", "--file-bare", "--dump-objects", "--asm-parser",
+            "--glsl-parser", "--asm-translate", "--jobs",
         };
 
         /// <summary>Options that accept several values rm/cp-style (space separated).</summary>
-        private static readonly HashSet<string> Variadic = new(StringComparer.OrdinalIgnoreCase) { "--file" };
+        private static readonly HashSet<string> Variadic = new(StringComparer.OrdinalIgnoreCase)
+        {
+            "--file", "--file-bare",
+        };
 
         private readonly Dictionary<string, string> _values = new(StringComparer.OrdinalIgnoreCase);
         private readonly Dictionary<string, List<string>> _multi = new(StringComparer.OrdinalIgnoreCase);

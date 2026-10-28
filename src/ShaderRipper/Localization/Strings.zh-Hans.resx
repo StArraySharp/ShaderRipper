@@ -1,0 +1,344 @@
+<?xml version="1.0" encoding="utf-8"?>
+<root>
+  <xsd:schema id="root" xmlns="" xmlns:xsd="http://www.w3.org/2001/XMLSchema" xmlns:msdata="urn:schemas-microsoft-com:xml-msdata">
+    <xsd:import namespace="http://www.w3.org/XML/1998/namespace" />
+    <xsd:element name="root" msdata:IsDataSet="true">
+      <xsd:complexType>
+        <xsd:choice maxOccurs="unbounded">
+          <xsd:element name="metadata">
+            <xsd:complexType>
+              <xsd:sequence>
+                <xsd:element name="value" type="xsd:string" minOccurs="0" />
+              </xsd:sequence>
+              <xsd:attribute name="name" use="required" type="xsd:string" />
+              <xsd:attribute name="type" type="xsd:string" />
+              <xsd:attribute name="mimetype" type="xsd:string" />
+              <xsd:attribute ref="xml:space" />
+            </xsd:complexType>
+          </xsd:element>
+          <xsd:element name="assembly">
+            <xsd:complexType>
+              <xsd:attribute name="alias" type="xsd:string" />
+              <xsd:attribute name="name" type="xsd:string" />
+            </xsd:complexType>
+          </xsd:element>
+          <xsd:element name="data">
+            <xsd:complexType>
+              <xsd:sequence>
+                <xsd:element name="value" type="xsd:string" minOccurs="0" msdata:Ordinal="1" />
+                <xsd:element name="comment" type="xsd:string" minOccurs="0" msdata:Ordinal="2" />
+              </xsd:sequence>
+              <xsd:attribute name="name" type="xsd:string" use="required" msdata:Ordinal="1" />
+              <xsd:attribute name="type" type="xsd:string" msdata:Ordinal="3" />
+              <xsd:attribute name="mimetype" type="xsd:string" msdata:Ordinal="4" />
+              <xsd:attribute ref="xml:space" />
+            </xsd:complexType>
+          </xsd:element>
+          <xsd:element name="resheader">
+            <xsd:complexType>
+              <xsd:sequence>
+                <xsd:element name="value" type="xsd:string" minOccurs="0" msdata:Ordinal="1" />
+              </xsd:sequence>
+              <xsd:attribute name="name" type="xsd:string" use="required" />
+            </xsd:complexType>
+          </xsd:element>
+        </xsd:choice>
+      </xsd:complexType>
+    </xsd:element>
+  </xsd:schema>
+  <resheader name="resmimetype">
+    <value>text/microsoft-resx</value>
+  </resheader>
+  <resheader name="version">
+    <value>2.0</value>
+  </resheader>
+  <resheader name="reader">
+    <value>System.Resources.ResXResourceReader, System.Windows.Forms, Version=4.0.0.0, Culture=neutral, PublicKeyToken=b77a5c561934e089</value>
+  </resheader>
+  <resheader name="writer">
+    <value>System.Resources.ResXResourceWriter, System.Windows.Forms, Version=4.0.0.0, Culture=neutral, PublicKeyToken=b77a5c561934e089</value>
+  </resheader>
+
+  <data name="Usage" xml:space="preserve">
+    <value>用法:
+  ShaderRipper --game &lt;游戏数据目录|游戏根目录&gt; [输出目录] [选项]
+  ShaderRipper --file &lt;路径[,;路径|通配符]&gt;... [输出目录] [选项]
+  ShaderRipper --asm &lt;文件.dxbc.asm&gt; [--out &lt;文件.hlsl&gt;]
+  ShaderRipper --glsl &lt;文件.glsl&gt; [--shaderlab]
+  ShaderRipper --emit &lt;目录&gt; &lt;输出目录&gt;
+  ShaderRipper --stats &lt;含 asm 文件的目录&gt;
+  ShaderRipper --list-shaders &lt;文件&gt;
+  ShaderRipper --dump &lt;文件&gt; [--dump-filter &lt;文本&gt;]
+
+导出:
+    --shaderlab      输出 &lt;名字&gt;.shader（交付物）
+    --programs       额外把每个程序的 HLSL 写进 &lt;名字&gt;/ 子目录
+    --orig-asm       额外把原始反汇编 / 原 GLSL 写进 &lt;名字&gt;/ 子目录
+    --out &lt;目录&gt;     输出目录（默认 "&lt;输入&gt;_Ripped"）
+    --jobs &lt;N&gt;       同时翻译 N 个 shader（默认：逻辑核数）
+    --overwrite      写出前先清空输出目录（别名 --clean），
+                    可以直接复用同一个目录，不必每次新建
+    --no-dedup       保留每一个副本（默认：每个路径只留一份）
+    --builtin        连 Unity 自带的 shader 一起导出
+    --only &lt;文本&gt;    只处理名字含有该文本的 shader
+    --self-contained 引擎声明直接内联，不用 #include
+                     （可独立编译；但 Unity 导入时会拒绝）
+
+名称表:
+    --tmp-layouts &lt;文件|目录&gt;  TMP 布局表（JSON）
+    --builtin-index &lt;文件&gt;   Unity 自带 shader 名单
+    --no-tmp-layout        不使用 TMP 布局表
+
+其它:
+    --quiet                只输出最后的统计
+    --verbose              额外输出每个文件的标题、结构和耗时
+    --lang &lt;en|zh&gt;         界面语言（默认跟随系统 UI 语言）
+    -h, --help             显示本帮助</value>
+    <comment>命令行帮助文本。注意保持对齐：选项是按列对齐的。</comment>
+  </data>
+
+  <data name="UsageFile" xml:space="preserve">
+    <value>用法: ShaderRipper --file &lt;路径|列表|通配符&gt;... [输出目录]</value>
+    <comment>给了 --file 却没有给任何输入路径时打印。</comment>
+  </data>
+
+  <data name="UnknownOption">
+    <value>未知选项: {0}</value>
+    <comment>{0} = 无法识别的参数</comment>
+  </data>
+
+  <data name="ExportSummary">
+    <value>文件={0} 着色器={1} 已写出={2} 程序={3} 反汇编={4} 已翻译={5} 跳过={6} 失败={7}</value>
+    <comment>单行导出统计：读了多少文件、见到多少 shader、写出多少、翻译多少程序。</comment>
+  </data>
+
+  <data name="OverwriteCleared">
+    <value>覆盖导出：已清空 {0}（删除 {1} 项）</value>
+    <comment>--overwrite 在写出前删掉了上一次的产物。{0} 目录，{1} 项数。</comment>
+  </data>
+
+  <data name="OverwriteRefused">
+    <value>--overwrite 拒绝清空 {0}：它看起来是游戏安装目录（里面有 *_Data）。请换一个输出目录。</value>
+    <comment>安全闸：目标是输入而不是产物。{0} 目录。</comment>
+  </data>
+
+  <data name="OverwriteForeign">
+    <value>--overwrite 拒绝清空 {0}：里面有不是本工具写的文件（{1}）。请指向导出目录，或自己先清空。</value>
+    <comment>安全闸：目标不纯是上一次的产物。{0} 目录，{1} 示例文件名。</comment>
+  </data>
+
+  <data name="OverwriteBusy">
+    <value>--overwrite 无法清空 {0}：{1} 正被占用（关掉占用它的程序后重试）。没有写出任何文件。</value>
+    <comment>导出目录里的某一项删不掉。{0} 目录，{1} 条目名。</comment>
+  </data>
+
+  <data name="ExportSummaryBuiltinSkipped">
+    <value> 跳过内置={0}</value>
+    <comment>过滤掉 Unity 自带 shader 时追加在 ExportSummary 后。开头的空格是故意的。</comment>
+  </data>
+
+  <data name="Note">
+    <value>  提示: {0}</value>
+    <comment>一条诊断信息，缩进在统计行下方。</comment>
+  </data>
+
+  <data name="AsmSummary">
+    <value>配置档={0} 指令={1} 已翻译={2} 待办={3} 解析错误={4}</value>
+    <comment>--asm 单个反汇编文件的统计。</comment>
+  </data>
+
+  <data name="AsmMissingHandlers">
+    <value>尚无处理器: {0}</value>
+    <comment>{0} = 逗号分隔的操作码列表</comment>
+  </data>
+
+  <data name="GlslParseErrors">
+    <value>解析错误={0}</value>
+    <comment>GLSL 翻译器的错误数。</comment>
+  </data>
+
+  <data name="ShaderLabWellFormed">
+    <value>ShaderLab: 格式正确</value>
+    <comment>生成的 ShaderLab 能重新解析通过。</comment>
+  </data>
+
+  <data name="ShaderLabErrors">
+    <value>ShaderLab: {0}</value>
+    <comment>{0} = 分号分隔的解析错误</comment>
+  </data>
+
+  <data name="EmitAllSummary">
+    <value>完成={0} 有 TODO={1} 输出={2}</value>
+    <comment>--emit 统计。</comment>
+  </data>
+
+  <data name="StatsSummary">
+    <value>文件={0} 已解析={1} 空或失败={2}</value>
+    <comment>--stats：语料文件计数。</comment>
+  </data>
+
+  <data name="StatsInstructions">
+    <value>指令={0} 已翻译={1} 待办={2} ({3}%)</value>
+    <comment>--stats：指令覆盖率。{3} 已格式化为一位小数。</comment>
+  </data>
+
+  <data name="StatsNoHandler">
+    <value>  无处理器: {0} ({1} 个文件)</value>
+    <comment>--stats：没有对应发射器的操作码。</comment>
+  </data>
+
+  <data name="ListShadersSummary">
+    <value>着色器={0} 文件={1}</value>
+    <comment>--list-shaders 统计，写到 stderr 以便 stdout 保持为纯列表。</comment>
+  </data>
+
+  <data name="DumpFileHeader">
+    <value># {0}  unity={1} 对象={2}</value>
+    <comment>--dump：每个序列化文件的标题行。</comment>
+  </data>
+
+  <data name="DumpShaderSummary">
+    <value>    pathId={0} 通道={1} 子程序={2} 属性={3} 关键字={4}</value>
+    <comment>--dump：单个 shader 的计数。</comment>
+  </data>
+
+  <data name="DumpPlatforms">
+    <value>    平台=[{0}]</value>
+    <comment>--dump：该 shader 覆盖的平台列表。</comment>
+  </data>
+
+  <data name="DumpOrigin">
+    <value>    容器={0} 源文件={1} 回退名={2}</value>
+    <comment>--dump：shader 来自哪里、回退名是什么。</comment>
+  </data>
+
+  <data name="DumpNone">
+    <value>(无)</value>
+    <comment>--dump 输出中缺失可选值时的占位。</comment>
+  </data>
+
+  <data name="DumpEntryError">
+    <value>  {0}: {1}</value>
+    <comment>--list-shaders / --dump 时读不出来的文件。</comment>
+  </data>
+
+  <data name="ResourcesMapNotFound">
+    <value>资源映射: 未找到 globalgamemanagers</value>
+    <comment>没有 Resources.Load 路径表；shader 按自己的名字命名。</comment>
+  </data>
+
+  <data name="ResourcesMapLoaded">
+    <value>资源映射: {0} 条</value>
+    <comment>{0} = 恢复了多少条 (文件, pathID) -&gt; 路径 的映射。</comment>
+  </data>
+
+  <data name="ResourcesMapFrom">
+    <value>资源映射: 读取 {0}</value>
+    <comment>{0} = globalgamemanagers 路径（不在用户指定目录时说明实际位置）。</comment>
+  </data>
+
+  <data name="ResourcesMapError">
+    <value>资源映射: {0}</value>
+    <comment>{0} = 异常消息</comment>
+  </data>
+
+  <data name="DedupSummary">
+    <value>去重: {0} -&gt; {1} 个 shader，丢弃 {2} 个重复</value>
+    <comment>--dedup 统计。</comment>
+  </data>
+
+  <data name="PathTaken">
+    <value>{0}: 路径已被占用，改写到 {1}</value>
+    <comment>两个 shader 解析到同一个文件；第二个加了后缀。</comment>
+  </data>
+
+  <data name="ShaderLabNotWellFormed">
+    <value>{0}: ShaderLab 格式不正确: {1}</value>
+    <comment>生成的 ShaderLab 未通过回解析校验，因此没有写文件。</comment>
+  </data>
+
+  <data name="PlanErrors">
+    <value>计划: {0}</value>
+    <comment>{0} = 规划阶段的提示（读了哪个输入、选了哪个平台）</comment>
+  </data>
+
+  <data name="LogInfo">
+    <value>信息</value>
+    <comment>级别标签：已写出一份 shader。</comment>
+  </data>
+
+  <data name="LogRead">
+    <value>读取</value>
+    <comment>级别标签：解析了一个输入文件，后面跟着它含有多少 shader。</comment>
+  </data>
+
+  <data name="LogWarn">
+    <value>警告</value>
+    <comment>级别标签：导出时做了变通处理。</comment>
+  </data>
+
+  <data name="LogError">
+    <value>错误</value>
+    <comment>级别标签：某个 shader 写不出来。</comment>
+  </data>
+
+  <data name="LogSkip">
+    <value>跳过</value>
+    <comment>级别标签：故意略过的 shader（Unity 自带的）。</comment>
+  </data>
+
+  <data name="LogDup">
+    <value>重复</value>
+    <comment>级别标签：被 --dedup 丢掉的重复副本。</comment>
+  </data>
+
+  <data name="LogReadShaders">
+    <value>{0} 个 shader</value>
+    <comment>{0} = 该文件含有多少个 shader。</comment>
+  </data>
+
+  <data name="LogSkipBuiltin">
+    <value>Unity 内置</value>
+    <comment>跳过原因：这是 Unity 自带的 shader。</comment>
+  </data>
+
+  <data name="LogKeptFrom">
+    <value>保留 {0}</value>
+    <comment>{0} = 被保留下来的那份的路径。</comment>
+  </data>
+
+  <data name="LogThisCopy">
+    <value>本份来自: {0}</value>
+    <comment>{0} = 被丢弃那份的源文件。</comment>
+  </data>
+
+  <data name="LogKeptSource">
+    <value>保留 {0}，来自 {1}</value>
+    <comment>{0} = 路径，{1} = 源文件。</comment>
+  </data>
+
+  <data name="LogStructure">
+    <value>{0} 个通道  {1} 个变体  {2} 个属性  {3} 个平台</value>
+    <comment>单个 shader 的结构统计，verbose 级别打印在信息行下方。</comment>
+  </data>
+
+  <data name="LogStructureTarget">
+    <value>{0}  目标 {1}</value>
+    <comment>{0} = 结构统计行，{1} = 着色器模型，如 4.0</comment>
+  </data>
+
+  <data name="LogElapsed">
+    <value>{0} 毫秒</value>
+    <comment>{0} = 耗时毫秒数</comment>
+  </data>
+
+  <data name="WarnPassNoProgram">
+    <value>通道 {0} 在构建中没有程序</value>
+    <comment>{0} = 通道标识，如 "#0" 或 "0 \"Main\""</comment>
+  </data>
+
+  <data name="WarnPassNoVertex">
+    <value>通道 {0} 只有片段程序，已补全屏顶点程序</value>
+    <comment>{0} = 通道标识；顶点程序是补出来的。</comment>
+  </data>
+</root>
