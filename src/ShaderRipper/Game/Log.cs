@@ -33,6 +33,33 @@ namespace ShaderRipper.Game
     {
         public static LogLevel Level = LogLevel.Normal;
 
+        /// <summary>
+        /// One line as a caller without a console wants it.
+        ///
+        /// <c>Done</c>/<c>Total</c> come from the same counter the verbose console
+        /// line prints, so a front end can draw a real progress bar instead of
+        /// guessing from timestamps.
+        /// </summary>
+        public sealed class Line
+        {
+            /// <summary>"info", "skip", "dup", "warn", "error", "detail", "file",
+            /// "summary" or "note".</summary>
+            public string Kind = "";
+            public string Subject = "";
+            public string Detail;
+            public int Done;
+            public int Total;
+        }
+
+        /// <summary>
+        /// Where a front end that draws its own log subscribes.
+        ///
+        /// Called on whichever thread produced the line, so an implementation must
+        /// marshal to its UI thread itself.  Exceptions from the sink are swallowed:
+        /// a broken window must not abort an export.
+        /// </summary>
+        public static Action<Line> Sink;
+
         /// <summary>Progress counter for the current run (0/0 = not set).</summary>
         private static int _done, _total;
 
@@ -114,6 +141,7 @@ namespace ShaderRipper.Game
         public static void Summary(string line)
         {
             try { Console.WriteLine(line); } catch { }
+            Emit("summary", line, null);
         }
 
         /// <summary>
@@ -126,6 +154,7 @@ namespace ShaderRipper.Game
         public static void Note(string note)
         {
             try { Console.WriteLine("  " + note); } catch { }
+            Emit("note", note, null);
         }
 
         /// <summary>
@@ -150,7 +179,8 @@ namespace ShaderRipper.Game
         /// missing part is omitted rather than padded, so a line never ends in a
         /// run of spaces.
         /// </summary>
-        private static void Write(string level, string subject, string detail, string trailer)
+        private static void Write(string level, string subject, string detail, string trailer,
+                                  string kind = null)
         {
             try
             {
@@ -164,6 +194,48 @@ namespace ShaderRipper.Game
                 // A closed pipe or a redirected handle that refuses writes must not
                 // abort an export that is otherwise fine.
             }
+
+            Emit(kind ?? TagKind(level), subject, detail ?? trailer);
+        }
+
+        /// <summary>Hand a line to the sink, if one is installed.</summary>
+        private static void Emit(string kind, string subject, string detail)
+        {
+            var sink = Sink;
+            if (sink == null) return;
+            try
+            {
+                sink(new Line
+                {
+                    Kind = kind,
+                    Subject = subject ?? "",
+                    Detail = detail,
+                    Done = _done,
+                    Total = _total,
+                });
+            }
+            catch
+            {
+                // See Sink: the window is not allowed to break the export.
+            }
+        }
+
+        /// <summary>
+        /// The machine-readable name of a level tag.
+        ///
+        /// The tag itself is localized (it is printed), so it cannot be matched
+        /// against a fixed string; this maps the tag the caller used.
+        /// </summary>
+        private static string TagKind(string level)
+        {
+            if (level.Length == 0) return "detail";
+            if (level == Strings.Get("LogInfo")) return "info";
+            if (level == Strings.Get("LogSkip")) return "skip";
+            if (level == Strings.Get("LogDup")) return "dup";
+            if (level == Strings.Get("LogWarn")) return "warn";
+            if (level == Strings.Get("LogError")) return "error";
+            if (level == Strings.Get("LogRead")) return "file";
+            return "info";
         }
 
         /// <summary>Pad a level tag to six display columns, counting CJK as two.</summary>

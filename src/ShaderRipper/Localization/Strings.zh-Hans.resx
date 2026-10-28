@@ -117,6 +117,11 @@
     <comment>--overwrite 在写出前删掉了上一次的产物。{0} 目录，{1} 项数。</comment>
   </data>
 
+  <data name="ExportCancelled">
+    <value>已取消：已写出的文件保留，未写导出标记。</value>
+    <comment>可中断导出的前端用的取消提示。</comment>
+  </data>
+
   <data name="NoShaderMatched">
     <value>--only "{0}" 没有匹配到任何 shader，未写出任何文件。请检查拼写（匹配规则是名字的不区分大小写子串）。</value>
     <comment>--only 把全部 shader 过滤掉了。{0} 过滤文本。</comment>

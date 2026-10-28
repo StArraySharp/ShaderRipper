@@ -22,6 +22,9 @@
   </PropertyGroup>
   <ItemGroup>
     <InternalsVisibleTo Include="ShaderRipper.Application" />
+    <!-- The desktop front end reads the same log and progress counter the console
+         uses; it is not part of the solution and is not shipped here. -->
+    <InternalsVisibleTo Include="ShaderRipper.Gui" />
   </ItemGroup>
   <ItemGroup>
     <!-- Runtime only: the lexer/parser under Grammar/ are generated ahead of

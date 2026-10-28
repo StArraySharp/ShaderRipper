@@ -23,3 +23,6 @@ globals_names/
 src/*.Old/
 # UnityShaderCompiler run log
 scripts/usc_check.log
+
+# 桌面 GUI（Photino + Material You）。本地前端，不入库：不进 slnx，发布也只在本机做
+src/ShaderRipper.Gui/

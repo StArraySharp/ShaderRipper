@@ -118,6 +118,11 @@ Other:
     <comment>--overwrite deleted the previous run's output before writing. {0} directory, {1} count.</comment>
   </data>
 
+  <data name="ExportCancelled">
+    <value>cancelled: the shaders already written were kept, and no export marker was written.</value>
+    <comment>Cancellation notice for a front end that can stop a run.</comment>
+  </data>
+
   <data name="NoShaderMatched">
     <value>No shader matched --only "{0}".  Nothing was written; check the spelling (the match is a case-insensitive substring of the shader's name).</value>
     <comment>--only filtered everything out. {0} the filter text.</comment>

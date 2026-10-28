@@ -147,7 +147,8 @@ namespace ShaderRipper.Game
         public static Stats Run(string dataDir, string outDir, string only, bool shaderLab,
                                 bool origAsm = false, bool dedup = true, bool builtin = false,
                                 bool programs = false, IReadOnlyList<string> files = null,
-                                bool overwrite = false, int jobs = 1)
+                                bool overwrite = false, int jobs = 1,
+                                System.Threading.CancellationToken cancel = default)
         {
             var s = new Stats();
             ExportDir.Prepare(outDir, overwrite);
@@ -325,19 +326,33 @@ namespace ShaderRipper.Game
                 var per = new Stats[seats.Length];
                 System.Threading.Tasks.Parallel.For(0, seats.Length,
                     new System.Threading.Tasks.ParallelOptions { MaxDegreeOfParallelism = jobs },
-                    i => per[i] = ExportSeat(seats[i], outDir, resMap, shaderLab, programs, origAsm));
-                foreach (var ps in per) Merge(s, ps);
+                    i =>
+                    {
+                        // A cancelled run stops taking new work; what is in flight
+                        // finishes, so every file on disk is a whole shader.
+                        if (cancel.IsCancellationRequested) return;
+                        per[i] = ExportSeat(seats[i], outDir, resMap, shaderLab, programs, origAsm);
+                    });
+                foreach (var ps in per) if (ps != null) Merge(s, ps);
                 s.Shaders = seats.Length;
             }
             else
             {
                 foreach (var seat in seats)
                 {
+                    if (cancel.IsCancellationRequested) break;
                     s.Shaders++;
                     Merge(s, ExportSeat(seat, outDir, resMap, shaderLab, programs, origAsm));
                 }
             }
-            ExportDir.Finish(outDir, s.Emitted, programs ? s.Programs : 0);
+
+            if (cancel.IsCancellationRequested)
+                // No marker: the directory is this tool's, but the export behind it is
+                // not the one that was asked for, and the next run should not treat it
+                // as complete.
+                s.Notes.Add(Localization.Strings.Get("ExportCancelled"));
+            else
+                ExportDir.Finish(outDir, s.Emitted, programs ? s.Programs : 0);
             return s;
         }
 
