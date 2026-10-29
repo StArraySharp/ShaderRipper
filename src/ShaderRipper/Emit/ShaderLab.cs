@@ -79,6 +79,10 @@ namespace ShaderRipper.Emit
                                   IReadOnlyList<Data.Property> props, string customEditor = null)
         {
             var sb = new StringBuilder();
+            // The header comment is what WarnIfForeign keys on when re-running
+            // into an existing directory: without it every one of our own files
+            // reads as foreign and the warning fires on the whole export.
+            sb.Append("// Reconstructed ShaderLab by ShaderRipper\n");
             sb.Append("Shader \"").Append(name.Replace('"', '_')).Append("\"\n{\n");
 
             AppendProperties(sb, props);
