@@ -72,6 +72,9 @@ ShaderRipper.exe --game "游戏名_Data" --out out --only Bloom --orig-asm
 # 出图线程数：默认逻辑核数，--jobs 1 为串行（日志顺序可复现）
 ShaderRipper.exe --game "游戏名_Data" --shaderlab out --jobs 4
 
+# 只读一个后端：单独看 GLES 路线的产物（d3d11 槽不参与）
+ShaderRipper.exe --game "游戏名_Data" --shaderlab out --platform gles3
+
 # 单个 / 多个文件：.assets、.bundle、.unity3d、.apk 均可（按内容识别，扩展名可省）
 ShaderRipper.exe --file "游戏名_Data/resources.assets" --out out
 ShaderRipper.exe --file "a.apk" --out out
@@ -172,6 +175,7 @@ Windows / Linux 构建格式一致，APK 从 zip 内读取。
 | `--orig-asm` | 额外把原始反汇编（`.orig.asm`）或原 GLSL（`.orig.glsl`）写进 `<名字>/` 子目录；与 `--programs` 互不隐含 |
 | `--jobs <N>` | 并发线程数，默认逻辑核数；`--jobs 1` 为串行 |
 | `--only <文本>` | 只处理名字含该文本的 shader |
+| `--platform <名\|id>` | 只读这一个后端的槽（d3d11 / gles3 / gles20 / openglcore / opengl …）；同时有 d3d11 和 gles3 的构建永远先取 d3d11，只有指定它才能单独看 GLSL 路线的产物。指定没有翻译器的后端（vulkan / d3d9 / metal）会直接报错，而不是导出 0 个 |
 | `--no-dedup` | 保留每个副本（默认同一路径只留一份：优先有固定容器路径的，并列取 path id 最小者） |
 | `--builtin` | 连 Unity 自带 shader 一起导出（默认跳过，只统计跳过了多少） |
 | `--overwrite`（别名 `--clean`） | 写前清空输出目录，只清本工具自己产出的内容 |

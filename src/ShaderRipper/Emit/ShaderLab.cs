@@ -302,10 +302,14 @@ namespace ShaderRipper.Emit
                 if (merged == null) return;
             }
             sb.Append("            HLSLPROGRAM\n");
+            // The target comes first: Unity decides the profile it compiles the
+            // kernel for from this line, and a UAV-using program was being built as
+            // ps_4_0 ("the target doesn't support UAVs") when the pragma sat after
+            // the entry points.
+            AppendTarget(sb, p, merged);
             if (p.Vertex != null) sb.Append("            #pragma vertex ").Append(p.Vertex.Entry).Append('\n');
             else if (synthVertex) sb.Append("            #pragma vertex vert\n");
             if (p.Fragment != null) sb.Append("            #pragma fragment ").Append(p.Fragment.Entry).Append('\n');
-            AppendTarget(sb, p);
             foreach (var line in p.Pragmas) sb.Append("            ").Append(line).Append('\n');
             foreach (var note in p.Notes) sb.Append("            // ").Append(note).Append('\n');
             foreach (var line in merged) AppendBodyLine(sb, line);
@@ -335,7 +339,7 @@ namespace ShaderRipper.Emit
         /// fallback for combinations Unity never compiled -- the same shape the
         /// original source had before Unity stripped its variants.
         /// </summary>
-        private static void AppendTarget(StringBuilder sb, PassText p)
+        private static void AppendTarget(StringBuilder sb, PassText p, IEnumerable<string> body = null)
         {
             // The translated body is register level: `Texture2D` + `SamplerState`
             // declarations, `.Sample()` lookups, `asuint`/`asfloat` and `[loop]`.
@@ -344,6 +348,16 @@ namespace ShaderRipper.Emit
             // program was built for -- and never less than 4.0, because the syntax
             // itself requires it.
             int model = Math.Max(p.Target, 40);
+            // Multisampled textures, UAVs and `Texture.Load` are SM5 features.  The
+            // target is also what Unity compiles the kernel against, so a 4.0
+            // declaration made those programs fail to build -- and the failure is
+            // reported as "did not find shader kernel 'frag' to compile", which
+            // reads like a missing entry point rather than a wrong target.
+            if (body != null && body.Any(l => l != null &&
+                    (l.Contains("Texture2DMS") || l.Contains("RWByteAddressBuffer")
+                     || l.Contains("RWTexture") || l.Contains("ByteAddressBuffer")
+                     || l.Contains("StructuredBuffer") || l.Contains(".Load("))))
+                model = Math.Max(model, 50);
             sb.Append("            #pragma target ").Append(model / 10).Append('.')
               .Append(model % 10).Append('\n');
         }
@@ -362,10 +376,10 @@ namespace ShaderRipper.Emit
             string synth = hasVert || !hasFrag ? null : FullscreenVertexFor(p.Chains[0].Bodies[0]);
 
             sb.Append("            HLSLPROGRAM\n");
+            AppendTarget(sb, p, p.Chains.SelectMany(c => c.Bodies));
             if (hasVert) sb.Append("            #pragma vertex vert\n");
             else if (synth != null) sb.Append("            #pragma vertex vert\n");
             if (hasFrag) sb.Append("            #pragma fragment frag\n");
-            AppendTarget(sb, p);
             foreach (var pragma in p.Pragmas) sb.Append("            ").Append(pragma).Append('\n');
             foreach (var note in p.Notes) sb.Append("            // ").Append(note).Append('\n');
 
@@ -528,7 +542,22 @@ namespace ShaderRipper.Emit
                 if (f.sem == "SV_POSITION")
                     sb.Append($"\to.{f.name} = float4(uv * float2(2.0, -2.0) + float2(-1.0, 1.0), 0.0, 1.0);\n");
                 else if (f.sem.StartsWith("TEXCOORD", StringComparison.Ordinal))
-                    sb.Append($"\to.{f.name} = {f.type}(uv);\n");
+                {
+                    // A numeric constructor has to be given exactly as many
+                    // components as the type has: `float3(uv)` is a GLSL spelling
+                    // (`vec3(vec2)` pads z) and fxc rejects it outright, which is
+                    // what "incorrect number of arguments to numeric-type
+                    // constructor" means here.
+                    string v = f.type switch
+                    {
+                        "float" => "uv.x",
+                        "float2" => "uv",
+                        "float3" => "float3(uv, 0.0)",
+                        "float4" => "float4(uv, 0.0, 0.0)",
+                        _ => "uv.x",
+                    };
+                    sb.Append($"\to.{f.name} = {v};\n");
+                }
                 else
                     sb.Append($"\to.{f.name} = ({f.type})0;\n");
             }
@@ -550,8 +579,18 @@ namespace ShaderRipper.Emit
         private sealed class Buf
         {
             public string Header = "";
+            /// <summary>Register the buffer was declared at, before slots are renumbered.</summary>
+            public int Reg = -1;
             /// <summary>Members keyed by the lane each starts at.</summary>
             public readonly Dictionary<(int row, int col), CbLayout.Member> Rows = new();
+            /// <summary>
+            /// Non-zero when some program of this pass declared the buffer as an
+            /// array because it addresses rows with a runtime index.  One merged
+            /// declaration has to serve every program in the block, and only the
+            /// array form can express `cb2[r0.x + 1]`; the named members of the
+            /// other programs are rewritten to `cbN[row]` to match.
+            /// </summary>
+            public int ArrayRows;
         }
 
         /// <summary>
@@ -720,7 +759,7 @@ namespace ShaderRipper.Emit
                             own[reg] = (it.Name, rows);
                             if (!buffers.TryGetValue(it.Name, out var buf))
                             {
-                                buf = new Buf { Header = CbHeader(it.Name, reg) };
+                                buf = new Buf { Header = CbHeader(it.Name, reg), Reg = reg };
                                 buffers[it.Name] = buf;
                                 foreach (var r in rows) buf.Rows[r.Key] = r.Value;
                             }
@@ -733,6 +772,14 @@ namespace ShaderRipper.Emit
                                     !it.Name.StartsWith("CB", StringComparison.Ordinal))
                                     buf.Header = CbHeader(it.Name, reg);
                             }
+                            // A program that indexes the buffer at runtime declares it
+                            // as `float4 cb2[n]` instead of naming rows.  The merged
+                            // block must keep the array form, otherwise the rest of
+                            // that program's body reads `cb2[27]` with nothing
+                            // declared under that name (X3004).
+                            var arr = Regex.Match(it.Text, @"float4\s+cb\d+\s*\[\s*(\d+)\s*\]");
+                            if (arr.Success && int.TryParse(arr.Groups[1].Value, out int an) && an > 0)
+                                buf.ArrayRows = Math.Max(buf.ArrayRows, an);
                             break;
                         }
 
@@ -896,11 +943,25 @@ namespace ShaderRipper.Emit
                         .OrderBy(m => m.Row).ThenBy(m => m.Col).ToList();
                 }
 
-                if (keptMembers.Count == 0) continue;   // the whole block was engine-owned
+                // An array-form block has no named members at all, which is not the
+                // same as an empty one: it still has to be declared.
+                if (keptMembers.Count == 0 && kv.Value.ArrayRows == 0) continue;   // the whole block was engine-owned
 
                 string header = kv.Value.Header.Replace(
                     Regex.Match(kv.Value.Header, @"register\(b\d+\)").Value,
                     $"register(b{slotOf[kv.Key]})");
+                // The array form wins for the whole block: it is the only spelling
+                // that can express a runtime row index, and the named members the
+                // other programs use are rewritten to `cbN[row]` below.
+                if (kv.Value.ArrayRows > 0)
+                {
+                    outp.Add(header.Trim());
+                    outp.Add("{");
+                    outp.Add($"    float4 cb{slotOf[kv.Key]}[{kv.Value.ArrayRows}];");
+                    outp.Add("};");
+                    outp.Add("");
+                    continue;
+                }
                 outp.Add(header.Trim());
                 outp.Add("{");
                 // Members sit one level inside the block.  `Wrap` prefixes every
@@ -934,6 +995,22 @@ namespace ShaderRipper.Emit
             foreach (var (stage, own) in perStage)
             {
                 string fn = Function(stage);
+                // A buffer renumbered during the merge (`b1` becoming `b4` because a
+                // pass drew from more of them) is still `cb1[...]` in every body that
+                // addressed it as an array.  The declaration sits under the new slot,
+                // so the references have to move with it.
+                //
+                // Which name a register had is a PER-STAGE fact: two programs both
+                // call their first buffer `b1` and still mean different things
+                // (`CB1` vs `UnityPerDraw`), so walking the merged map would rewrite
+                // one stage's bodies with the other stage's slot.
+                foreach (var kv in own)
+                {
+                    if (kv.Value.name == null) continue;
+                    if (!buffers.TryGetValue(kv.Value.name, out var b)) continue;
+                    if (b.Reg < 0 || b.Reg == slotOf[kv.Value.name]) continue;
+                    fn = Regex.Replace(fn, @"\bcb" + b.Reg + @"\[", $"cb{slotOf[kv.Value.name]}[");
+                }
                 // Names dropped for overlapping a wider member are rewritten to
                 // read through the member that survived.
                 foreach (var kv in renames)
@@ -946,11 +1023,31 @@ namespace ShaderRipper.Emit
                 {
                     var mine = own.Values.FirstOrDefault(o => o.name == kv.Key).rows;
                     if (mine == null) continue;
+                    // A block declared as an array has no named members left: every
+                    // reference is `cbN[row]`, addressed the way the program that
+                    // forced the array form addresses it.
+                    if (kv.Value.ArrayRows > 0)
+                    {
+                        string cbName = $"cb{slotOf[kv.Key]}";
+                        foreach (var row in mine)
+                            fn = Regex.Replace(fn, @"\b" + Regex.Escape(row.Value.Name) + @"\b",
+                                               $"{cbName}[{row.Key.Item1}]");
+                        continue;
+                    }
                     foreach (var row in mine)
                     {
                         if (!kv.Value.Rows.TryGetValue(row.Key, out var merged)) continue;
                         if (merged.Name == row.Value.Name) continue;
-                        fn = Regex.Replace(fn, @"\b" + Regex.Escape(row.Value.Name) + @"\b", merged.Name);
+                        // A matrix row is addressed with `[k]`, never by bare name:
+                        // the include declares `float4x4 unity_ObjectToWorld`, and
+                        // `unity_ObjectToWorld.xyzw` is not a swizzle a matrix has
+                        // ("invalid subscript 'xyzw'").  The stage's own float4 name
+                        // for that row is what gets rewritten, so the row index comes
+                        // from the merged member's base.
+                        string target = merged.IsArray && row.Value.Col == 0
+                            ? $"{merged.Name}[{row.Key.Item1 - merged.Row}]"
+                            : merged.Name;
+                        fn = Regex.Replace(fn, @"\b" + Regex.Escape(row.Value.Name) + @"\b", target);
                     }
                 }
                 outp.AddRange(Reindent(fn.Split('\n').ToList(), 0));

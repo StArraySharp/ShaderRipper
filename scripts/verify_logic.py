@@ -126,6 +126,12 @@ RE_SAMPLE = re.compile(r"^(?:sample|gather|ld|ldms|lod)\b", re.I)
 RE_LIT = re.compile(r"l\(([^()]*)\)")
 RE_INSTR = re.compile(r"^\s*([a-z][a-z0-9_]*)\b", re.I)
 RE_CBREAD = re.compile(r"\bcb(\d+)\[(\d+)\]", re.I)
+# `cb2[r0.w + 1]` -- a row chosen at runtime.  The row a dynamic access lands on
+# is not a constant, so it cannot be compared row by row: fxc is free to
+# re-address the same array with constant indices after a rebuild (it did, for
+# every `cb2[r0.w + k]` in the terrain shaders), and the constant rows it then
+# names were never "read" in the original listing.
+RE_CBDYN = re.compile(r"\bcb(\d+)\[(?!\d+\])", re.I)
 RE_ICB = re.compile(r"^dcl_immediateConstantBuffer\s*\{(.*)\}", re.I | re.S)
 SUFFIXES = ("_sat", "_x2", "_x4", "_x8", "_d", "_glc", "_clc", "_nan",
             "_uint", "_int", "_indexable", "_aoffimmi")
@@ -171,6 +177,7 @@ def parse(text):
     flow = collections.Counter()
     samples = 0
     reads = set()
+    dyn = set()
     lits = collections.Counter()
     depth = 0
     icb = []
@@ -236,6 +243,8 @@ def parse(text):
             samples += 1
         for cbm in RE_CBREAD.finditer(line):
             reads.add((int(cbm.group(1)), int(cbm.group(2))))
+        for cbd in RE_CBDYN.finditer(line):
+            dyn.add(int(cbd.group(1)))
 
     return {
         "cbs": tuple(sorted(cbs)),
@@ -244,6 +253,7 @@ def parse(text):
         "flow": flow,
         "samples": samples,
         "reads": reads,
+        "dyn": tuple(sorted(dyn)),
         "icb": tuple(icb),
         "literals": lits,
     }
@@ -425,8 +435,14 @@ def compare(orig, rebuilt, orig_text=None, hlsl_text=None):
     # A row the original read and the rebuild does not means a value came from
     # somewhere else -- the signature of a mis-named member.  A row the rebuild
     # reads that the original never did is a member declared off its row.
-    only_orig = orig["reads"] - rebuilt["reads"]
-    only_new = rebuilt["reads"] - orig["reads"]
+    # A buffer the original addressed with a runtime row index (`cb2[r0.w + 1]`)
+    # is not comparable row by row: the rebuild is free to re-address the same
+    # array with constants, and those rows then look like rows the original never
+    # read.  Skipping the whole buffer keeps the check sharp for every buffer that
+    # only ever uses constant rows -- which is where a mis-named member shows up.
+    dyn = set(orig.get("dyn", ()))
+    only_orig = {(c, r) for (c, r) in orig["reads"] - rebuilt["reads"] if c not in dyn}
+    only_new = {(c, r) for (c, r) in rebuilt["reads"] - orig["reads"] if c not in dyn}
     if only_new:
         bad.append("cb 读取行多 %d 行: %s"
                    % (len(only_new), sorted(only_new)[:6]))

@@ -318,6 +318,25 @@ namespace ShaderRipper.Ast
                                 if (atom.number() != null && atom.operand() == null && atom.IDENT() == null)
                                     d.Stride = Number(atom.number());
                     break;
+                case DxbcAsmParser.DCL_UAV:
+                    // `dcl_uav_structured u4, 16` -- a structured buffer the program
+                    // reads (a voxel field, a GPU-driven list).  This landed in
+                    // "other" and was never declared, so the body's `t4.Load(...)`
+                    // named a resource that did not exist (X3004, undeclared
+                    // identifier).
+                    d.Kind = "uav";
+                    d.Register = reg == null ? 0 : IndexOf(reg.GetText());
+                    d.Dimension = DimensionOf(ctx.GetText());
+                    d.Structured = ctx.GetText().Contains("structured", StringComparison.OrdinalIgnoreCase);
+                    {
+                        var uargs = ctx.dclArgs();
+                        if (uargs != null && d.Structured)
+                            foreach (var arg in uargs.dclArg())
+                                foreach (var atom in arg.dclAtom())
+                                    if (atom.number() != null && atom.operand() == null && atom.IDENT() == null)
+                                        d.Stride = Number(atom.number());
+                    }
+                    break;
                 case DxbcAsmParser.DCL_INPUT:
                 case DxbcAsmParser.DCL_INPUT_PS:
                 case DxbcAsmParser.DCL_INPUT_SIV:

@@ -86,13 +86,22 @@ RENAMED = {
     "floatBitsToUint": "asuint", "uintBitsToFloat": "asfloat",
     "texture": "Sample", "textureLod": "SampleLevel",
     "texelFetch": "Load", "textureSize": "GetDimensions",
+    # GLSL built-ins with no HLSL spelling: the translator routes the call
+    # through a synthesized _sri_* helper.
+    "bitfieldInsert": "bitfieldInsert", "bitfieldExtract": "bitfieldExtract",
+    "_sri_bitfieldInsert": "bitfieldInsert", "_sri_bitfieldExtract": "bitfieldExtract",
+    "atomicAdd": "atomicAdd", "_sri_atomicAdd": "atomicAdd",
+    # include-provided textures sample through the include's own sampler name
+    "sampler_unity_SpecCube0": "samplerunity_SpecCube0",
+    "sampler_unity_SpecCube1": "samplerunity_SpecCube0",
     # stage built-ins -> the emitted output register
     "gl_Position": "o0", "gl_FragCoord": "sv_position",
+    "gl_FragDepth": "_frag_depth",
     "SV_Target0": "o0", "SV_Target1": "o1", "SV_Target2": "o2", "SV_Target3": "o3",
 }
 
 # HLSLcc prefixes its flattened globals; the translator strips them.
-PREFIXES = ("hlslcc_mtx4x4", "hlslcc_mtx3x3", "hlslcc_mtx2x2")
+PREFIXES = ("hlslcc_mtx4x4", "hlslcc_mtx3x3", "hlslcc_mtx2x2", "Xhlslcc_UnusedX")
 
 COMPARE_OPS = ("<", ">", "<=", ">=", "==", "!=", "&&", "||")
 
@@ -110,9 +119,15 @@ def normalise_name(name):
     `unity_ObjectToWorld`; `mix` is `lerp`.  Without this mapping a correct
     translation reports every identifier as both lost and invented.
     """
-    for p in PREFIXES:
-        if name.startswith(p):
-            return name[len(p):].lower()
+    # Stackable markers: HLSLcc writes `Xhlslcc_UnusedXhlslcc_mtx4x4X`, so one
+    # pass is not enough -- strip until no prefix matches.
+    while True:
+        for p in PREFIXES:
+            if name.startswith(p):
+                name = name[len(p):]
+                break
+        else:
+            break
     if name in RENAMED:
         return RENAMED[name].lower()
     if name.startswith("vs_"):

@@ -82,6 +82,9 @@ Export:
     --no-dedup       keep every copy of a shader (default: one copy per path)
     --builtin        include Unity's own shaders as well
     --only &lt;text&gt;    only shaders whose name contains this
+    --platform &lt;name|id&gt; read only this platform's slot (d3d11 / d3d9 / gles3 /
+                     gles20 / openglcore / opengl / metal / vulkan / webgpu);
+                     by default every slot with a translator is read
     --self-contained inline the engine declarations instead of #include
                      (compiles standalone; Unity will reject it on import)
 
@@ -131,6 +134,16 @@ Other:
   <data name="NothingToWrite">
     <value>Nothing to write: this command produces no files unless you ask for one of --shaderlab (the .shader files), --programs (each program's HLSL) or --orig-asm (the disassembly).</value>
     <comment>Refuse a run that would translate everything and write nothing.</comment>
+  </data>
+
+  <data name="PlatformUnknown">
+    <value>--platform "{0}" is not a platform this tool knows: pass a name (d3d11, d3d9, gles3, gles20, openglcore, opengl, metal, vulkan, webgpu) or the numeric ShaderCompilerPlatform id.</value>
+    <comment>--platform could not be resolved. {0} the text the user passed.</comment>
+  </data>
+
+  <data name="PlatformNoTranslator">
+    <value>--platform {0} has no translator in this tool: its payload is {1}, and only the dxbc (d3d11, and d3d12 bytes inside a dxbc container) and glsl (gles3, gles20, openglcore, opengl) slots can be turned into HLSL.  Nothing was written.</value>
+    <comment>A forced platform this tool cannot translate. {0} platform name, {1} payload format.</comment>
   </data>
 
   <data name="OverwriteForeignFile">

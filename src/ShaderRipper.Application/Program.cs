@@ -210,11 +210,20 @@ namespace ShaderRipper
                 return 2;
             }
 
+            // `--platform` narrows the export to a single slot.  A build that ships
+            // both d3d11 and gles3 always takes d3d11, so this is the only way to
+            // judge the GLSL route's output on its own.
+            //
+            // A platform with no translator is refused here instead of exported as
+            // zero shaders: `--platform vulkan` writing an empty directory and
+            // exiting 0 is the same trap `--only` had.
+            if (!PlatformArg(opt, out int? platform)) return 2;
+
             return ExportGame(dataDir, Input(outDir, mustExist: false), opt.Value("--only"),
                               opt.Has("--shaderlab"),
                               opt.Has("--orig-asm"), !opt.Has("--no-dedup"), opt.Has("--builtin"),
                               opt.Has("--programs"), Overwrite(opt),
-                              Jobs(opt.Value("--jobs")));
+                              Jobs(opt.Value("--jobs")), platform);
         }
 
         /// <summary>
@@ -247,10 +256,10 @@ namespace ShaderRipper
         private static int ExportGame(string dataDir, string outDir, string only, bool shaderLab,
                                       bool origAsm = false, bool dedup = true, bool builtin = false,
                                       bool programs = false,
-                                      bool overwrite = false, int jobs = 1) =>
+                                      bool overwrite = false, int jobs = 1, int? platform = null) =>
             RunExport(() => ShaderRipper.Game.GameExport.Run(
                 dataDir, outDir, only, shaderLab, origAsm, dedup, builtin, programs,
-                null, overwrite, jobs), only);
+                null, overwrite, jobs, default, platform), only);
 
         /// <summary>
         /// Run an export and report it.
@@ -319,13 +328,43 @@ namespace ShaderRipper
                 outDir = Path.Combine(Path.GetDirectoryName(Path.GetFullPath(first))!, "_Ripped");
             }
 
+            if (!PlatformArg(opt, out int? platform)) return 2;
+
             var s = RunExport(() => ShaderRipper.Game.GameExport.Run(
                 Path.GetDirectoryName(Path.GetFullPath(outDir)) ?? ".", outDir,
                 opt.Value("--only"), opt.Has("--shaderlab"), opt.Has("--orig-asm"),
                 !opt.Has("--no-dedup"), opt.Has("--builtin"),
                 opt.Has("--programs"), values,
-                Overwrite(opt), Jobs(opt.Value("--jobs"))));
+                Overwrite(opt), Jobs(opt.Value("--jobs")), default, platform));
             return s;
+        }
+
+        /// <summary>
+        /// <c>--platform &lt;id|name&gt;</c>: read one slot only.
+        ///
+        /// Both input paths take it, so the option means the same thing whether the
+        /// run was pointed at a data directory or at a list of files.  A platform
+        /// this tool has no translator for is an error here, not an empty export.
+        /// </summary>
+        private static bool PlatformArg(Argv opt, out int? platform)
+        {
+            platform = null;
+            string text = opt.Value("--platform");
+            if (string.IsNullOrWhiteSpace(text)) return true;
+
+            platform = Data.Platforms.ByName(text);
+            if (platform == null)
+            {
+                Console.Error.WriteLine(Strings.F("PlatformUnknown", text));
+                return false;
+            }
+            var info = Data.Platforms.Get(platform.Value);
+            if (info.Format is not ("dxbc" or "glsl"))
+            {
+                Console.Error.WriteLine(Strings.F("PlatformNoTranslator", info.Name, info.Format));
+                return false;
+            }
+            return true;
         }
 
         /// <summary>

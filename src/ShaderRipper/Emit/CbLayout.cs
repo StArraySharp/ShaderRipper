@@ -298,8 +298,20 @@ namespace ShaderRipper.Emit
                 int reg = d.Register;
                 int extent = Math.Max(d.Count, 1);
                 if (cb != null)
+                {
                     foreach (var kv in cb.RowExpr.Keys.Where(k => k.cb == reg))
                         extent = Math.Max(extent, kv.row + 1);
+                    // A row the resolver only named per lane -- `_BlitScaleBias.xy`
+                    // read as cb0[136].zw -- has no entry in RowExpr, and the
+                    // declared size of Unity's `$Globals` is not a reliable upper
+                    // bound either: a program that reads one row of it can declare
+                    // that buffer as one row while accessing row 136.  Counting the
+                    // lane map as well is what keeps the row inside the extent, and
+                    // a row outside it is simply not declared -- the body then names
+                    // a uniform no cbuffer holds, and the program does not compile.
+                    foreach (var kv in cb.CompExpr.Keys.Where(k => k.cb == reg))
+                        extent = Math.Max(extent, kv.row + 1);
+                }
                 layout.Extent[reg] = extent;
 
                 if (cb == null)
@@ -723,7 +735,16 @@ namespace ShaderRipper.Emit
         private static List<Member> RemoveOverlaps(List<Member> members)
         {
             var kept = new List<Member>(members.Count);
-            bool[] taken = new bool[64 * 4];
+            // Sized from the members, not fixed.  A `$Globals` block is as long as
+            // the shader's own variables make it, and URP's run past 130 rows: a
+            // 64-row table silently dropped every member above row 63, so the
+            // buffer was declared empty while the body still named the uniform
+            // (`_CameraDepthAttachment_TexelSize`, `_BlitScaleBias`) and the
+            // program did not compile.
+            int rows = 1;
+            foreach (var m in members)
+                rows = Math.Max(rows, m.Row + (m.IsArray ? m.Rows : 1));
+            bool[] taken = new bool[rows * 4];
 
             void Take(Member m)
             {

@@ -917,7 +917,15 @@ namespace ShaderRipper.Resolve
                 if (col == 0 && (declaredRows is >= 2 and <= 4 || IsDeclaredMatrix(mname)))
                 {
                     int span = (i + 1 < ordered.Count ? ordered[i + 1].offset : cb.Size) - moff;
-                    int n = declaredRows is >= 2 and <= 4 ? declaredRows : (span >= 32 ? span / 16 : 0);
+                    // A name the engine table knows to be a matrix is four rows wide
+                    // even when the next member sits far away: `unity_MatrixVP` is the
+                    // last thing in this buffer, so span arithmetic called it 51 rows
+                    // and gave up, leaving the other three rows unnamed -- and the
+                    // body then read `unity_MatrixVP.xyzw`, which is not a swizzle a
+                    // float4x4 has ("invalid subscript 'xyzw'").
+                    int n = declaredRows is >= 2 and <= 4 ? declaredRows
+                          : IsDeclaredMatrix(mname) ? 4
+                          : (span >= 32 ? span / 16 : 0);
                     if (n is >= 2 and <= 4)
                     {
                         int used = 0;

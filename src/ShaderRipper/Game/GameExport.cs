@@ -61,13 +61,13 @@ namespace ShaderRipper.Game
         /// </summary>
         private static Stats ExportSeat(Seat seat, string outDir,
                                         Dictionary<(string file, long pathId), string> resMap,
-                                        bool shaderLab, bool programs, bool origAsm)
+                                        bool shaderLab, bool programs, bool origAsm, int? platform)
         {
             var s = new Stats();
             try
             {
                 ExportShader(seat.Sh, seat.Name, seat.Rel, seat.DirName, outDir, resMap,
-                             shaderLab, programs, origAsm, s);
+                             shaderLab, programs, origAsm, platform, s);
             }
             catch (Exception e)
             {
@@ -148,7 +148,8 @@ namespace ShaderRipper.Game
                                 bool origAsm = false, bool dedup = true, bool builtin = false,
                                 bool programs = false, IReadOnlyList<string> files = null,
                                 bool overwrite = false, int jobs = 1,
-                                System.Threading.CancellationToken cancel = default)
+                                System.Threading.CancellationToken cancel = default,
+                                int? platform = null)
         {
             var s = new Stats();
             ExportDir.Prepare(outDir, overwrite);
@@ -331,7 +332,7 @@ namespace ShaderRipper.Game
                         // A cancelled run stops taking new work; what is in flight
                         // finishes, so every file on disk is a whole shader.
                         if (cancel.IsCancellationRequested) return;
-                        per[i] = ExportSeat(seats[i], outDir, resMap, shaderLab, programs, origAsm);
+                        per[i] = ExportSeat(seats[i], outDir, resMap, shaderLab, programs, origAsm, platform);
                     });
                 foreach (var ps in per) if (ps != null) Merge(s, ps);
                 s.Shaders = seats.Length;
@@ -342,7 +343,7 @@ namespace ShaderRipper.Game
                 {
                     if (cancel.IsCancellationRequested) break;
                     s.Shaders++;
-                    Merge(s, ExportSeat(seat, outDir, resMap, shaderLab, programs, origAsm));
+                    Merge(s, ExportSeat(seat, outDir, resMap, shaderLab, programs, origAsm, platform));
                 }
             }
 
@@ -953,7 +954,8 @@ namespace ShaderRipper.Game
         /// </summary>
         private static void ExportShader(Shader sh, string name, string rel, string dirName, string outDir,
                                          Dictionary<(string file, long pathId), string> resMap,
-                                         bool shaderLab, bool programs, bool origAsm, Stats s)
+                                         bool shaderLab, bool programs, bool origAsm,
+                                         int? platform, Stats s)
         {
             string full = Path.Combine(outDir, rel.Replace('/', Path.DirectorySeparatorChar));
             string relDir = Path.GetDirectoryName(full) ?? outDir;
@@ -988,9 +990,15 @@ namespace ShaderRipper.Game
             // Every platform the game shipped, one at a time: d3d11 drives the
             // DXBC route, the GLES/GL platforms drive the GLSL route, everything
             // else is noted and skipped (no translator for it in this project).
+            //
+            // A forced platform narrows this to one slot.  That is not only for
+            // comparison: a build with both d3d11 and gles3 slots always takes the
+            // d3d11 one, so the GLSL route can only be exercised -- and its output
+            // only be judged -- when d3d11 is excluded.
             for (int pi = 0; pi < (sh.Platforms?.Length ?? 0); pi++)
             {
                 int pid = (int)sh.Platforms[pi];
+                if (platform.HasValue && pid != platform.Value) continue;
                 var info = Platforms.Get(pid);
                 if (info == null || info.Format is not ("dxbc" or "glsl")) continue;
 
@@ -1896,16 +1904,27 @@ namespace ShaderRipper.Game
             // Emitting the stages as two independent guard chains would activate
             // both under the same keyword state and redefine every shared member.
             var chain = new Emit.ShaderLab.VariantChain();
+            // A pass often ships its fragment program for fewer keyword
+            // combinations than its vertex program (the ps is shared where the vs
+            // is specialised).  `#pragma fragment` is written once for the whole
+            // block, so a branch with no `frag` in it cannot compile -- and Unity
+            // reports that as "did not find shader kernel 'frag' to compile", which
+            // points at the pragma instead of at the missing body.
+            var anyVs = pb.Vs.Values.FirstOrDefault();
+            var anyPs = pb.Ps.Values.FirstOrDefault();
             foreach (var k in pb.Keys)
             {
-                bool hasVs = pb.Vs.TryGetValue(k, out var v);
-                bool hasPs = pb.Ps.TryGetValue(k, out var pv);
-                if (!hasVs && !hasPs) continue;
+                bool hadVs = pb.Vs.TryGetValue(k, out var v);
+                bool hadPs = pb.Ps.TryGetValue(k, out var pv);
+                if (!hadVs && !hadPs) continue;
+                if (!hadVs) v = anyVs;
+                if (!hadPs) pv = anyPs;
+                if (v.hlsl == null && pv.hlsl == null) continue;
                 var merged = Emit.ShaderLab.Merge(
-                    hasVs ? new Emit.ShaderLab.Stage { Hlsl = v.hlsl, Entry = "vert" } : null,
-                    hasPs ? new Emit.ShaderLab.Stage { Hlsl = pv.hlsl, Entry = "frag" } : null);
+                    v.hlsl != null ? new Emit.ShaderLab.Stage { Hlsl = v.hlsl, Entry = "vert" } : null,
+                    pv.hlsl != null ? new Emit.ShaderLab.Stage { Hlsl = pv.hlsl, Entry = "frag" } : null);
                 if (merged == null) continue;
-                chain.Guards.Add(VariantPlan.Guard(groups2, hasVs ? v.kw : pv.kw));
+                chain.Guards.Add(VariantPlan.Guard(groups2, hadVs ? v.kw : pv.kw));
                 chain.Bodies.Add(string.Join("\n", merged));
             }
             pt.Chains = chain.Bodies.Count > 0 ? new List<Emit.ShaderLab.VariantChain> { chain } : null;

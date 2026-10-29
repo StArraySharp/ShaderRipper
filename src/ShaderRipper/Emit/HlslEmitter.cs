@@ -2035,6 +2035,37 @@ namespace ShaderRipper.Emit
             }
             if (textures.Count > 0) _sb.Append('\n');
 
+            // A UAV is read and written through `ld_structured` / `store_structured`,
+            // which address bytes, so the HLSL side is a ByteAddressBuffer.  These
+            // were not declared at all -- `dcl_uav_structured` fell into the "other"
+            // bucket -- and every access named an identifier that did not exist
+            // (X3004).  The name follows TexName so the emitted `t4.Load(...)`
+            // resolves; the register keeps the u# it was declared with.
+            var uavs = _m.Decls.Where(d => d.Kind == "uav")
+                               .GroupBy(d => d.Register).Select(g => g.First())
+                               .OrderBy(d => d.Register).ToList();
+            foreach (var d in uavs)
+            {
+                // A structured UAV is read and written by byte offset, so it is a
+                // byte-address buffer; a typed one is a texture the program indexes
+                // with a coordinate.  Both are `RW`: a u# register only accepts the
+                // read-write spelling (a plain ByteAddressBuffer binds to t# and fxc
+                // answers X3530, "buffer requires a 't' register").
+                string uty = d.Structured ? "RWByteAddressBuffer"
+                           : d.Dimension switch
+                           {
+                               3 => "RWTexture3D<float4>",
+                               5 => "RWTexture2DArray<float4>",
+                               _ => "RWTexture2D<float4>",
+                           };
+                // No explicit `register(uN)`: Unity's compiler renumbers UAVs itself
+                // and rejects a manual bind it cannot honour ("maximum UAV register
+                // index exceeded ... manual bind to slot u3 failed"), so the binding
+                // is left to the compiler the way the original source did.
+                _sb.Append($"{uty} {TexName(d.Register)};\n");
+            }
+            if (uavs.Count > 0) _sb.Append('\n');
+
             // dcl_immediateConstantBuffer is a literal table in the program (a blur
             // kernel, a dither matrix).  Its values are in the declaration, so the
             // table is emitted with them instead of approximated.
@@ -2277,8 +2308,12 @@ namespace ShaderRipper.Emit
                 Line("frag_out result;");
                 if (_targets != null)
                     foreach (var d in _targets) Line($"result.target{d.Register} = o{d.Register};");
-                else
+                else if (_m.Decls.Any(d => d.Kind == "output"))
+                    // One colour target: the struct still carries `target0` for it.
                     Line("result.target0 = " + ReturnValue() + ";");
+                // With no colour target at all (a depth-only pass writes
+                // `SV_Depth` and nothing else) the struct has no `target0` field,
+                // and assigning one is `invalid subscript 'target0'`.
                 foreach (string s in _specialOut)
                     Line(s == "oMask" ? "result.mask = oMask;" : "result.depth = oDepth;");
                 Line("return result;");
@@ -3063,6 +3098,14 @@ namespace ShaderRipper.Emit
                     a = a.Select((o, i) => i == 0 ? o : RemapForMask(o, m)).ToList();
             }
 
+            // A UAV store names a writable resource where a register normally sits,
+            // so it is handled before the destination is resolved.  Falling through
+            // left a `// TODO` line behind and the whole computation that fed the
+            // value became dead code -- which is how two cbuffer reads disappeared
+            // from a rebuilt program.
+            if (ins.Opcode is "store_uav_typed" or "store_structured" or "atomic_iadd")
+                return EmitUavStore(ins.Opcode, a);
+
             string d = Expr(a[0]);
             if (d == null) return false;
 
@@ -3486,10 +3529,38 @@ namespace ShaderRipper.Emit
                 // texture; the coordinate register holds float bits, so each
                 // component is read back with asint.  Zeroing the unused
                 // components is what the DXBC form does implicitly.
+                // Bit-field insert: `bfi dst, width, offset, value, insert` replaces
+                // `width` bits of `value` starting at `offset` with the low bits of
+                // `insert`.  HLSL has no intrinsic for it, so it is spelled out in
+                // uint.  Width and offset are immediates in every occurrence seen,
+                // which lets the mask be folded here instead of at runtime; a
+                // register width falls back to the TODO line rather than guessing.
+                case "bfi":
+                    {
+                        if (a.Count < 5) return false;
+                        if (a[1].Lit is not { Length: > 0 } wl || a[2].Lit is not { Length: > 0 } ol)
+                            return false;
+                        uint width = wl[0] < 0f ? 0u : (uint)wl[0];
+                        uint offset = ol[0] < 0f ? 0u : (uint)ol[0];
+                        uint mask = width >= 32u ? uint.MaxValue
+                                  : ((1u << (int)width) - 1u) << (int)offset;
+                        uint notMask = ~mask;
+                        Line($"{d} = asfloat((asuint({Scalar(a[3])}) & {notMask}u) "
+                             + $"| ((asuint({Scalar(a[4])}) << {offset}u) & {mask}u));");
+                    }
+                    return true;
+
                 case "ld":
                     {
                         int tex = a[2].Index;
-                        Line($"{d} = {TexName(tex)}.Load({IntCoord(a[1], 3)});");
+                        // The coordinate width belongs to the resource, not to the
+                        // 2D default: an array read is (x, y, slice, mip) and a 3D
+                        // read is (x, y, z, mip), so the old fixed int3 handed
+                        // `Texture2DArray.Load` a width it has no overload for
+                        // (X3013, "no matching 1 parameter intrinsic method").
+                        var ldDecl = _m.Decls.FirstOrDefault(x => x.Kind == "texture" && x.Register == tex);
+                        int comps = ldDecl?.Dimension switch { 1 => 2, 3 => 4, 5 => 4, _ => 3 };
+                        Line($"{d} = {TexName(tex)}.Load({IntCoord(a[1], comps)});");
                     }
                     return true;
 
@@ -3663,7 +3734,12 @@ namespace ShaderRipper.Emit
             if (a.Count < 4) return false;
 
             int tex = a[3].Index;
-            var decl = _m.Decls.FirstOrDefault(x => x.Kind == "texture" && x.Register == tex);
+            // A structured UAV is read with the same instruction as a structured
+            // texture, and its stride comes from `dcl_uav_structured`; looking only
+            // at "texture" left the stride at 0, so the byte address was computed as
+            // if the record were one byte wide.
+            var decl = _m.Decls.FirstOrDefault(x => (x.Kind == "texture" || x.Kind == "uav")
+                                                    && x.Register == tex);
             int stride = decl?.Stride ?? 0;
 
             string index = Expr(a[1]);
@@ -3750,6 +3826,69 @@ namespace ShaderRipper.Emit
         /// texels rather than sample them (<c>Texture2DMS.Load</c>).  The register
         /// holds the integer as float bits, so it has to be reinterpreted first.
         /// </summary>
+        /// <summary>
+        /// The three UAV writes.  Each names its target as a u# operand instead of a
+        /// register, which is why they cannot go through the ordinary destination
+        /// path in <see cref="Emit"/>.
+        /// </summary>
+        private bool EmitUavStore(string opcode, List<Operand> a)
+        {
+            int uav = a[0].Index;
+            var decl = _m.Decls.FirstOrDefault(x => x.Kind == "uav" && x.Register == uav);
+            string name = TexName(uav);
+            switch (opcode)
+            {
+                // `store_uav_typed u1.xyzw, r0.xyzw, l(1,1,1,1)`: (target, value,
+                // coordinate) on a typed texture.
+                case "store_uav_typed":
+                    if (a.Count < 3) return false;
+                    Line($"{name}[{IntCoord(a[2], decl?.Dimension == 5 ? 3 : 2)}] = {Expr(a[1])};");
+                    return true;
+
+                // `store_structured u1.xyzw, r5.x, l(0), r1.xyzw`: (target, record
+                // index, byte offset, value), addressed the same way the read is.
+                // The width suffix is not cosmetic: this fxc only offers
+                // `Store(uint, uint)` and the `StoreN` family, so a plain `Store`
+                // with a uint4 value is X3013 ("no matching 2 parameter intrinsic").
+                case "store_structured":
+                    if (a.Count < 4) return false;
+                    {
+                        string suffix = DestWidth(a[0]) switch { 2 => "2", 3 => "3", 4 => "4", _ => "" };
+                        Line($"{name}.Store{suffix}({uavAddress(a[1], a[2], decl?.Stride ?? 0)}, asuint({Expr(a[3])}));");
+                    }
+                    return true;
+
+                // `atomic_iadd u2, r5.xyxx, l(1)`: a GPU-side counter, typically an
+                // append index.  No output register.
+                case "atomic_iadd":
+                    if (a.Count < 3) return false;
+                    Line($"{name}.InterlockedAdd({uavAddress(a[1], null, decl?.Stride ?? 0)}, asuint({Scalar(a[2])}));");
+                    return true;
+            }
+            return false;
+        }
+
+        /// <summary>
+        /// Byte address of a structured UAV access: the record index times the
+        /// stride, plus the byte offset inside the record (an immediate in every
+        /// occurrence seen so far).  This is the same arithmetic the read uses, so
+        /// a store lands on the bytes a load would have returned.
+        /// </summary>
+        private string uavAddress(Operand index, Operand offset, int stride)
+        {
+            string idx = Scalar(index) ?? Expr(index);
+            string addr = stride > 0 ? $"(asuint({idx}) * {stride}u)" : $"asuint({idx})";
+            if (offset == null) return addr;
+            if (offset.Lit is { Length: > 0 } lit)
+            {
+                uint off = lit[0] >= 0f && MathF.Floor(lit[0]) == lit[0]
+                    ? (uint)lit[0] : BitConverter.SingleToUInt32Bits(lit[0]);
+                if (off != 0) addr = $"{addr} + {off}u";
+            }
+            else addr = $"{addr} + asuint({Scalar(offset)})";
+            return addr;
+        }
+
         private string IntCoord(Operand o, int comps)
         {
             string core = Core(o);

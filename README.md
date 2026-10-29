@@ -57,6 +57,8 @@ Output follows the backends the game actually shipped; only two payload formats 
 
 > macOS is untested: the managed paths should work (publish yourself with `-r osx-arm64`), but DXIL disassembly is unavailable since Microsoft ships no macOS DXC build.
 > One shader usually carries several backend slots and each is processed; a game that only ships d3d9 / metal / vulkan produces nothing.
+>
+> `--platform <name|id>` reads a single slot. A build that ships both d3d11 and gles3 always takes d3d11, so this is the only way to see what the GLSL route produces on its own. Naming a backend with no translator (vulkan, d3d9, metal) is an error — an empty export that exits 0 is the trap `--only` had.
 
 ## Usage
 
@@ -72,6 +74,9 @@ ShaderRipper.exe --game "Game_Data" --out out --only Bloom --orig-asm
 
 # Translation threads: logical cores by default, --jobs 1 for the serial run
 ShaderRipper.exe --game "Game_Data" --shaderlab out --jobs 4
+
+# One backend only -- the GLES route's output, with the d3d11 slot kept out of the way
+ShaderRipper.exe --game "Game_Data" --shaderlab out --platform gles3
 
 # Single / multiple files: .assets, .bundle, .unity3d, .apk all work
 # (detected by content — the extension does not matter)
