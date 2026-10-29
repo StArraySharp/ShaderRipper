@@ -8,6 +8,13 @@ Extract shaders from Unity game data and rebuild them as readable **ShaderLab + 
 
 **Supported payloads**: dxbc — d3d11, Xbox / GameCore slots (instruction-by-instruction DXBC → HLSL translation), and DXIL chunks inside a dxbc container via dxcompiler (disassembly, back-translation unverified); glsl — GLES3 / GLES2 / OpenGLCore / OpenGL (GLSL back-translation to HLSL). Other backends (d3d9, Metal, Vulkan, console, WebGPU) have no translator and are skipped.
 
+## 1.2.1 highlights
+
+- Preserve shared compiled programs in every pass that references them.
+- Support dynamically indexed inputs such as `v[r2.x + 2]` instead of parsing incomplete instructions.
+- Expose constant-buffer and texture reflection through the embedded API; load embedded TMP layouts on demand.
+- Mark generated ShaderLab files and identify DXBC/GLSL translation above each program block.
+
 ## Build
 
 Requires the .NET 10 SDK.

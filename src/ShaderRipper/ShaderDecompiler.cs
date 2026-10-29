@@ -168,8 +168,76 @@ namespace ShaderRipper
     {
         public int BlobIndex;
 
+        /// <summary>
+        /// Index into the payload's separate parameter-blob table, when the host can
+        /// tell.  It is what selects the program's own constant-buffer layout, and it
+        /// is not the same number as <see cref="BlobIndex"/>.
+        /// </summary>
+        public int ParameterBlobIndex = -1;
+
         /// <summary>Indices into <see cref="ShaderModel.KeywordNames"/>.</summary>
         public List<int> KeywordIndices = new();
+
+        /// <summary>
+        /// The program's texture bindings (<c>m_TextureParams</c>).  Without them a
+        /// <c>tN</c> has no name and the export has to guess one from the order the
+        /// material's properties are declared in.
+        /// </summary>
+        public List<ShaderTextureParam> Textures = new();
+
+        /// <summary>
+        /// The program's constant-buffer layout (<c>m_ConstantBuffers</c>): the
+        /// authoritative name and byte offset of every member, so a row of
+        /// <c>$Globals</c> is named rather than emitted as <c>_cb0_rowK</c>.
+        /// </summary>
+        public List<ShaderConstantBufferInfo> ConstantBuffers = new();
+    }
+
+    /// <summary>One texture binding of a program.</summary>
+    public sealed class ShaderTextureParam
+    {
+        public string Name = "";
+
+        /// <summary>The <c>tN</c> register.</summary>
+        public int Index;
+
+        /// <summary>The <c>sN</c> register, or -1 when the program does not say.</summary>
+        public int Sampler = -1;
+    }
+
+    /// <summary>One constant buffer of a program.</summary>
+    public sealed class ShaderConstantBufferInfo
+    {
+        /// <summary>The buffer's name, <c>$Globals</c> for the material's own block.</summary>
+        public string Name = "";
+
+        /// <summary>Bytes the compiled program actually uses.</summary>
+        public int Size;
+
+        public List<ShaderConstantBufferMember> Members = new();
+    }
+
+    /// <summary>One member of a constant buffer.</summary>
+    public sealed class ShaderConstantBufferMember
+    {
+        public string Name = "";
+
+        /// <summary>Byte offset inside the buffer, the value ShaderLab's
+        /// <c>packoffset</c> is derived from.</summary>
+        public int Offset;
+
+        /// <summary>Unity's <c>ShaderParamType</c>.</summary>
+        public int Type;
+
+        /// <summary>Components in one element (1 for a scalar, 4 for a float4).</summary>
+        public int Dim = 4;
+
+        public int ArraySize = 1;
+
+        /// <summary>Rows a matrix occupies; 1 for everything else.</summary>
+        public int RowCount = 1;
+
+        public bool IsMatrix;
     }
 
     /// <summary>What one translation produced.</summary>
@@ -373,11 +441,30 @@ namespace ShaderRipper
                     foreach (string n in pi.NameIndices ?? new List<string>())
                         if (!string.IsNullOrEmpty(n)) pass.NameIndices[n] = pass.NameIndices.Count;
                     foreach (var sp in pi.SubPrograms ?? new List<ShaderSubProgramInfo>())
-                        pass.SubPrograms.Add(new SubProgram
+                    {
+                        var intoSp = new SubProgram
                         {
                             BlobIndex = sp.BlobIndex,
+                            ParameterBlobIndex = sp.ParameterBlobIndex,
                             KeywordIndices = new List<int>(sp.KeywordIndices ?? new List<int>()),
-                        });
+                        };
+                        foreach (var t in sp.Textures ?? new List<ShaderTextureParam>())
+                            if (!string.IsNullOrEmpty(t.Name))
+                                intoSp.TextureParams.Add((t.Name, t.Index, t.Sampler));
+                        foreach (var cb in sp.ConstantBuffers ?? new List<ShaderConstantBufferInfo>())
+                        {
+                            var intoCb = new AssetConstantBuffer { Name = cb.Name ?? "", Size = cb.Size };
+                            foreach (var m in cb.Members ?? new List<ShaderConstantBufferMember>())
+                                intoCb.Members.Add(new AssetCbMember
+                                {
+                                    Name = m.Name ?? "", Offset = m.Offset, Type = m.Type,
+                                    Dim = m.Dim, ArraySize = m.ArraySize,
+                                    RowCount = m.RowCount, IsMatrix = m.IsMatrix,
+                                });
+                            intoSp.ConstantBuffers.Add(intoCb);
+                        }
+                        pass.SubPrograms.Add(intoSp);
+                    }
                     sub.Passes.Add(pass);
                 }
                 parsed.SubShaders.Add(sub);

@@ -45,6 +45,10 @@ namespace ShaderRipper.Resolve
 
         private static readonly List<Layout> _all = new();
 
+        /// <summary>True once the table has been looked for, so a host that never
+        /// calls <see cref="Load"/> still gets the embedded one.</summary>
+        private static bool _loaded;
+
         /// <summary>The one table file, embedded as <c>Resources/data/tmp_layouts.json</c>.</summary>
         private const string FileName = "tmp_layouts.json";
 
@@ -57,6 +61,7 @@ namespace ShaderRipper.Resolve
 
         public static int Load(string dir = null)
         {
+            _loaded = true;
             _all.Clear();
             string path = ResolveFile(dir);
             if (path == null) return -1;
@@ -112,7 +117,11 @@ namespace ShaderRipper.Resolve
             IReadOnlyDictionary<string, int> anchors = null)
         {
             chosen = null;
-            if (!Enabled || _all.Count == 0) return null;
+            if (!Enabled) return null;
+            // An embedder has no command line to load from, so the lookup happens on
+            // first use against the files the library itself carries.
+            if (!_loaded) Load();
+            if (_all.Count == 0) return null;
             if (declaredRows <= 0 || readRows == null || readRows.Count == 0) return null;
 
             var known = new HashSet<string>(nameTable ?? Array.Empty<string>(), StringComparer.Ordinal);

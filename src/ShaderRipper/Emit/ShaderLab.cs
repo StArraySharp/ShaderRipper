@@ -57,6 +57,12 @@ namespace ShaderRipper.Emit
             public List<VariantChain> Chains;
             public List<string> Pragmas = new();
             public List<string> Notes = new();
+            /// <summary>
+            /// Which route produced the bodies -- <c>DXBC</c>, <c>GLSL</c>, or both.
+            /// Written above <c>HLSLPROGRAM</c> so a reader knows what the block was
+            /// back-translated from.
+            /// </summary>
+            public string Source = "";
             /// <summary>GLSL-derived bodies need the cginc includes and target 3.0.</summary>
             public bool GlslIncludes;
             /// <summary>
@@ -305,6 +311,7 @@ namespace ShaderRipper.Emit
                 merged = Merge(new Stage { Hlsl = FullscreenVertex(p), Entry = "vert" }, p.Fragment);
                 if (merged == null) return;
             }
+            AppendSource(sb, p);
             sb.Append("            HLSLPROGRAM\n");
             // The target comes first: Unity decides the profile it compiles the
             // kernel for from this line, and a UAV-using program was being built as
@@ -366,6 +373,19 @@ namespace ShaderRipper.Emit
               .Append(model % 10).Append('\n');
         }
 
+        /// <summary>
+        /// The line above <c>HLSLPROGRAM</c> naming what the block was
+        /// back-translated from.  Everything inside the block is machine-written, and
+        /// a reader deciding whether to trust it needs to know which route produced
+        /// it: DXBC is an instruction-by-instruction transliteration, GLSL a
+        /// source-level rewrite.
+        /// </summary>
+        private static void AppendSource(StringBuilder sb, PassText p)
+        {
+            if (!string.IsNullOrEmpty(p.Source))
+                sb.Append("            // Translated from ").Append(p.Source).Append(" language\n");
+        }
+
         private static void WriteVariantProgram(StringBuilder sb, PassText p)
         {
             // The chain bodies are whole program texts, so which entry points exist
@@ -379,6 +399,7 @@ namespace ShaderRipper.Emit
             // compile at all.
             string synth = hasVert || !hasFrag ? null : FullscreenVertexFor(p.Chains[0].Bodies[0]);
 
+            AppendSource(sb, p);
             sb.Append("            HLSLPROGRAM\n");
             AppendTarget(sb, p, p.Chains.SelectMany(c => c.Bodies));
             if (hasVert) sb.Append("            #pragma vertex vert\n");

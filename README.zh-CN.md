@@ -8,6 +8,13 @@
 
 **支持的载荷**：dxbc —— d3d11、Xbox / GameCore 槽位（DXBC 汇编逐条直译 HLSL），以及 dxbc 容器里的 DXIL chunk（经 dxcompiler 反汇编，回译未验证）；glsl —— GLES3 / GLES2 / OpenGLCore / OpenGL（GLSL 回译 HLSL）。其余后端（d3d9、Metal、Vulkan、主机平台、WebGPU）没有翻译器，会被跳过。
 
+## 1.2.1 更新
+
+- 同一个编译程序被多个 Pass 引用时，为所有引用它的 Pass 保留程序。
+- 支持 `v[r2.x + 2]` 等动态索引输入，避免指令解析不完整及索引越界。
+- 嵌入 API 支持传递常量缓冲与纹理反射，TMP 内嵌布局按需加载。
+- 生成的 ShaderLab 带来源标记，并在程序块上方注明 DXBC/GLSL 翻译来源。
+
 ## 编译
 
 需要 .NET 10 SDK。

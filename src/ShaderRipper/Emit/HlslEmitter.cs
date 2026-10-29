@@ -2199,6 +2199,13 @@ namespace ShaderRipper.Emit
                 var map = vert ? _iface.VsInReg : _iface.PsInReg;
                 foreach (var line in _iface.BindInputs(map, vert ? "v" : "i", NeededInputComps))
                     Line(line.Trim());
+                if (_m.Code.SelectMany(ins => ins.Args).Any(a => a.Kind == RegKind.V && !string.IsNullOrEmpty(a.IndexRaw)))
+                {
+                    int extent = map.Keys.DefaultIfEmpty(0).Max() + 1;
+                    Line($"float4 _inputs[{extent}];");
+                    for (int reg = 0; reg < extent; reg++)
+                        Line($"_inputs[{reg}] = {(map.ContainsKey(reg) ? $"v{reg}" : "float4(0, 0, 0, 0)")};");
+                }
                 Line("");
             }
 
@@ -2328,7 +2335,8 @@ namespace ShaderRipper.Emit
         /// </summary>
         private int NeededInputComps(int reg)
         {
-            int n = 0;
+            int n = _m.Code.SelectMany(ins => ins.Args)
+                .Any(a => a.Kind == RegKind.V && !string.IsNullOrEmpty(a.IndexRaw)) ? 4 : 0;
             foreach (var ins in _m.Code)
                 foreach (var a in ins.Args)
                     if (a.Kind == RegKind.V && a.Index == reg)
@@ -2442,7 +2450,7 @@ namespace ShaderRipper.Emit
             return o.Kind switch
             {
                 RegKind.R => $"r{o.Index}",
-                RegKind.V => $"v{o.Index}",
+                RegKind.V => string.IsNullOrEmpty(o.IndexRaw) ? $"v{o.Index}" : $"_inputs[{CbIndex(o, o.Row)}]",
                 RegKind.O => $"o{o.Index}",
                 // `oDepth` / `oMask`: the local the return statement copies into the
                 // SV_Depth / SV_Coverage field.

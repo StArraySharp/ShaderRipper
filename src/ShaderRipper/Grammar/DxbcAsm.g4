@@ -156,7 +156,7 @@ register
 // token type while the parser stays indifferent to it.  REG_ONAME comes last so
 // the numeric forms keep their own token.
 regToken
-    : REG_CB | REG_ICB | REG_R | REG_V | REG_O | REG_T | REG_S | REG_U | REG_X | REG_A | REG_G | REG_M
+    : REG_CB | REG_ICB | REG_R | REG_V | REG_V_INDEXED | REG_O | REG_T | REG_S | REG_U | REG_X | REG_A | REG_G | REG_M
     | REG_ONAME
     ;
 
@@ -217,6 +217,10 @@ REG_CB  : [cC][bB] [0-9]+ ;
 REG_ICB : [iI][cC][bB] ;
 REG_R   : 'r' [0-9]+ ;
 REG_V   : 'v' [0-9]+ ;
+// Dynamically indexed vertex inputs are written as `v[r2.x + 2]`, with no
+// numeric register suffix.  Keep the bare `v` distinct from IDENT so it can
+// enter the same register/index-expression rule as `cb0[r1.x + 25]`.
+REG_V_INDEXED : 'v' ;
 REG_O   : 'o' [0-9]+ ;
 REG_T   : 't' [0-9]+ ;
 REG_S   : 's' [0-9]+ ;

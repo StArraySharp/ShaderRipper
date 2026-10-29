@@ -1175,10 +1175,11 @@ namespace ShaderRipper.Game
         }
 
         /// <summary>Every blob index maps to this one pass.</summary>
-        private static Dictionary<int, Pass> Only(Pass pass)
+        private static Dictionary<int, List<Pass>> Only(Pass pass)
         {
-            var map = new Dictionary<int, Pass>();
-            for (int i = 0; i < 256; i++) map[i] = pass;
+            var one = new List<Pass> { pass };
+            var map = new Dictionary<int, List<Pass>>();
+            for (int i = 0; i < 256; i++) map[i] = one;
             return map;
         }
 
@@ -1245,18 +1246,29 @@ namespace ShaderRipper.Game
             }
         }
 
-        /// <summary>Pass and sub-program lookups keyed by blob index.</summary>
-        private static (Dictionary<int, Pass> passOf, Dictionary<int, SubProgram> spOf) PassMaps(Shader sh)
+        /// <summary>
+        /// Which passes and which sub-program each blob slot belongs to.  The name
+        /// table and the asset's own reflection hang off those, and a blob index is
+        /// the only thing the decoded slot tells us.
+        ///
+        /// A slot usually belongs to one pass, but Unity stores one compiled copy of
+        /// a program that several passes share -- two passes whose vertex and
+        /// fragment are byte-identical end up declaring the same blob indices.  The
+        /// mapping is therefore a list per slot: keeping only one owner silently
+        /// dropped the program from every other pass that declared it.
+        /// </summary>
+        private static (Dictionary<int, List<Pass>> passOf, Dictionary<int, SubProgram> spOf) PassMaps(Shader sh)
         {
-            var passOf = new Dictionary<int, Pass>();
+            var passOf = new Dictionary<int, List<Pass>>();
             var spOf = new Dictionary<int, SubProgram>();
             foreach (var ss in sh.ParsedForm?.SubShaders ?? new List<SubShader>())
                 foreach (var p in ss.Passes)
                     foreach (var sp in p.SubPrograms)
                     {
-                        passOf[sp.BlobIndex] = p;
-                        // Two passes can share a blob index; the one that declares the
-                        // reflection is the useful entry, so keep the richer one.
+                        if (!passOf.TryGetValue(sp.BlobIndex, out var owners))
+                            passOf[sp.BlobIndex] = owners = new List<Pass>();
+                        if (!owners.Contains(p)) owners.Add(p);
+
                         if (!spOf.TryGetValue(sp.BlobIndex, out var have) ||
                             sp.ConstantBuffers.Count > have.ConstantBuffers.Count)
                             spOf[sp.BlobIndex] = sp;
@@ -1330,7 +1342,7 @@ namespace ShaderRipper.Game
         // ------------------------------------------------------------------
 
         private static void ExportDxbc(Shader sh, string name, PlatformInfo info, byte[] decoded,
-            string dir, string dirName, Dictionary<int, Pass> passOf, Dictionary<int, SubProgram> spOf,
+            string dir, string dirName, Dictionary<int, List<Pass>> passOf, Dictionary<int, SubProgram> spOf,
             Dictionary<int, string> kwIndex, List<Property> props,
             Dictionary<Pass, PassBuild> perPass, bool programs, bool origAsm, Stats s,
             List<(int blobIndex, string stage, string hlsl)> collected = null,
@@ -1362,7 +1374,9 @@ namespace ShaderRipper.Game
                 if (module.Code.Count == 0) { s.Skipped++; continue; }
 
                 spOf.TryGetValue(slot.BlobIndex, out var sub);
-                passOf.TryGetValue(slot.BlobIndex, out var pass);
+                List<Pass>? owners = null;
+                passOf.TryGetValue(slot.BlobIndex, out owners);
+                var pass = owners is { Count: > 0 } ? owners[0] : null;
                 module.Cb = NameConstantBuffers(module, name, pass, sub, props, paramCbs, allParamCbs,
                                                 matrixRows);
 
@@ -1400,15 +1414,18 @@ namespace ShaderRipper.Game
                 }
 
                 if (pass == null) continue;
-                if (!perPass.TryGetValue(pass, out var build)) perPass[pass] = build = new PassBuild();
-                if (cbNotes.TryGetValue(pass, out var passNotes))
-                    foreach (string note in passNotes)
-                        if (!build.Notes.Contains(note)) build.Notes.Add(note);
-                build.Target = Math.Max(build.Target, ShaderModel(r.Profile));
-                var kw = VariantPlan.KeywordsOf(sub, kwIndex);
-                var key = VariantPlan.Key(kw);
-                if (module.Stage is "ps") build.Add(build.Ps, build.Keys, key, kw, r.Hlsl);
-                else if (module.Stage is "vs") build.Add(build.Vs, build.Keys, key, kw, r.Hlsl);
+                foreach (var owner in owners!)
+                {
+                    if (!perPass.TryGetValue(owner, out var build)) perPass[owner] = build = new PassBuild();
+                    if (cbNotes.TryGetValue(pass, out var passNotes))
+                        foreach (string note in passNotes)
+                            if (!build.Notes.Contains(note)) build.Notes.Add(note);
+                    build.Target = Math.Max(build.Target, ShaderModel(r.Profile));
+                    var kw = VariantPlan.KeywordsOf(sub, kwIndex);
+                    var key = VariantPlan.Key(kw);
+                    if (module.Stage is "ps") build.Add(build.Ps, build.Keys, key, kw, r.Hlsl);
+                    else if (module.Stage is "vs") build.Add(build.Vs, build.Keys, key, kw, r.Hlsl);
+                }
             }
         }
 
@@ -1417,7 +1434,7 @@ namespace ShaderRipper.Game
         // ------------------------------------------------------------------
 
         private static void ExportGlsl(Shader sh, string name, PlatformInfo info, byte[] decoded,
-            string dir, Dictionary<int, Pass> passOf, Dictionary<int, SubProgram> spOf,
+            string dir, Dictionary<int, List<Pass>> passOf, Dictionary<int, SubProgram> spOf,
             Dictionary<int, string> kwIndex, Dictionary<Pass, PassBuild> perPass, Stats s,
             bool origSrc = false, List<(int blobIndex, string stage, string hlsl)> collected = null)
         {
@@ -1457,11 +1474,15 @@ namespace ShaderRipper.Game
                 }
 
                 spOf.TryGetValue(bi, out var sub);
-                passOf.TryGetValue(bi, out var pass);
-                if (pass == null) continue;
-                if (!perPass.TryGetValue(pass, out var build)) perPass[pass] = build = new PassBuild();
+                List<Pass>? owners = null;
+                passOf.TryGetValue(bi, out owners);
+                if (owners == null || owners.Count == 0) continue;
                 var kw = VariantPlan.KeywordsOf(sub, kwIndex);
-                build.Add(build.Glsl, build.GKeys, VariantPlan.Key(kw), kw, r.Hlsl);
+                foreach (var owner in owners)
+                {
+                    if (!perPass.TryGetValue(owner, out var build)) perPass[owner] = build = new PassBuild();
+                    build.Add(build.Glsl, build.GKeys, VariantPlan.Key(kw), kw, r.Hlsl);
+                }
             }
         }
 
@@ -1846,6 +1867,12 @@ namespace ShaderRipper.Game
         {
             bool hasKeywords = pb.Keys.Any(k => k.Length > 0) || pb.GKeys.Any(k => k.Length > 0);
             pt.Target = pb.Target;
+
+            // Which route fed this pass.  A build that ships d3d11 and gles3 slots
+            // hands over both, and the block then holds bodies from each.
+            bool dxbc = pb.Vs.Count > 0 || pb.Ps.Count > 0;
+            bool glsl = pb.Glsl.Count > 0;
+            pt.Source = dxbc && glsl ? "DXBC/GLSL" : glsl ? "GLSL" : "DXBC";
 
             // GLSL variants: one body per keyword combination, both stages inside.
             if (pb.GKeys.Count > 0)
