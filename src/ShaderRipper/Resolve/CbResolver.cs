@@ -230,7 +230,8 @@ namespace ShaderRipper.Resolve
                                          bool tmpLayout = false,
                                          TmpLayouts.Layout layoutHint = null,
                                          System.Collections.Generic.List<(string Name, int Index, int Sampler)> texParams = null,
-                                         Dictionary<string, int> matrixRows = null)
+                                         Dictionary<string, int> matrixRows = null,
+                                         Dictionary<int, string> glslTexNames = null)
         {
             var r = new CbResolver(new HashSet<string>(nameTable ?? new List<string>(), StringComparer.Ordinal));
             r.MatrixRows = matrixRows;
@@ -334,7 +335,7 @@ namespace ShaderRipper.Resolve
                     r.FullyMapped.Add(d.Register);
             }
 
-            r.MapTextures(prog, props, texParams);
+            r.MapTextures(prog, props, texParams, glslTexNames);
 
             if (Environment.GetEnvironmentVariable("SHADERRIP_CBDBG") == "1")
             {
@@ -1247,17 +1248,22 @@ namespace ShaderRipper.Resolve
 
         /// <summary>Give sampler registers the property name they belong to.</summary>
         /// <remarks>
-        /// Priority: the asset's own <c>m_TextureParams</c> reflection (name + t#
-        /// register straight out of the serialized program parameters -- the same
-        /// table UnityPlayer's runtime consumes); then, for sprite-pipeline
-        /// programs, the engine's main-texture name (<c>[MainTexture]</c>
-        /// attribute, else the literal <c>_MainTex</c>); then property
-        /// declaration order only when the asset kept no texture list.  Property
+        /// Priority: the shader's own GLSL source (GL-family variants keep the
+        /// sampler names in <c>UNITY_LOCATION(n) uniform sampler2D</c> lines where
+        /// the DXBC payload strips them; GL locations and DXBC texture registers
+        /// follow the same property order, so location N names tN); then the
+        /// asset's own <c>m_TextureParams</c> reflection (name + t# register
+        /// straight out of the serialized program parameters); then, only when no
+        /// GLSL source exists, the main-texture convention (<c>[MainTexture]</c>
+        /// attribute, else the literal <c>_MainTex</c> -- the rule
+        /// <c>Material.mainTexture</c> documents, applied as an explicit guess,
+        /// never as an engine answer); then property declaration order.  Property
         /// order is NOT register order: one commercial title's FloorMesh declares _TileTex first but
         /// binds it to t2, which silently swapped three samplers and broke the look.
         /// </remarks>
         private void MapTextures(Ast.Module prog, IReadOnlyList<Property> props,
-                                 System.Collections.Generic.List<(string Name, int Index, int Sampler)> texParams)
+                                 System.Collections.Generic.List<(string Name, int Index, int Sampler)> texParams,
+                                 Dictionary<int, string> glslTexNames = null)
         {
             // A name is trustworthy when the shader itself declares it.  The
             // property table is authoritative for material textures; the name table
@@ -1265,10 +1271,38 @@ namespace ShaderRipper.Resolve
             var declared = new HashSet<string>(StringComparer.Ordinal);
             if (props != null) foreach (var p in props) declared.Add(p.Name);
 
+            var regs = prog.Decls.Where(d => d.Kind != null && d.Kind.StartsWith("texture"))
+                                 .Select(d => d.Register).Distinct().OrderBy(x => x).ToList();
+            if (regs.Count == 0) return;
+
+            // 1. GL-family source names -- the strongest source in the asset.  The
+            // GLSL text is Unity's own translation and keeps the property names
+            // the DXBC payload strips; locations and texture registers are
+            // assigned in the same property order, so they pair up positionally.
+            if (glslTexNames != null && glslTexNames.Count > 0)
+            {
+                var locs = glslTexNames.Keys.OrderBy(x => x).ToList();
+                int g = Math.Min(regs.Count, locs.Count);
+                if (g > 0)
+                {
+                    var named = new List<string>();
+                    for (int i = 0; i < g; i++)
+                    {
+                        TexName[regs[i]] = glslTexNames[locs[i]];
+                        named.Add($"t{regs[i]}={glslTexNames[locs[i]]}");
+                    }
+                    FileNotes.Add("texture names from the shader's own GLSL source: " +
+                                  string.Join(", ", named));
+                }
+            }
+
+            // 2. The asset's own reflection fills whatever the GLSL source did not
+            // cover (a Windows-only asset ships no GL-family variant to read).
             if (texParams != null && texParams.Count > 0)
             {
                 foreach (var (nm, idx, _) in texParams)
-                    if (idx >= 0 && idx < 128 && (declared.Contains(nm) || _nameTable.Contains(nm)))
+                    if (idx >= 0 && idx < 128 && !TexName.ContainsKey(idx) &&
+                        (declared.Contains(nm) || _nameTable.Contains(nm)))
                         TexName[idx] = nm;
                 // Do NOT stop here.  The asset records only the textures its material
                 // inspector exposes, so a partial list is the normal case: `_AlphaTex`
@@ -1276,6 +1310,12 @@ namespace ShaderRipper.Resolve
                 // every register after the first one unnamed (`Texture2D t1`, `t2`).
                 // The property-order pass below fills the remainder.
             }
+
+            var open = regs.Where(r => !TexName.ContainsKey(r)).ToList();
+            if (open.Count == 0) return;
+
+            bool guessed = (texParams == null || texParams.Count == 0) &&
+                           (glslTexNames == null || glslTexNames.Count == 0);
 
             // The declaration order is the only signal left for everything past the
             // main texture.  Weak, but measured:
@@ -1289,42 +1329,25 @@ namespace ShaderRipper.Resolve
             if (props != null)
                 foreach (var p in props.Where(p => TextureTypes.Contains(p.Type)))
                     texProps.Add(p.Name);
-            bool guessed = texParams == null || texParams.Count == 0;
 
-            var regs = prog.Decls.Where(d => d.Kind != null && d.Kind.StartsWith("texture"))
-                                 .Select(d => d.Register).Distinct().OrderBy(x => x).ToList();
-            if (regs.Count == 0) return;
-            // Registers the reflection already named are settled; the property-order
-            // pass only fills the rest, in order, so a name from the asset is never
-            // overwritten by a guess.
-            var open = regs.Where(r => !TexName.ContainsKey(r)).ToList();
-            if (open.Count == 0) return;
             // A property the reflection already bound must not be handed out again:
             // two registers with one name do not compile (`redefinition of
             // '_MainTex'`), and the second binding is a leftover sampler anyway.
             var used = new HashSet<string>(TexName.Values, StringComparer.Ordinal);
             var spare = texProps.Where(p => !used.Contains(p)).ToList();
 
-            // The engine resolves the main texture by NAME, and that is the only
-            // name it resolves.  UnityPlayer's sprite path
-            // (SpriteIntermediateRenderer::SetupProperties) picks the property in
-            // three levels -- the `[MainTexture]` attribute (property flags
-            // & 0x80, via Material::SearchFirstPropertyNameIdByAttribute), then
-            // the literal `_MainTex` (kSLPropMainTex), then the first texture
-            // property -- and hands that NAME to the property sheet; the slot it
-            // lands on is the renderer's t0 by convention, not by lookup.  Gated
-            // here on the sprite-pipeline marker (a `UnityPerDrawSprite` entry in
-            // the pass name table) because outside that pipeline nothing in the
-            // engine forces a main texture onto t0.  Measured in the wild on
-            // ADOFAI/Frames (Unity 6000.3.25f1): every sub-program carries zero
-            // m_TextureParams and the pass name table lists no texture at all,
-            // yet t0 is the sprite -- named `_MainTex` while `_MainTex` sits
-            // first in the property table.  Everything past the main texture has
-            // no engine mechanism at all: with m_TextureParams empty, tN (N > 0)
-            // stays a declaration-order guess, hence the `inferred` note.
+            // 3. Main-texture convention, only when no GLSL source existed:
+            // Material.mainTexture resolves the main texture as the
+            // `[MainTexture]`-flagged property, else the literal `_MainTex` --
+            // applied here as an explicit guess, NOT as an engine answer: the
+            // asset keeps no binding table, and a game that only ever
+            // SetTexture()s a later property writes a slot nothing samples.
+            // (Gated on the sprite-pipeline marker, a `UnityPerDrawSprite` entry
+            // in the pass name table, where the convention is observed.)
             string mainName = null;
             int mainReg = open.Count > 0 ? open[0] : -1;
-            if (open.Count > 0 && _nameTable.Contains("UnityPerDrawSprite"))
+            if (open.Count > 0 && (glslTexNames == null || glslTexNames.Count == 0) &&
+                _nameTable.Contains("UnityPerDrawSprite"))
             {
                 string flagged = spare.FirstOrDefault(p =>
                 {
@@ -1341,7 +1364,7 @@ namespace ShaderRipper.Resolve
                 }
             }
 
-            // The two lists rarely line up.  A texture property the shader never
+            // 4. The two lists rarely line up.  A texture property the shader never
             // samples in this variant (a `multi_compile` branch that is compiled out)
             // leaves more properties than registers; a built-in sampler Unity injects
             // (camera depth, a grab texture) leaves more registers than properties.
@@ -1356,7 +1379,7 @@ namespace ShaderRipper.Resolve
             {
                 var parts = new List<string>();
                 if (mainName != null)
-                    parts.Add($"t{mainReg}={mainName} (engine main-texture name, sprite pipeline)");
+                    parts.Add($"t{mainReg}={mainName} (main-texture convention, unverified: the asset keeps no binding)");
                 if (n > 0)
                     parts.Add("remaining texture names inferred from property order: " +
                               string.Join(", ", Enumerable.Range(0, n).Select(i => $"t{open[i]}={spare[i]}")));

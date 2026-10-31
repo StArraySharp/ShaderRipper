@@ -2,6 +2,7 @@ using System;
 using System.Collections.Generic;
 using System.IO;
 using System.Linq;
+using System.Text.RegularExpressions;
 using ShaderRipper.Data;
 using ShaderRipper.Emit;
 using ShaderRipper.Resolve;
@@ -989,6 +990,40 @@ namespace ShaderRipper.Game
             // only thing the decoded slot tells us.
             var (passOf, spOf) = PassMaps(sh);
 
+            // Cross-platform sampler names: the GL-family variants of the same
+            // shader keep the sampler names in their GLSL source
+            // (UNITY_LOCATION(n) uniform sampler2D <name>) where the DXBC payload
+            // strips them.  GL locations and DXBC texture registers are assigned
+            // in the same property order, so location N names tN.  A
+            // Windows-only build has no GL-family slot, and the DXBC route then
+            // falls back to reflection and (honestly noted) inference.
+            var glslFs = new Dictionary<int, string>();
+            var glslVs = new Dictionary<int, string>();
+            for (int gi = 0; gi < (sh.Platforms?.Length ?? 0); gi++)
+            {
+                var ginfo = Plugins.PlatformCatalog.Get((int)sh.Platforms[gi]);
+                if (ginfo == null || ginfo.Format != "glsl") continue;
+                byte[] gdecoded;
+                try { gdecoded = BlobTool.DecodeBlob(sh, gi); }
+                catch { continue; }
+                if (gdecoded == null || gdecoded.Length == 0) continue;
+                foreach (var pr in ProgramSource.Extract(gdecoded))
+                {
+                    if (pr.Format != BlobFormat.Glsl || string.IsNullOrEmpty(pr.Text)) continue;
+                    // Stage split: a vertex program's texture table is not the
+                    // fragment program's, and both compile from the same source.
+                    var target = pr.Text.Contains("SV_Target") ? glslFs
+                               : pr.Text.Contains("gl_Position") ? glslVs : null;
+                    if (target == null) continue;
+                    foreach (Match m in Regex.Matches(pr.Text,
+                        @"(?:UNITY_LOCATION\((\d+)\)|layout\(location\s*=\s*(\d+)\))\s*uniform\s+sampler2D\s+([A-Za-z_]\w*)"))
+                    {
+                        int loc = int.Parse(m.Groups[1].Success ? m.Groups[1].Value : m.Groups[2].Value);
+                        if (!target.TryGetValue(loc, out var nm)) target[loc] = m.Groups[3].Value;
+                    }
+                }
+            }
+
             // Every platform the game shipped, one at a time: d3d11 drives the
             // DXBC route, the GLES/GL platforms drive the GLSL route, everything
             // else is noted and skipped (no translator for it in this project).
@@ -1010,7 +1045,7 @@ namespace ShaderRipper.Game
                 if (decoded == null || decoded.Length == 0) { s.Skipped++; continue; }
 
                 if (info.Format == "dxbc") ExportDxbc(sh, name, info, decoded, dir, dirName,
-                    passOf, spOf, kwIndex, props, perPass, programs, origAsm, s);
+                    passOf, spOf, kwIndex, props, perPass, programs, origAsm, s, null, null, glslVs, glslFs);
                 else if (info.Format == "glsl") ExportGlsl(sh, name, info, decoded, dir, passOf, spOf, kwIndex, perPass, s, origAsm);
                 else if (info.Format == "d3d9") ExportD3d9(sh, name, info, decoded, dir, passOf, spOf, perPass, origAsm, s);
                 else ExportPlugin(sh, name, info, decoded, dir, passOf, spOf, kwIndex, props, perPass, origAsm, s);
@@ -1170,7 +1205,7 @@ namespace ShaderRipper.Game
                 if (pre != null && pre.Count == 0) { s.Skipped++; continue; }
 
                 if (info.Format == "dxbc") ExportDxbc(sh, name, info, decoded, null, null,
-                    passOf, spOf, kwIndex, props, perPass, false, false, s, null, pre);
+                    passOf, spOf, kwIndex, props, perPass, false, false, s, null, pre, null, null);
                 else if (info.Format == "glsl") ExportGlsl(sh, name, info, decoded, null, passOf, spOf, kwIndex, perPass, s, false);
                 else if (info.Format == "d3d9") ExportD3d9(sh, name, info, decoded, null, passOf, spOf, perPass, false, s);
                 else ExportPlugin(sh, name, info, decoded, null, passOf, spOf, kwIndex, props, perPass, false, s, null);
@@ -1361,7 +1396,8 @@ namespace ShaderRipper.Game
             Dictionary<int, string> kwIndex, List<Property> props,
             Dictionary<Pass, PassBuild> perPass, bool programs, bool origAsm, Stats s,
             List<(int blobIndex, string stage, string hlsl)> collected = null,
-            List<BlobTool.BlobSlot> preSlots = null)
+            List<BlobTool.BlobSlot> preSlots = null,
+            Dictionary<int, string> glslVs = null, Dictionary<int, string> glslFs = null)
         {
             int platformIndex = Array.IndexOf(sh.Platforms, (uint)info.Id);
             if (sh.ParsedForm?.SubShaders.SelectMany(ss => ss.Passes).SelectMany(p => p.SubPrograms)
@@ -1396,8 +1432,10 @@ namespace ShaderRipper.Game
                 List<Pass>? owners = null;
                 passOf.TryGetValue(slot.BlobIndex, out owners);
                 var pass = owners is { Count: > 0 } ? owners[0] : null;
+                var glslTexNames = module.Stage is "vs" ? glslVs
+                                 : module.Stage is "ps" ? glslFs : null;
                 module.Cb = NameConstantBuffers(module, name, pass, sub, props, paramCbs, allParamCbs,
-                                                matrixRows);
+                                                matrixRows, glslTexNames);
 
                 // Two consumers, two shapes.  The ShaderLab wrapper merges this text
                 // into a file that includes `UnityCG.cginc` -- matrices are
@@ -2247,7 +2285,8 @@ namespace ShaderRipper.Game
             Ast.Module m, string shaderName, Pass pass, SubProgram sub,
             List<Property> props, Dictionary<int, List<BlobTool.CbInfo>> paramCbs,
             List<BlobTool.CbInfo> allParamCbs,
-            Dictionary<string, int> matrixRows = null)
+            Dictionary<string, int> matrixRows = null,
+            Dictionary<int, string> glslTexNames = null)
         {
             var nameTable = pass?.NameIndices != null
                 ? new HashSet<string>(pass.NameIndices.Keys, StringComparer.Ordinal)
@@ -2261,7 +2300,7 @@ namespace ShaderRipper.Game
 
             var r = Resolve.CbResolver.Resolve(
                 m, nameTable, props, own, -1, BestGlobals(sub), null,
-                allParamCbs, true, null, sub?.TextureParams, matrixRows);
+                allParamCbs, true, null, sub?.TextureParams, matrixRows, glslTexNames);
 
             if (Environment.GetEnvironmentVariable("SHADERRIP_CBDBG") == "1")
                 Console.Error.WriteLine($"[cb] {shaderName}/{sub?.BlobIndex}: "
