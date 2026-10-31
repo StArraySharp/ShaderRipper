@@ -27,8 +27,8 @@ namespace ShaderRipper.Plugins
 
         /// <summary>
         /// Description of one backend.  Never null: an unknown id yields the same
-        /// placeholder <see cref="Platforms.Get"/> produces, so callers that guard on
-        /// null keep working.
+        /// placeholder <see cref="Data.Platforms.Get"/> produces, so callers that
+        /// guard on null keep working.
         /// </summary>
         public static PlatformInfo Get(int id)
         {

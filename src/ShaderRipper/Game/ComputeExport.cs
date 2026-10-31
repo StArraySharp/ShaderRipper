@@ -27,10 +27,16 @@ namespace ShaderRipper.Game
         /// Write one compute shader.  Returns the number of kernels emitted; 0 means
         /// nothing was written (no variant this build can read).
         /// </summary>
+        /// <param name="asset">The parsed ComputeShader.</param>
+        /// <param name="name">The shader's own name, for log lines and notes.</param>
+        /// <param name="rel">Output path relative to <paramref name="outDir"/>, as claimed.</param>
+        /// <param name="outDir">Root of the export tree.</param>
+        /// <param name="shaderLab">Write the deliverable; the same switch the Shader route uses.</param>
         /// <param name="origAsm">
         /// Also write each kernel's disassembly beside the <c>.compute</c>, the same
         /// way a pass does with <c>--orig-asm</c>.
         /// </param>
+        /// <param name="s">Counters to add to.</param>
         public static int Export(ComputeShaderAsset asset, string name, string rel, string outDir,
                                  bool shaderLab, bool origAsm, GameExport.Stats s)
         {

@@ -62,6 +62,7 @@ namespace ShaderRipper.Game
         /// Open the cache in <paramref name="dir"/>; a missing, unreadable or
         /// mismatched file simply starts empty.
         /// </summary>
+        /// <param name="dir">The export directory the cache file lives in.</param>
         /// <param name="profile">
         /// Everything besides the input that decides what the output looks like:
         /// the library build, the output switches and the platform filter.
