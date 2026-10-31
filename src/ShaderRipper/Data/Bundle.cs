@@ -59,29 +59,36 @@ namespace ShaderRipper.Data
             uint flags = U32(buf, ref p);
 
             var compression = (Compression)(flags & 0x3F);
-            long infoStart = (flags & FlagBlocksInfoAtEnd) != 0
-                ? size - compressedInfoSize
-                : p;
+
+            // UnityFS aligns both the block table and the block data to 16 bytes,
+            // and the alignment is not optional: a bundle whose block table starts
+            // at 50 (right after the header) instead of 64 decodes into garbage,
+            // because the LZ4 stream is read three to fourteen bytes off.  The
+            // unaligned positions are still tried, in case an old writer omitted
+            // the padding, but the aligned one has to come first -- and it has to
+            // come first for the block *data* too, where an uncompressed block
+            // cannot be told apart from its misaligned copy by validating it.
+            bool aligned = version >= 7;
 
             byte[] info = null;
             long infoAt = -1;
-            for (int shift = 0; shift <= 64 && info == null; shift++)
+            foreach (long start in BlocksInfoCandidates(p, size, compressedInfoSize, aligned, flags))
             {
-                long at = infoStart + shift;
-                if (at < 0 || at + compressedInfoSize > buf.Length) break;
-                var slice = Slice(buf, (int)at, (int)compressedInfoSize);
+                if (start < 0 || start + compressedInfoSize > buf.Length) continue;
+                var slice = Slice(buf, (int)start, (int)compressedInfoSize);
                 if (compressedInfoSize == uncompressedInfoSize)
                 {
                     info = slice;
-                    infoAt = at;
+                    infoAt = start;
                     break;
                 }
                 try
                 {
                     var d = Decompress(slice, (int)uncompressedInfoSize, compression);
-                    if (d.Length == uncompressedInfoSize) { info = d; infoAt = at; }
+                    if (d.Length == uncompressedInfoSize) { info = d; infoAt = start; }
                 }
                 catch {  }
+                if (info != null) break;
             }
             if (info == null)
                 throw new InvalidDataException("block table not found");
@@ -114,25 +121,42 @@ namespace ShaderRipper.Data
             long sp = -1;
             if (blocks.Length > 0)
             {
-                // Normal layout: block data follows the block table. With the
-                // BlocksInfoAtEnd flag (0x80) the data sits right after the header.
+                // Normal layout: block data follows the block table, 16-byte
+                // aligned. With the BlocksInfoAtEnd flag (0x80) the table sits at
+                // the end of the file and the data follows the header instead, so
+                // "after the table" would point at the file end -- the header end
+                // is the only sensible base there.
                 var bases = new List<long>();
                 if ((flags & FlagBlocksInfoAtEnd) != 0) bases.Add(p);
-                bases.Add(infoAt + compressedInfoSize);
-                foreach (var basePos in bases)
-                for (int shift = 0; shift <= 160 && sp < 0; shift++)
+                else bases.Add(infoAt + compressedInfoSize);
+                if ((flags & FlagBlocksInfoAtEnd) != 0) bases.Add(infoAt + compressedInfoSize);
+
+                foreach (long basePos in bases)
                 {
-                    long cand = basePos + shift;
-                    if (cand < 0 || cand + blocks[0].comp > buf.Length) break;
-                    if (blocks[0].comp == blocks[0].raw) { sp = cand; break; }
-                    try
+                    foreach (long cand in DataCandidates(basePos, aligned))
                     {
-                        var first = Slice(buf, (int)cand, (int)blocks[0].comp);
-                        var d = Decompress(first, (int)blocks[0].raw,
-                                           (Compression)(blocks[0].flags & 0x3F));
-                        if (d.Length == blocks[0].raw) sp = cand;
+                        if (cand < 0 || cand + blocks[0].comp > buf.Length) continue;
+                        // An uncompressed first block cannot be validated -- any
+                        // bytes "decode" -- so it is only accepted at the aligned
+                        // position.  That is what makes the padding rule real:
+                        // taking the contiguous one here shifted the whole stream
+                        // by three bytes and turned every node into garbage.
+                        if (blocks[0].comp == blocks[0].raw)
+                        {
+                            if (!aligned || cand == Align16(basePos)) sp = cand;
+                            continue;
+                        }
+                        try
+                        {
+                            var d = Decompress(Slice(buf, (int)cand, (int)blocks[0].comp),
+                                               (int)blocks[0].raw,
+                                               (Compression)(blocks[0].flags & 0x3F));
+                            if (d.Length == blocks[0].raw) sp = cand;
+                        }
+                        catch {  }
+                        if (sp >= 0) break;
                     }
-                    catch {  }
+                    if (sp >= 0) break;
                 }
             }
             if (sp < 0) throw new InvalidDataException("block data not found");
@@ -239,6 +263,59 @@ namespace ShaderRipper.Data
             data != null && data.Length >= 7 &&
             data[0] == 'U' && data[1] == 'n' && data[2] == 'i' &&
             data[3] == 't' && data[4] == 'y' && data[5] == 'F' && data[6] == 'S';
+
+        /// <summary>Round up to the 16-byte boundary UnityFS pads to.</summary>
+        private static long Align16(long value) => (value + 15) & ~15L;
+
+        /// <summary>
+        /// Where the block table can start, most likely first.
+        ///
+        /// UnityFS v7 and later pad to 16 bytes, so the aligned position is the
+        /// real one in every build this reader has seen; the contiguous position
+        /// is kept as a fallback for an older writer that did not pad.  Those
+        /// bytes are tried a few at a time because the fallback cannot be predicted,
+        /// but the aligned candidate always comes first.
+        /// </summary>
+        private static IEnumerable<long> BlocksInfoCandidates(
+            int headerEnd, long size, uint compressedSize, bool aligned, uint flags)
+        {
+            long declared = (flags & FlagBlocksInfoAtEnd) != 0 ? size - compressedSize : headerEnd;
+            if (aligned)
+            {
+                yield return Align16(declared);
+                // "At end" puts the table at the very end of the file, where the
+                // declared position is already exact.
+                if ((flags & FlagBlocksInfoAtEnd) == 0) yield return declared;
+            }
+            else
+            {
+                yield return declared;
+            }
+            for (int shift = 1; shift <= 32; shift++)
+            {
+                yield return declared + shift;
+                if (aligned) yield return Align16(declared) + shift;
+            }
+        }
+
+        /// <summary>
+        /// Where block data can start, most likely first: the aligned position,
+        /// then -- for an uncompressed block, where a wrong guess cannot be
+        /// detected -- nothing else, so the padding rule cannot be silently
+        /// ignored.  A compressed block is probed in between, because a successful
+        /// decode is proof the offset was right.
+        /// </summary>
+        private static IEnumerable<long> DataCandidates(long basePos, bool aligned)
+        {
+            if (aligned)
+            {
+                yield return Align16(basePos);
+                yield return basePos;
+                for (int shift = 1; shift <= 160; shift++) yield return basePos + shift;
+                yield break;
+            }
+            for (int shift = 0; shift <= 160; shift++) yield return basePos + shift;
+        }
 
         private static byte[] Decompress(byte[] src, int rawSize, Compression c)
         {

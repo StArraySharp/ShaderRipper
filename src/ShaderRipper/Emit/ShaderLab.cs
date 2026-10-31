@@ -24,6 +24,9 @@ namespace ShaderRipper.Emit
     /// </summary>
     internal static class ShaderLab
     {
+        public static bool StripDxbcRegisters;
+        private static readonly Regex RegisterBinding = new(@"\s*:\s*register\s*\([^)]*\)", RegexOptions.CultureInvariant);
+
         public sealed class Stage
         {
             public string Hlsl;
@@ -267,6 +270,18 @@ namespace ShaderRipper.Emit
         }
 
         private static void AppendPass(StringBuilder sb, PassText p)
+        {
+            if (!StripDxbcRegisters || p.Source != "DXBC")
+            {
+                AppendPassCore(sb, p);
+                return;
+            }
+            var pass = new StringBuilder();
+            AppendPassCore(pass, p);
+            sb.Append(RegisterBinding.Replace(pass.ToString(), ""));
+        }
+
+        private static void AppendPassCore(StringBuilder sb, PassText p)
         {
             sb.Append("        Pass\n        {\n");
             if (!string.IsNullOrEmpty(p.Name)) sb.Append("            Name \"").Append(p.Name).Append("\"\n");
@@ -753,9 +768,28 @@ namespace ShaderRipper.Emit
             var globals = new List<string>();
             var seenGlobal = new HashSet<string>(StringComparer.Ordinal);
 
+            // Comments are lexer noise to the HLSL grammar, so the parse-tree split
+            // cannot see them and they would never reach the merged program.  An
+            // emitter pass (or a diagnostic the translator emitted) puts them in the
+            // body, so they are collected separately and re-appended below -- dropping
+            // them made a pass that had run look like it had never been called.
+            var carried = new List<string>();
+            var carriedSeen = new HashSet<string>(StringComparer.Ordinal);
+            void CollectComments(string hlsl)
+            {
+                if (hlsl == null) return;
+                foreach (string raw in hlsl.Replace("\r\n", "\n").Split('\n'))
+                {
+                    string trimmed = raw.Trim();
+                    if (!trimmed.StartsWith("//", StringComparison.Ordinal)) continue;
+                    if (carriedSeen.Add(trimmed)) carried.Add(trimmed);
+                }
+            }
+
             foreach (var stage in new[] { vs, ps })
             {
                 if (stage?.Hlsl == null) continue;
+                CollectComments(stage.Hlsl);
 
                 // Sectioning is a parse-tree decision (Hlsl.g4), not a line scan:
                 // a cbuffer is whatever the grammar called `cbufferDecl`, a struct
@@ -813,7 +847,21 @@ namespace ShaderRipper.Emit
                         case "pp":
                         {
                             string trimmed = it.Text.Trim();
-                            if (trimmed.Length == 0 || trimmed.StartsWith("//", StringComparison.Ordinal)) continue;
+                            if (trimmed.Length == 0) continue;
+
+                            // A comment line is kept, not skipped.  It used to be
+                            // dropped here as parser noise, which meant any diagnostic
+                            // or provenance line a stage body carried -- including the
+                            // output of an emitter pass -- vanished at merge time and
+                            // looked like the pass had never run.  Exact duplicates are
+                            // still collapsed, so the two stages repeating one comment
+                            // does not double it.
+                            if (trimmed.StartsWith("//", StringComparison.Ordinal))
+                            {
+                                if (seenGlobal.Add(trimmed)) globals.Add(it.Text.TrimEnd());
+                                continue;
+                            }
+
                             if (seenGlobal.Add(trimmed)) globals.Add(it.Text);
                             break;
                         }
@@ -1088,6 +1136,15 @@ namespace ShaderRipper.Emit
                 outp.Any(line => line.Contains("TRANSFORM_TEX(")))
             {
                 outp.InsertRange(0, new[] { "#include \"UnityCG.cginc\"", "" });
+            }
+
+            // Comments the stage bodies carried, put back after the declarations.  They
+            // are not part of the program, so position does not matter; what matters is
+            // that an emitter pass's output survives the merge instead of vanishing.
+            if (carried.Count > 0)
+            {
+                if (outp.Count > 0 && outp[outp.Count - 1].Length > 0) outp.Add("");
+                outp.AddRange(carried);
             }
             return outp;
         }

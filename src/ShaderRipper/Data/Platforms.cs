@@ -59,6 +59,9 @@ namespace ShaderRipper.Data
         private static readonly Dictionary<int, PlatformInfo> ById =
             Table.ToDictionary(p => p.Id);
 
+        /// <summary>Every backend this build knows, in table order.</summary>
+        public static IReadOnlyList<PlatformInfo> All => Table;
+
         public static PlatformInfo Get(int id) =>
             ById.TryGetValue(id, out var p) ? p
             : new PlatformInfo { Id = id, Name = "unknown" + id, Format = "unknown" };

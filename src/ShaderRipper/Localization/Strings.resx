@@ -85,6 +85,9 @@ Export:
     --platform &lt;name|id&gt; read only this platform's slot (d3d11 / d3d9 / gles3 /
                      gles20 / openglcore / opengl / metal / vulkan / webgpu);
                      by default every slot with a translator is read
+    --strip-dxbc-registers  drop the register bindings of DXBC-sourced ShaderLab
+                     (packoffset is kept; GLSL passes and standalone
+                     programs are untouched)
     --self-contained inline the engine declarations instead of #include
                      (compiles standalone; Unity will reject it on import)
 
@@ -92,6 +95,11 @@ Name tables:
     --tmp-layouts &lt;file|dir&gt; TMP layout rows (JSON)
     --builtin-index &lt;file&gt;   Unity's own shader list
     --no-tmp-layout          ignore the TMP layout rows
+
+Plugins:
+    --plugins               list loaded containers, backends and emitter passes
+    --plugin-dir &lt;dir&gt;      plugin directory (default: &lt;exe&gt;/plugins)
+    --no-plugins            do not load plugins; built-in backends only
 
 Other:
     --quiet                only the final tally
@@ -369,6 +377,11 @@ Other:
   <data name="WarnPassNoProgram">
     <value>pass {0} has no program in the build</value>
     <comment>{0} = pass label such as "#0" or "0 \"Main\""</comment>
+  </data>
+
+  <data name="NoteD3d9DisassemblyOnly">
+    <value>this pass only ships {0} (SM2/SM3) programs: they are disassembled beside this file, not translated</value>
+    <comment>{0} = platform name, e.g. "d3d9"</comment>
   </data>
 
   <data name="WarnPassNoVertex">

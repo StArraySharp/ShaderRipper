@@ -1,0 +1,26 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <!-- A worked example, not part of the solution: it exists to prove the plugin
+         surface is usable from a separate assembly and to give a third party a
+         template to copy.  Build it by path and point the plugin directory option at
+         the output.  (An XML comment cannot carry a double dash, which is why the
+         command line is spelled out in the plugin source instead.) -->
+    <TargetFramework>net10.0</TargetFramework>
+    <Nullable>disable</Nullable>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <AssemblyName>ShaderRipper.Plugin.Example</AssemblyName>
+    <RootNamespace>ShaderRipper.Plugin.Example</RootNamespace>
+    <IsPackable>false</IsPackable>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\..\src\ShaderRipper\ShaderRipper.csproj">
+      <!-- The host already has these types loaded.  Copying the library next to the
+           plugin makes the loader open a second copy in its own load context, so
+           IShaderRipperPlugin means two different things and registration is silently
+           ignored.  The plugin resolves them from the host instead. -->
+      <Private>false</Private>
+      <ExcludeAssets>runtime</ExcludeAssets>
+    </ProjectReference>
+  </ItemGroup>
+</Project>

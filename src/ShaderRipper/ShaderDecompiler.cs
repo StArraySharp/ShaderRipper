@@ -70,6 +70,8 @@ namespace ShaderRipper
 
         /// <summary>The shader's <c>m_KeywordNames</c> table, indexed by keyword id.</summary>
         public List<string> KeywordNames = new();
+        /// <summary>Serialized keyword flags, parallel to KeywordNames; bit 0 marks local scope.</summary>
+        public List<int> KeywordFlags = new();
 
         public List<ShaderProperty> Properties = new();
 
@@ -167,6 +169,7 @@ namespace ShaderRipper
     public sealed class ShaderSubProgramInfo
     {
         public int BlobIndex;
+        public int GpuProgramType;
 
         /// <summary>
         /// Index into the payload's separate parameter-blob table, when the host can
@@ -370,6 +373,7 @@ namespace ShaderRipper
             var parsed = new ParsedForm { Name = model.Name, FallbackName = model.Fallback ?? "" };
             parsed.CustomEditorName = model.CustomEditor ?? "";
             parsed.KeywordNames.AddRange(model.KeywordNames ?? new List<string>());
+            parsed.KeywordFlags.AddRange(model.KeywordFlags ?? new List<int>());
             foreach (var p in model.Properties ?? new List<ShaderProperty>())
                 parsed.Props.Add(new Property
                 {
@@ -445,6 +449,7 @@ namespace ShaderRipper
                         var intoSp = new SubProgram
                         {
                             BlobIndex = sp.BlobIndex,
+                            GpuProgramType = sp.GpuProgramType,
                             ParameterBlobIndex = sp.ParameterBlobIndex,
                             KeywordIndices = new List<int>(sp.KeywordIndices ?? new List<int>()),
                         };

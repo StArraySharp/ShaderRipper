@@ -45,6 +45,7 @@ namespace ShaderRipper.Data
         /// <c>SerializedSubProgram.m_KeywordIndices</c> indexes into this list.
         /// </summary>
         public List<string> KeywordNames = new List<string>();
+        public List<int> KeywordFlags = new List<int>();
 
         /// <summary><c>SerializedShader.m_CustomEditorName</c>: the ShaderLab
         /// <c>CustomEditor</c> attribute (empty when the shader has none).</summary>

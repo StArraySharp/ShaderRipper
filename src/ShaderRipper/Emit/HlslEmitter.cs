@@ -1892,7 +1892,10 @@ namespace ShaderRipper.Emit
             // `mul`/`mad` instructions whose scalar operand is a matrix element, which
             // the register-level recogniser cannot read as a product.  The statement
             // list can, and it is the same shape the GLSL route folds.
-            e._r.Hlsl = MatrixChain.FoldText(e._sb.ToString(), macros: !standalone);
+            //
+            // The fold is a registered emitter pass rather than a direct call, so a
+            // plugin pass runs on the same text and in a defined order around it.
+            e._r.Hlsl = Plugins.EmitterPipeline.Run(e._sb.ToString(), macros: !standalone);
             e._r.Profile = m.Profile;
             return e._r;
         }
@@ -2061,8 +2064,13 @@ namespace ShaderRipper.Emit
                 // No explicit `register(uN)`: Unity's compiler renumbers UAVs itself
                 // and rejects a manual bind it cannot honour ("maximum UAV register
                 // index exceeded ... manual bind to slot u3 failed"), so the binding
-                // is left to the compiler the way the original source did.
-                _sb.Append($"{uty} {TexName(d.Register)};\n");
+                // is left to the compiler the way the original source did.  The
+                // identifier follows the operand spelling (`u1`), not `t1`: a
+                // program can read SRV t1 and write UAV u1, and the merged .shader
+                // carries both declarations -- one name for both is X3017,
+                // "redefinition of 't1'", which never shows in the standalone
+                // program files where only one of the two views appears.
+                _sb.Append($"{uty} {UavName(d.Register)};\n");
             }
             if (uavs.Count > 0) _sb.Append('\n');
 
@@ -2512,6 +2520,13 @@ namespace ShaderRipper.Emit
             }
             return "t" + reg;
         }
+
+        /// <summary>The identifier of a UAV: its operand spelling (`u1`).  Deliberately
+        /// a different namespace from <see cref="TexName"/>'s `t1` -- one program can
+        /// read SRV t1 and write UAV u1, and both declarations meet in the merged
+        /// .shader even when the standalone program files never see them together.
+        /// </summary>
+        private static string UavName(int reg) => "u" + reg;
 
         /// <summary>
         /// `icb[r0.w + 0].xyzx` reads the baked table at a computed index.  The
@@ -3741,13 +3756,19 @@ namespace ShaderRipper.Emit
             // dst + index + byteOffset + resource
             if (a.Count < 4) return false;
 
+            // The resource operand's kind splits the two views: `ld_structured
+            // ... t1` reads an SRV, `ld_structured ... u1` reads back a
+            // RWByteAddressBuffer.  The register numbers are separate namespaces,
+            // so t1 and u1 can coexist -- the name has to follow the operand,
+            // not the number.
+            bool isUav = a[3].Kind == RegKind.U;
             int tex = a[3].Index;
+            string kind = isUav ? "uav" : "texture";
             // A structured UAV is read with the same instruction as a structured
             // texture, and its stride comes from `dcl_uav_structured`; looking only
             // at "texture" left the stride at 0, so the byte address was computed as
             // if the record were one byte wide.
-            var decl = _m.Decls.FirstOrDefault(x => (x.Kind == "texture" || x.Kind == "uav")
-                                                    && x.Register == tex);
+            var decl = _m.Decls.FirstOrDefault(x => x.Kind == kind && x.Register == tex);
             int stride = decl?.Stride ?? 0;
 
             string index = Expr(a[1]);
@@ -3766,14 +3787,16 @@ namespace ShaderRipper.Emit
                 addr = $"{addr} + asuint({Scalar(a[2])})";
             }
 
-            Line($"{d} = {TexName(tex)}.Load{Comps(a[0])}({addr});");
+            Line($"{d} = {(isUav ? UavName(tex) : TexName(tex))}.Load{Comps(a[0])}({addr});");
             return true;
         }
 
-        /// <summary>The Load suffix matching a destination's width ("" for a scalar).</summary>
+        /// <summary>The Load suffix matching a destination's width.  A byte-address
+        /// buffer's bare `Load` reads ONE uint, so a 4-wide destination needs
+        /// `Load4` -- the empty suffix is only right for a scalar.</summary>
         private static string Comps(Operand dst) => DestWidth(dst) switch
         {
-            2 => "2", 3 => "3", 4 => "", _ => "",
+            2 => "2", 3 => "3", 4 => "4", _ => "",
         };
 
         /// <summary>
@@ -3843,7 +3866,7 @@ namespace ShaderRipper.Emit
         {
             int uav = a[0].Index;
             var decl = _m.Decls.FirstOrDefault(x => x.Kind == "uav" && x.Register == uav);
-            string name = TexName(uav);
+            string name = UavName(uav);
             switch (opcode)
             {
                 // `store_uav_typed u1.xyzw, r0.xyzw, l(1,1,1,1)`: (target, value,

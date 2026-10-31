@@ -32,7 +32,7 @@ namespace ShaderRipper
             "--matrix-names", "--schema", "--tmp-layouts", "--only", "--dump-filter",
             "--platform", "--glsl2cg", "--disasm", "--lang",
             "--syntax", "--mat-check", "--file", "--file-bare", "--dump-objects", "--asm-parser",
-            "--glsl-parser", "--asm-translate", "--jobs",
+            "--glsl-parser", "--asm-translate", "--jobs", "--plugin-dir",
         };
 
         /// <summary>Options that accept several values rm/cp-style (space separated).</summary>

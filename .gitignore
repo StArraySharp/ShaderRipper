@@ -1,7 +1,7 @@
 # 构建产物
-[Bb]in/
-[Oo]bj/
-publish/
+**/[Bb]in/
+**/[Oo]bj/
+**/publish/
 
 # IDE
 .vs/
@@ -9,9 +9,6 @@ publish/
 *.user
 *.suo
 .vscode/
-
-# 输出（工具生成的 ShaderLab）
-game_shaderlab_*/
 
 # 会话/缓存
 .temp/
@@ -24,5 +21,6 @@ src/*.Old/
 # UnityShaderCompiler run log
 scripts/usc_check.log
 
-# 桌面 GUI（Photino + Material You）。本地前端，不入库：不进 slnx，发布也只在本机做
-src/ShaderRipper.Gui/
+# 某款游戏的 .block 解包工具（ENCR/mr0k/Oodle）。本地研究工具，不入库：
+# 依赖 Epic 的 Oodle DLL，且只为一款游戏服务，不属于本项目的交付范围
+tools/starrail/

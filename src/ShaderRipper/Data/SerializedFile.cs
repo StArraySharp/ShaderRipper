@@ -83,14 +83,33 @@ namespace ShaderRipper.Data
             sf.Schema = tpkClass?.Invoke(sf.UnityVersion, 48);
             sf.MaterialSchema = tpkClass?.Invoke(sf.UnityVersion, 21);
 
+            // `typeCount` comes from the file too.  Cap it against the metadata that
+            // is actually left: a type entry is at least 20 bytes (classId plus the
+            // 16-byte hash), so anything larger is bad data and would allocate an
+            // array the file cannot possibly fill.
             int typeCount = r.ReadI32();
+            if (typeCount < 0 || typeCount > r.Remaining / 20 + 1)
+                throw new InvalidDataException(
+                    $"implausible type count {typeCount} at {r.Position - 4} " +
+                    $"({r.Remaining} byte(s) of metadata left)");
             var classIds = new int[typeCount];
             for (int t = 0; t < typeCount; t++) classIds[t] = SkipSerializedType(r, sf.EnableTypeTree);
             sf.ClassIds.AddRange(classIds);
 
             if (version >= 7 && version < 14) r.ReadI32();
 
+            // `objectCount` comes straight from the file, and a corrupt or unexpected
+            // value used to reach `new List<>(objectCount)` -- a 4-byte field could
+            // ask for gigabytes before a single entry was read.  Validate against what
+            // the metadata region can actually hold: every entry is at least 8 bytes
+            // (the smallest is v14+ `pathId` + `byteStart` + `byteSize` + `typeId`), so
+            // a count larger than the remaining bytes is bad data rather than a limit.
             int objectCount = r.ReadI32();
+            if (objectCount < 0 || objectCount > r.Remaining / 8 + 1)
+                throw new InvalidDataException(
+                    $"implausible object count {objectCount} at {r.Position - 4} " +
+                    $"({r.Remaining} byte(s) of metadata left)");
+
             // Offsets are kept as long and validated: v22 stores 64-bit
             // byteStart, and a corrupt entry must not wrap into a bogus offset.
             var entries = new List<(long pathId, long off, uint size, int typeId)>(objectCount);
@@ -112,6 +131,11 @@ namespace ShaderRipper.Data
 
             foreach (var e in entries)
             {
+                // `typeId` indexes the type table; a value outside it means the entry
+                // is corrupt, and indexing anyway threw an IndexOutOfRange that took
+                // the whole file down instead of skipping one object.
+                if (e.typeId < 0 || e.typeId >= classIds.Length) continue;
+
                 if (classIds[e.typeId] == 48)
                 {
                     try { sf.Shaders.Add(ParseShader(sf, e.pathId, e.off, e.size)); }
@@ -364,9 +388,18 @@ namespace ShaderRipper.Data
             {
                 int nodeCount = r.ReadI32();
                 int strSize = r.ReadI32();
+                // Both counts come from the file; skipping a negative or oversized
+                // amount either moves the cursor backwards or silently walks past the
+                // metadata, so treat either as corrupt rather than pressing on.
+                if (nodeCount < 0 || strSize < 0)
+                    throw new InvalidDataException(
+                        $"negative type tree size (nodes={nodeCount}, strings={strSize})");
                 int stride = r.Version >= 19 ? 32 : 24;
-                r.Skip(nodeCount * stride);
-                r.Skip(strSize);
+                long span = (long)nodeCount * stride + strSize;
+                if (span > r.Remaining)
+                    throw new InvalidDataException(
+                        $"type tree overruns the metadata by {span - r.Remaining} byte(s)");
+                r.Skip((int)span);
             }
             if (typeTree && r.Version >= 21)
             {
@@ -377,7 +410,14 @@ namespace ShaderRipper.Data
                     throw new InvalidDataException(
                         $"truncated type table: version-21 dependency count missing ({r.Remaining} byte(s) left)");
                 int deps = r.ReadI32();
-                if (deps > 0 && deps < 4096) r.Skip(deps * 4);
+                if (deps > 0 && deps < 4096)
+                {
+                    if ((long)deps * 4 > r.Remaining)
+                        throw new InvalidDataException(
+                            $"dependency list overruns the metadata by " +
+                            $"{(long)deps * 4 - r.Remaining} byte(s)");
+                    r.Skip(deps * 4);
+                }
             }
             return classId;
         }
@@ -470,6 +510,11 @@ namespace ShaderRipper.Data
                     case "m_Dependencies":
                         foreach (var kv in AsList(sr.ReadValue(c)))
                             if (kv is string ks) result.Dependencies.Add(ks);
+                        break;
+
+                    case "m_KeywordFlags":
+                        foreach (var flag in AsList(sr.ReadValue(c)))
+                            result.KeywordFlags.Add(Convert.ToInt32(flag));
                         break;
 
                     default:

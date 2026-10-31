@@ -52,6 +52,7 @@ namespace ShaderRipper
             // for a standalone d3dcompiler check, at the cost of a file Unity
             // will reject on import).
             if (opt.Has("--self-contained")) Emit.UnityIncludes.Enabled = false;
+            Emit.ShaderLab.StripDxbcRegisters = opt.Has("--strip-dxbc-registers");
 
             // Resolve the command BEFORE the "too few arguments" test, so a
             // mistyped option reports itself instead of printing the usage text and
@@ -59,9 +60,12 @@ namespace ShaderRipper
             string command = Command(args);
             bool knownCommand = Array.IndexOf(Commands, command) >= 0;
 
-            if (args.Length < 2 || args[0] is "-h" or "--help")
+            // `--plugins` takes no input, so it is valid with a single token.  The
+            // "too few arguments" guard below is about commands that need a file.
+            bool bareCommand = command is "--plugins";
+
+            if ((args.Length < 2 && !bareCommand) || args[0] is "-h" or "--help")
             {
-                // `--help`/`-h` is a request, not a mistake: print the usage text.
                 if (args.Length >= 1 && args[0] is "-h" or "--help")
                 {
                     Console.Error.WriteLine(Strings.Get("Usage"));
@@ -91,6 +95,11 @@ namespace ShaderRipper
             if (opt.Has("--no-tmp-layout")) TmpLayouts.Enabled = false;
             BuiltinIndex.Load(opt.Value("--builtin-index"));
 
+            // Plugins: loaded once, before any command runs, so `--platform` can name
+            // a backend a plugin registered and an export can use it.  `--no-plugins`
+            // skips loading entirely, which is what a reproducible run wants.
+            LoadPlugins(opt);
+
             // The command word is one of the tokens, not necessarily the FIRST one:
             // `--shaderlab <dir> --game <dir>` is a legitimate spelling, and reading
             // args[0] as the command made it fail with "unknown option --shaderlab"
@@ -105,6 +114,7 @@ namespace ShaderRipper
                 "--file" or "--file-bare" => 0,
                 "--game" => 0,
                 "--emit" => 2,
+                "--plugins" => 0,
                 _ => 1,
             };
             if (!Positionals(opt, need)) return 2;
@@ -119,6 +129,7 @@ namespace ShaderRipper
                 case "--file": return ExportFiles(args);
                 case "--file-bare": return ExportFiles(args);
                 case "--game": return ExportGame(opt);
+                case "--plugins": return ListPlugins();
                 default:
                     Console.Error.WriteLine(Strings.F("UnknownOption", command));
                     return 2;
@@ -129,7 +140,7 @@ namespace ShaderRipper
         private static readonly string[] Commands =
         {
             "--game", "--file", "--file-bare", "--asm", "--emit", "--glsl",
-            "--stats", "--list-shaders", "--dump",
+            "--stats", "--list-shaders", "--dump", "--plugins",
         };
 
         /// <summary>
@@ -352,14 +363,19 @@ namespace ShaderRipper
             string text = opt.Value("--platform");
             if (string.IsNullOrWhiteSpace(text)) return true;
 
-            platform = Data.Platforms.ByName(text);
+            platform = Plugins.PlatformCatalog.ByName(text);
             if (platform == null)
             {
                 Console.Error.WriteLine(Strings.F("PlatformUnknown", text));
                 return false;
             }
-            var info = Data.Platforms.Get(platform.Value);
-            if (info.Format is not ("dxbc" or "glsl"))
+            var info = Plugins.PlatformCatalog.Get(platform.Value);
+            // A backend with no translator is not useless: d3d9 disassembles its
+            // programs beside the .shader, and a plugin may supply a reader without a
+            // translator.  Only a backend that would produce nothing at all is refused
+            // here, and that is now a property of the registry rather than a list of
+            // format names hard-coded in this file.
+            if (!Plugins.PlatformCatalog.CanRead(platform.Value))
             {
                 Console.Error.WriteLine(Strings.F("PlatformNoTranslator", info.Name, info.Format));
                 return false;
@@ -393,6 +409,71 @@ namespace ShaderRipper
         /// </summary>
         private static bool Overwrite(Argv opt) =>
             opt.Has("--overwrite") || opt.Has("--clean");
+
+        /// <summary>
+        /// Load plugin assemblies and install the registry.
+        ///
+        /// Called once, before any command.  Failures are reported and ignored: a
+        /// plugin that will not load must not stop an export of a game that does not
+        /// need it.  `--no-plugins` installs the built-in-only registry, which is the
+        /// reproducible spelling of "behave exactly like the last release".
+        /// </summary>
+        private static void LoadPlugins(Argv opt)
+        {
+            var notes = new List<string>();
+            string directory = opt.Value("--plugin-dir");
+
+            if (opt.Has("--no-plugins"))
+            {
+                Plugins.PluginContext.Install(Plugins.PluginHost.Load(null, notes));
+            }
+            else
+            {
+                Plugins.PluginContext.Install(
+                    Plugins.PluginHost.Load(directory ?? Plugins.PluginHost.DefaultDirectory, notes));
+            }
+
+            foreach (string note in notes) Console.Error.WriteLine(note);
+
+            // `SHADERRIP_PLUGINDBG=1` prints what the pipeline will actually consult.
+            // "the plugin loaded but its pass never ran" is otherwise invisible.
+            if (Environment.GetEnvironmentVariable("SHADERRIP_PLUGINDBG") == "1")
+            {
+                var registry = Plugins.PluginContext.Registry;
+                Console.Error.WriteLine($"[plugins] registry={(registry == null ? "null" : "set")}");
+                foreach (string line in registry?.Describe() ?? Array.Empty<string>())
+                    Console.Error.WriteLine($"[plugins] {line}");
+                Console.Error.WriteLine(
+                    $"[plugins] emitter passes: {string.Join(", ", Plugins.EmitterPipeline.Passes.Select(p => p.Name))}");
+            }
+        }
+
+        /// <summary>
+        /// <c>--plugins</c>: what was loaded, in the order it will be consulted.
+        ///
+        /// Printing this is the only way to answer "why did my plugin not run" without
+        /// a debugger, so it reports the built-ins too.
+        /// </summary>
+        private static int ListPlugins()
+        {
+            var registry = Plugins.PluginContext.Registry;
+            if (registry == null)
+            {
+                Console.WriteLine("no registry installed");
+                return 0;
+            }
+            if (!Plugins.PluginHost.InProcessSupported)
+                Console.WriteLine("this build cannot load plugins (NativeAOT); built-in backends only");
+
+            int count = 0;
+            foreach (string line in registry.Describe())
+            {
+                Console.WriteLine(line);
+                count++;
+            }
+            if (count == 0) Console.WriteLine("(no capabilities registered)");
+            return 0;
+        }
 
         private static int Report(ShaderRipper.Game.GameExport.Stats s)
         {

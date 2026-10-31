@@ -9,9 +9,17 @@
     <ImplicitUsings>enable</ImplicitUsings>
     <AssemblyName>ShaderRipper</AssemblyName>
     <RootNamespace>ShaderRipper</RootNamespace>
-    <Version>1.2.1</Version>
+    <Version>1.2.2</Version>
     <PlatformTarget>x64</PlatformTarget>
     <AllowUnsafeBlocks>true</AllowUnsafeBlocks>
+    <!-- XML documentation is emitted for every public API.  The plugin surface
+         (namespace ShaderRipper.Plugins) is the reason: a third-party author needs to
+         read what an interface promises without opening the library, and docs/api/
+         is generated from this file. -->
+    <GenerateDocumentationFile>true</GenerateDocumentationFile>
+    <!-- The generated ANTLR parsers under Grammar/ carry no doc comments and never
+         will; muting only that warning keeps the build honest about the rest. -->
+    <NoWarn>$(NoWarn);CS1591</NoWarn>
     <!-- Localized interface strings live here (Localization/Strings.*.resx):
          the library owns every message, the exe only formats them.  No language
          filter, so each .resx becomes a satellite assembly in the output.
@@ -26,6 +34,9 @@
     <!-- The desktop front end reads the same log and progress counter the console
          uses; it is not part of the solution and is not shipped here. -->
     <InternalsVisibleTo Include="ShaderRipper.Gui" />
+    <!-- The unit tests live in a separate assembly but exercise internal helpers
+         directly; there is no public surface worth widening for them. -->
+    <InternalsVisibleTo Include="ShaderRipper.Tests" />
   </ItemGroup>
   <ItemGroup>
     <!-- Runtime only: the lexer/parser under Grammar/ are generated ahead of

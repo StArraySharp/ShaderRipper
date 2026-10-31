@@ -84,6 +84,7 @@
     --platform &lt;名|id&gt; 只读该平台的槽（d3d11 / d3d9 / gles3 / gles20 /
                      openglcore / opengl / metal / vulkan / webgpu）；
                      默认读所有有翻译器的槽
+    --strip-dxbc-registers  移除 DXBC 来源 ShaderLab 的 register 绑定（保留 packoffset；不影响 GLSL 或独立程序）
     --self-contained 引擎声明直接内联，不用 #include
                      （可独立编译；但 Unity 导入时会拒绝）
 
@@ -91,6 +92,11 @@
     --tmp-layouts &lt;文件|目录&gt;  TMP 布局表（JSON）
     --builtin-index &lt;文件&gt;   Unity 自带 shader 名单
     --no-tmp-layout        不使用 TMP 布局表
+
+插件:
+    --plugins              列出已加载的容器、后端与发射后处理
+    --plugin-dir &lt;目录&gt;    插件目录（默认 &lt;exe&gt;/plugins）
+    --no-plugins           不加载插件，只用内置后端
 
 其它:
     --quiet                只输出最后的统计
@@ -368,6 +374,11 @@
   <data name="WarnPassNoProgram">
     <value>通道 {0} 在构建中没有程序</value>
     <comment>{0} = 通道标识，如 "#0" 或 "0 \"Main\""</comment>
+  </data>
+
+  <data name="NoteD3d9DisassemblyOnly">
+    <value>该通道只带 {0}（SM2/SM3）程序：它们已反汇编到本文件旁边，未做翻译</value>
+    <comment>{0} = 平台名，如 "d3d9"</comment>
   </data>
 
   <data name="WarnPassNoVertex">

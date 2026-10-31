@@ -6,14 +6,7 @@ Extract shaders from Unity game data and rebuild them as readable **ShaderLab + 
 
 > 💡 **This project's code is 100% AI-generated** (DeepSeek / GLM collaboration), with human work limited to requirements, acceptance testing and release.
 
-**Supported payloads**: dxbc — d3d11, Xbox / GameCore slots (instruction-by-instruction DXBC → HLSL translation), and DXIL chunks inside a dxbc container via dxcompiler (disassembly, back-translation unverified); glsl — GLES3 / GLES2 / OpenGLCore / OpenGL (GLSL back-translation to HLSL). Other backends (d3d9, Metal, Vulkan, console, WebGPU) have no translator and are skipped.
-
-## 1.2.1 highlights
-
-- Preserve shared compiled programs in every pass that references them.
-- Support dynamically indexed inputs such as `v[r2.x + 2]` instead of parsing incomplete instructions.
-- Expose constant-buffer and texture reflection through the embedded API; load embedded TMP layouts on demand.
-- Mark generated ShaderLab files and identify DXBC/GLSL translation above each program block.
+**Supported payloads**: dxbc — d3d11, Xbox / GameCore slots (instruction-by-instruction DXBC → HLSL translation), and DXIL chunks inside a dxbc container via dxcompiler (disassembly, back-translation unverified); glsl — GLES3 / GLES2 / OpenGLCore / OpenGL (GLSL back-translation to HLSL); d3d9 — SM2/SM3 (disassembly only). Other backends (Metal, Vulkan, console, WebGPU) have no translator and are skipped.
 
 ## Build
 
@@ -22,59 +15,129 @@ Requires the .NET 10 SDK.
 Two layers:
 
 - **`ShaderRipper` (`src/ShaderRipper`, assembly `ShaderRipper.dll`)** — the parsing/decompilation core library, usable from other tools
-- **`ShaderRipper.Application` (`src/ShaderRipper.Application`)** — the CLI front end; rename its apphost to `ShaderRipper.exe` when publishing
+- **`ShaderRipper.Application` (`src/ShaderRipper.Application`)** — the CLI front end
 
 ```bash
 dotnet build ShaderRipper.slnx -c Release
-
-# Windows NativeAOT (~11 MB single file); rename the apphost to ShaderRipper.exe
-dotnet publish src/ShaderRipper.Application/ShaderRipper.Application.csproj -c Release -r win-x64 -p:PublishAot=true -o publish/aot-win-x64
-mv publish/aot-win-x64/ShaderRipper.Application.exe publish/aot-win-x64/ShaderRipper.exe
-
-# Windows, CLR host with trimming (~40 MB single file).  Use this when AOT is not
-# available or when a trimmed CLR build is preferred: same output, no trimming
-# warnings, and it starts without the AOT compile step.
-dotnet publish src/ShaderRipper.Application/ShaderRipper.Application.csproj -c Release -r win-x64   --self-contained -p:PublishSingleFile=true -p:PublishTrimmed=true -o publish/win-x64-clr
-mv publish/win-x64-clr/ShaderRipper.Application.exe publish/win-x64-clr/ShaderRipper.exe
-
-# Linux: AOT cannot cross-compile across OSes — build the Linux AOT on Linux.
-# Cross-pack from Windows as a trimmed single-file with CLR host (~56 MB):
-dotnet publish src/ShaderRipper.Application/ShaderRipper.Application.csproj -c Release -r linux-x64 \
-  --self-contained -p:PublishSingleFile=true -p:PublishTrimmed=true -o publish/linux-x64
 ```
 
-The published artifact is a single executable with no companion files: schema trees, fix-up tables, TMP layouts and the per-RID native libraries are all embedded and extracted to `%TEMP%\ShaderRipper\` on first use.
+### Release packaging
+
+```bash
+pwsh -File tools/make-release.ps1                      # win-x64 + linux-x64
+pwsh -File tools/make-release.ps1 -Rid win-x64         # one platform
+pwsh -File tools/make-release.ps1 -Rid win-x64 -Target gui
+```
+
+Each platform publishes a **self-contained, multi-file** build and zips it as
+`publish/<rid>/ShaderRipper-<target>-<version>-<rid>.zip`.
+
+The publish is deliberately not trimmed and not single-file: **both of those break
+plugins.** A trimmed self-contained publish folds the runtime assemblies into native
+code, so a plugin's reference to `System.Runtime` has no file to resolve against; a
+single-file publish hides the same assemblies inside the exe, so `Assembly.LoadFrom`
+finds nothing. A plain multi-file publish is the only layout in which plugins work --
+and the one a user can debug.
+
+Schema trees, fix-up tables, TMP layouts and the per-RID native libraries are embedded
+in the library and extracted to `%TEMP%\ShaderRipper\` on first use, so the release
+carries no companion data files.
 
 The ANTLR lexers/parsers under `src/ShaderRipper/Grammar/` are generated ahead of time and checked in, so building needs no JVM. After editing a `.g4`, regenerate them with `py -3 scripts/gen_grammar.py` (needs java and `antlr-complete.jar`; `--antlr <path>` overrides the location).
 
-## Verification scripts
+## Testing
 
-`scripts/` holds the harnesses only — `verify_logic.py`, `verify_glsl.py`, `scan_unwritten.py`, `scan_nan.py`, `scan_props.py`, `usc_check.py` (with `usc_compile.py` as its protocol client) and `gen_grammar.py`. They are development tools, not part of the build; each one's docstring says what it checks and how to run it. The invariants they enforce are described under [Correctness verification](#correctness-verification).
+`src/ShaderRipper.Tests` is an NUnit suite over the layers that need neither Unity nor
+game data — the platform table, blob-format detection, the UnityFS reader, variant
+planning, the ShaderLab well-formedness check, the matrix-chain folder, the d3d9 token
+decoder and the plugin registry. It runs in a second:
+
+```bash
+dotnet test src/ShaderRipper.Tests/ShaderRipper.Tests.csproj -c Release
+```
+
+The `scripts/` harnesses check the parts a unit test cannot reach, because they need
+real game data or Unity's own compiler. See
+[Correctness verification](#correctness-verification).
+
+## Plugins
+
+Three parts of the pipeline are extensible: **containers** (a format this build cannot
+read), **backends** (a payload format it cannot translate) and **emitter passes**
+(post-processing over the generated HLSL). A plugin is a class library that
+implements `IShaderRipperPlugin` and registers whichever of those it needs.
+
+```bash
+# what is loaded, in the order it will be consulted
+ShaderRipper.exe --plugins
+
+# a plugin directory other than <exe>/plugins
+ShaderRipper.exe --game "Game_Data" --shaderlab out --plugin-dir ./my-plugins
+
+# ignore every plugin, which is the reproducible spelling of "behave like the release"
+ShaderRipper.exe --game "Game_Data" --shaderlab out --no-plugins
+```
+
+| Capability | Interface | Called |
+|---|---|---|
+| Claim input bytes | `IContainerProvider` | once per candidate file |
+| Enumerate a backend's programs | `ISlotReader` | once per shader × slot |
+| Translate one program | `IProgramTranslator` | once per program |
+| Rewrite emitted HLSL | `IEmitterPass` | once per program body |
+
+Every capability takes a priority — built-ins are `0`, plugins default to `100`. Lower
+runs first for lookup; a platform registered later wins its id, since an entry that
+never gets asked would be unusable.
+
+A plugin that throws is skipped and the run continues; each distinct failure is
+reported once, so a pass failing on every program of a 400-shader run cannot bury the
+real diagnostics. `SHADERRIP_PLUGINDBG=1` prints the effective order and confirms a
+pass actually ran.
+
+**[Plugin API reference](docs/api.md)** — every interface, what it is called with and
+when, generated from the source's own doc comments (so it cannot drift):
+
+```bash
+py -3 scripts/gen_api_docs.py     # docs/api.md, from bin/Release/net10.0/ShaderRipper.xml
+```
+
+> In-process plugins need `Assembly.LoadFrom`, so a **NativeAOT** publish cannot load
+> them: `--plugins` says so and the built-in backends are used. A self-contained
+> release is untrimmed and multi-file for the same reason — see
+> [Release packaging](#release-packaging).
+>
+> [`examples/ShaderRipper.Plugin.Example`](examples/ShaderRipper.Plugin.Example/ExamplePlugin.cs)
+> is a worked example of all three extension points. It is not part of the solution —
+> build it by path.
 
 ## Renderer support
 
-Output follows the backends the game actually shipped; only two payload formats have a translator:
+Output follows the backends the game actually shipped; only two payload formats
+have a translator, and one more has a disassembler:
 
 | Payload (`m_Platforms` backend) | Windows | Linux | macOS | Output |
 |---|---|---|---|---|
 | dxbc: d3d11, xboxone, xboxone-d3d12, gamecore* | ✅ | ✅ | ⚠️ untested | ShaderLab + HLSLPROGRAM (assembly transliteration) |
 | DXIL chunk inside a dxbc container (D3D12 / SM6) | ✅ | ✅ | ❌ no macOS DXC | Disassembly; back-translation unverified |
 | glsl: gles20 / gles3 / openglcore / opengl | ✅ | ✅ | ⚠️ untested | ShaderLab + HLSLPROGRAM (GLSL back-translation) |
-| d3d9 / metal / vulkan / console platforms / webgpu | — | — | — | skipped (no translator) |
+| d3d9: SM2/SM3 token stream | ✅ | ✅ | ✅ | Disassembly only (`.orig.asm`); no translator |
+| metal / vulkan / console platforms / webgpu | — | — | — | skipped (no translator) |
 
 > macOS is untested: the managed paths should work (publish yourself with `-r osx-arm64`), but DXIL disassembly is unavailable since Microsoft ships no macOS DXC build.
-> One shader usually carries several backend slots and each is processed; a game that only ships d3d9 / metal / vulkan produces nothing.
+> One shader usually carries several backend slots and each is processed; a game that only ships metal / vulkan produces nothing.
 >
-> `--platform <name|id>` reads a single slot. A build that ships both d3d11 and gles3 always takes d3d11, so this is the only way to see what the GLSL route produces on its own. Naming a backend with no translator (vulkan, d3d9, metal) is an error — an empty export that exits 0 is the trap `--only` had.
+> `--platform <name|id>` reads a single slot. A build that ships both d3d11 and gles3 always takes d3d11, so this is the only way to see what the GLSL route produces on its own. Naming a backend that would produce nothing at all (vulkan, metal) is an error — an empty export that exits 0 is the trap `--only` had; `d3d9` is accepted because its programs still land on disk as disassembly.
+>
+> d3d9 has no back-translation on purpose. SM2/SM3 is a different dialect from DXBC (`texld` / `mova`, absolute register numbers instead of a `dcl_` prefix plus relative `r#`), so the DXBC emitter cannot read it and a second translator would not pay for itself. The pass keeps its render state and carries a note saying its program was read but not translated, which is what the build's data actually supports.
 
 ## Usage
 
 ```bash
 # Simplest: point at the game root (or its <Game>_Data); output goes to <input>_Ripped
-ShaderRipper.exe --game "…/steamapps/common/A Dance of Fire and Ice"
+ShaderRipper.exe --game "…/steamapps/common/SomeGame"
 
 # Explicit output directory, and write every shader as a .shader (the deliverable)
-ShaderRipper.exe --game "…/A Dance of Fire and Ice" --shaderlab out
+ShaderRipper.exe --game "…/SomeGame" --shaderlab out
 
 # Only shaders whose name contains "Bloom", plus each program's original disassembly
 ShaderRipper.exe --game "Game_Data" --out out --only Bloom --orig-asm
@@ -195,9 +258,13 @@ For more readable output, prefer game data that includes **GLES3 / OpenGLCore** 
 | `--builtin` | Include Unity's own shaders too (skipped by default, the tally says how many) |
 | `--overwrite` (alias `--clean`) | Empty the output directory first; only content this tool produced is removed |
 | `--self-contained` | Inline the engine declarations instead of `#include` (compiles standalone; Unity rejects it on import) |
+| `--strip-dxbc-registers` | Drop the `: register(bN/tN/sN)` bindings from DXBC-sourced ShaderLab so Unity assigns slots itself (`packoffset` is kept; GLSL passes and standalone programs are untouched) |
 | `--quiet` / `--verbose` | Final tally only / per-file headings, structure and timings |
 | `--lang <en\|zh>` | UI language; follows the system UI language by default |
 | `--tmp-layouts <file\|dir>` / `--no-tmp-layout` / `--builtin-index <file>` | Name-table overrides (the embedded tables are used by default) |
+| `--plugins` | List what was loaded — containers, backends and emitter passes, in the order they are consulted |
+| `--plugin-dir <dir>` | Plugin directory (default `<exe>/plugins`) |
+| `--no-plugins` | Skip loading plugins; built-in backends only |
 | `--list-shaders <file>` | List the shaders inside a SerializedFile / bundle (name, pathId, container path); writes nothing |
 | `--dump <file> [--dump-filter <text>]` | Print each shader's structure: platform slots, pass/sub-program counts, properties, non-default render state |
 | `--asm <file> [--out <file>]` | One disassembly → HLSL (stdout by default) |
@@ -227,172 +294,32 @@ Debug environment variables: `SHADERRIP_NOTES=all` prints every diagnostic (8 by
 
 ## Correctness verification
 
-[`docs/verification/`](docs/verification/) holds one round trip through a Unity 6 test project: the source that
-went into the project (`*_original.shader`), what this tool extracted back out (`*_ripper.shader`, with
-per-instruction comments; `*_ripper_noasm.shader` is the same file without them), and the merged DXBC
-disassembly of every compiled variant. Those two `_ripper` files are the artifacts of that run; the
-current front end only annotates the file header (and writes `// TODO` for an instruction it cannot
-translate), not every instruction. The sources ship with the repo, so the round trip can be repeated by
-packing them yourself.
+Three checks, all offline, all in `scripts/`:
 
-| shader | properties | variants | fragment instructions |
-|---|---|---|---|
-| `ShaderRipperTest/ExtremeFlow` | 37 | 1 | 1328 |
-| `ShaderRipperTest/VariantMonster` | 20 | 60 | 84,425 total, 777–1911 per variant |
+| Harness | Question it answers |
+|---|---|
+| `verify_logic.py` | Does the emitted HLSL, compiled back to DXBC, compute the same thing? |
+| `verify_glsl.py` | Same, for the GLSL route, against the payload it came from |
+| `usc_check.py` | Does Unity's own compiler accept every emitted `.shader`? |
 
-Every variant was recompiled with `d3dcompiler_47` at `ps_5_0`: 1/1 and 60/60 pass, 0 untranslated
-instructions, 0 `TODO` markers, and control flow survives (ExtremeFlow: 3 loops, 5 exits between them,
-2 `discard`s, `ddx`/`ddy` preserved).
+Measured on the corpora used for the last release:
 
-### Semantic equivalence (`scripts/verify_logic.py`)
-
-Compiling is not the same as computing the same thing. The check compiles the emitted HLSL back to
-DXBC, disassembles it, and compares these invariants against the original disassembly:
-
-1. no constant-buffer register disappears (the *declared* width is not an invariant -- fxc sizes a
-   cbuffer from the rows actually read)
-2. no constant-buffer row is read that the original never read
-3. texture fetch count, from the **generated source** (fxc merges same-coordinate samples, so the
-   compiled count is not the promise)
-4. `sincos` sin/cos output count -- losing one means a register nothing writes
-5. counts of instructions a compiler may not remove (`discard`, `ldms`, `gather`)
-6. the immediate-constant set -- where a `1.0`-for-true comparison mask shows up
-
-On a real shipping build (425 shaders, 3,263 programs, 3,195 DXBC programs): **3,195 / 3,195 pass**, and
-`scripts/scan_unwritten.py` reports 0 reads of a never-written register. `scripts/usc_check.py`
-(Unity's own `UnityShaderCompiler`) compiles them all.
-
-```sh
-py -3 scripts/verify_logic.py <export dir> -j 6     # DXBC route: logical equivalence
-py -3 scripts/verify_glsl.py <export dir> -j 6      # GLSL route: payload vs emission
-py -3 scripts/scan_unwritten.py <export dir>        # reads of unwritten registers
-py -3 scripts/scan_nan.py <export dir>              # NaN masks escaping to a target
-py -3 scripts/scan_props.py <Assets dir>            # Properties leaked into includes
-py -3 scripts/usc_check.py <export dir> -u <Unity>  # Unity's own compiler
-py -3 scripts/gen_grammar.py                        # rebuild the parsers from *.g4
+```
+verify_logic  428/428 = 100%     scan_unwritten  0 unwritten lanes
+verify_glsl    34/34  = 100%     scan_nan        0 escaping NaNs
+usc_check       89/89            NUnit suite     144/144
 ```
 
-The GLSL route has no second compiler to compare against, so the reference is the
-payload itself: per stage it compares texture fetches, assignment targets and
-their counts, comparison operators, and the intrinsics after normalising through
-the translator's own rename table. 33/33 pass on that build, and a mutation test
-(deleting one `Sample`, dropping one register write) is caught in both cases.
-
-### Readability passes (pattern recognition)
-
-Correct output should also look like the shader it came from. Three pattern
-rewrites change the spelling without changing the program:
-
-| Pass | Recognises | Emits |
-|---|---|---|
-| mask normalisation | per-write data flow: the value is read only by a branch, select, comparison or bitwise op before the lane is rewritten | `? 1.0f : 0.0` instead of `asfloat(0xFFFFFFFFu)` (0xFFFFFFFF is a NaN in IEEE 754, and any later multiply that misses the mask turns a colour into NaN) |
-| matrix product | `mul r1,v.y,M[1]; mad r1,M[0],v.x,r1; mad r0,M[2],v.z,r1; add r0,r0,M[3]` | one `mul(M, v)`; the accumulator and the destination may be different registers, the last term may land on an output, and the completing row may sit a few instructions later (fxc schedules the work that feeds the vector in between) |
-| `UnityObjectToClipPos` | a `mul(ObjectToWorld, v)` whose result feeds `mul(MatrixVP, ·)` | `o.pos = UnityObjectToClipPos(v.xyz)` — eight instructions become one |
-
-**On `1.0f`**: it is not a blanket replacement. DXBC writes -1 for true, and programs
-like `lt → iadd(-t,v) → itof → ge → and` read that mask NUMERICALLY — 1.0 there inverts
-the ramp. The test is a per-write def-use walk: from the comparison forward until the
-lane is rewritten, every read must be a branch, `movc`, comparison or bitwise op. Only
-then are -1 and 1 indistinguishable and `1.0f` is safe (and no longer a NaN).
-
-Per-write, not per-register: in real shaders the same lane holds a mask and then a
-number (`if (r0.x) { r0.x = ... }`). A whole-register test rejects all of those — the
-first attempt converted 0 of 4,123 masks. Def-use brings it to **144** (−96.5%).
-
-**On re-read components**: a single `mul(M, v)` reads all four components at one
-point in time, but fxc is free to overwrite one of them between the rows that read
-the others. In `ADOFAI_HoldShader` the sequence is
-
-```hlsl
-mul  r2,   r0.xxxx, VP[1]        // reads the OLD r0.x
-mul  r0.x, v0.y,    O2W[1].w     // r0.x now holds the world-space w
-mad  o0,   VP[3],   r0.xxxx, r1  // reads the NEW r0.x
-```
-
-Folding that into `mul(VP, float4(x, y, z, w))` would take the wrong `x`. So each
-component records the register and lane it was read from, and one that is written
-before the completing row is pinned into a local **where it still had its old
-value**:
-
-```hlsl
-float pin0 = r0.x;
-r0.x = mul(unity_ObjectToWorld, float4(v0.x, v0.y, v0.z, v0.w)).w;
-o0.xyzw = mul(unity_MatrixVP, float4(r0.y, pin0, r1.z, r0.x));
-```
-
-This is also why such a shader does **not** become `UnityObjectToClipPos`: its clip
-position is built from object-space `xyz` and the `w` of the object-to-world
-product, which is not the same thing as transforming the position. The macro is
-only emitted for an exact `mul(VP, mul(O2W, float4(v, 1.0)))` chain.
-
-The matrices are declared differently per output path: a ShaderLab file pulls in
-`UnityCG.cginc` and gets the `float4x4` declarations plus the macro, while the
-standalone `--programs` file declares `float4 M[4]` rows (the layout the
-disassembly reads), which `mul` does not accept — so that file carries its own
-`UnityObjectToClipPos`, the same two multiplies written over the rows.
-
-Folding is deliberately narrow: the four rows must come from one array with
-indices exactly 0/1/2/3, every destination mask must be full `xyzw`, nothing may
-write the intermediate register between the two products, the two products must be
-adjacent, and the intermediate must be dead afterwards.
-
-That last condition is measured, not assumed: collapsing
-`mul r0, v, ObjectToWorld … mul r1, r0, MatrixVP` into one
-`UnityObjectToClipPos` DELETES r0, and a vertex shader that also needs the world
-position (`mul r0.y, r0.y, unity_MatrixV[1].z` for view-space depth) then reads an
-uninitialised register. `scan_unwritten.py` went from 0 to 80 sites, which is how
-the bug surfaced.
-
-ExtremeFlow's if/else chain, before and after:
-
-Input:
-
-```hlsl
-if (energy < 0.5)      accum *= 1.05;
-else if (energy < 1.0) accum += float3(0.02, 0.01, 0.03);
-else if (energy < 1.8) accum = lerp(accum, accum * _ColorC.rgb, 0.25);
-else                   accum = saturate(accum) * (0.9 + 0.1 * sin(fl));
-
-if (accum.g > 1.4) break;              // early exit out of the [loop]
-```
-
-Output:
-
-```csharp
-r3.xyw = float3(r4.x * 1.05, r4.y * 1.05, r4.z * 1.05);                       // arm 1
-r6.xyz = float3((r3.z < 0.5) ? -1.0 : 0.0, (r3.z < 1.0) ? -1.0 : 0.0,
-                (r3.z < 1.8) ? -1.0 : 0.0);                                   // the three tests, kept
-r7.xyz = float3(mad(r4.x, _ColorC.x, -(r4.x)), ...);                          // lerp: accum*color - accum
-r7.xyz = float3(mad(r7.x, 0.25, r4.x), ...);                                  //   ... * 0.25 + accum
-r3.xyw = float3(r6.x != 0.0 ? r3.x : r5.x, ...);                              // the select tree
-r2.w = (1.4 < r3.y) ? 1.0 : 0.0;
-if (any(r2.w)) { r2.xyz = float3(r3.x, r3.y, r3.w); break; }                  // early exit rebuilt
-```
-
-The compiler flattened the branch chain into predicated selects and rewrote `lerp` into two `mad`s; the
-transliteration keeps that shape instead of guessing the original `if/else` back. The `-1.0` is deliberate —
-DXBC comparisons write an all-ones mask on true, and the ramp that consumes these values depends on that sign,
-so a `1.0` there would silently invert the test. That is also why the output has more instructions than the
-input (1328 vs 1097): fusion the compiler performed cannot be recovered, and inventing it would be a guess.
-
-### Names and tags
-
-Two kinds of identifier are re-spelled rather than copied, because the serialized data stores them in a form
-that no hand-written shader uses:
-
-- **ShaderLab tag casing.** The asset keeps tag keys upper-cased (`LIGHTMODE`, `FORWARDBASE`). Unity's parser
-  is case-insensitive for the *key*, so the file still works, but the value is matched exactly — so
-  `"LIGHTMODE" = "FORWARDBASE"` is written `"LightMode" = "ForwardBase"`. Every key in the documented set is
-  canonicalised, and `true`/`false` become `True`/`False`.
-- **Texture names.** Unity binds a sampler to its texture by name (`SamplerState sampler__MainTex`), and a bare
-  `s1` is rejected outright. The name comes from the asset's own texture reflection; the two lists rarely line
-  up — a `[PerRendererData]` texture is never in the table, and a variant can sample a built-in texture it has no
-  property for — so the reflection names what it can and the remaining registers take the unmatched property
-  names in declaration order. A texture the shader declares no property for keeps its positional `tN`.
+A round trip through a real Unity 6 test project — the source, what came back out, and
+the merged disassembly of every variant — is in [`docs/verification/`](docs/verification/).
+How each check works, what it treats as a real difference rather than a compiler
+rewrite, and the readability passes it guards are described in
+[`docs/verification.md`](docs/verification.md).
 
 ## Limitations
 
-- Metal / Vulkan / WebGPU / d3d9 payloads have no translator: those slots are skipped, not guessed
+- Metal / Vulkan / WebGPU payloads have no translator: those slots are skipped, not guessed
+- d3d9 has a disassembler but no translator: the `.orig.asm` is written, the pass body is not
 - Pure console platforms (PS/Switch) have no readable output
 - d3d12 shows up as a DXIL chunk in a dxbc slot: disassembly works, HLSL back-translation is unverified
 - The HLSL is a per-instruction transliteration: register reuse and compiler fusion are kept as-is, so it is equivalent but verbose rather than idiomatic source

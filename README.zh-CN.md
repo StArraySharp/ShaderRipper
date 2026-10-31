@@ -6,14 +6,7 @@
 
 > 💡 **本项目代码 100% 由 AI 生成**（DeepSeek / GLM 协作完成），人工负责需求、验收与发布。
 
-**支持的载荷**：dxbc —— d3d11、Xbox / GameCore 槽位（DXBC 汇编逐条直译 HLSL），以及 dxbc 容器里的 DXIL chunk（经 dxcompiler 反汇编，回译未验证）；glsl —— GLES3 / GLES2 / OpenGLCore / OpenGL（GLSL 回译 HLSL）。其余后端（d3d9、Metal、Vulkan、主机平台、WebGPU）没有翻译器，会被跳过。
-
-## 1.2.1 更新
-
-- 同一个编译程序被多个 Pass 引用时，为所有引用它的 Pass 保留程序。
-- 支持 `v[r2.x + 2]` 等动态索引输入，避免指令解析不完整及索引越界。
-- 嵌入 API 支持传递常量缓冲与纹理反射，TMP 内嵌布局按需加载。
-- 生成的 ShaderLab 带来源标记，并在程序块上方注明 DXBC/GLSL 翻译来源。
+**支持的载荷**：dxbc —— d3d11、Xbox / GameCore 槽位（DXBC 汇编逐条直译 HLSL），以及 dxbc 容器里的 DXIL chunk（经 dxcompiler 反汇编，回译未验证）；glsl —— GLES3 / GLES2 / OpenGLCore / OpenGL（GLSL 回译 HLSL）；d3d9 —— SM2/SM3（仅反汇编）。其余后端（Metal、Vulkan、主机平台、WebGPU）没有翻译器，会被跳过。
 
 ## 编译
 
@@ -22,56 +15,117 @@
 项目分为两层：
 
 - **`ShaderRipper`（`src/ShaderRipper`，程序集 `ShaderRipper.dll`）**——解析/反编译核心库，可供其它工具引用
-- **`ShaderRipper.Application`（`src/ShaderRipper.Application`）**——命令行前端，发布时把 apphost 改名为 `ShaderRipper.exe`
+- **`ShaderRipper.Application`（`src/ShaderRipper.Application`）**——命令行前端
 
 ```bash
 dotnet build ShaderRipper.slnx -c Release
-
-# Windows NativeAOT（约 11 MB 单文件）；把 apphost 改名为 ShaderRipper.exe
-dotnet publish src/ShaderRipper.Application/ShaderRipper.Application.csproj -c Release -r win-x64 -p:PublishAot=true -o publish/aot-win-x64
-mv publish/aot-win-x64/ShaderRipper.Application.exe publish/aot-win-x64/ShaderRipper.exe
-
-# Windows 带 CLR 的裁剪单文件（约 40 MB）。AOT 不可用、或想要一个裁剪过的 CLR 版本时用：
-# 产物与框架版逐字节一致，无裁剪警告。
-dotnet publish src/ShaderRipper.Application/ShaderRipper.Application.csproj -c Release -r win-x64   --self-contained -p:PublishSingleFile=true -p:PublishTrimmed=true -o publish/win-x64-clr
-mv publish/win-x64-clr/ShaderRipper.Application.exe publish/win-x64-clr/ShaderRipper.exe
-
-# Linux：AOT 不能跨 OS 编译，linux AOT 包需在 Linux 上构建；
-# Windows 交叉打包用带 CLR 的裁剪单文件（约 56 MB）
-dotnet publish src/ShaderRipper.Application/ShaderRipper.Application.csproj -c Release -r linux-x64 \
-  --self-contained -p:PublishSingleFile=true -p:PublishTrimmed=true -o publish/linux-x64
 ```
 
-发布产物是单个可执行文件，无任何伴生文件：schema 类型树、修复表、TMP 布局、按 RID 的原生库已全部嵌入，首次使用时解压到 `%TEMP%\ShaderRipper\`。
+### 发布打包
 
+```bash
+pwsh -File tools/make-release.ps1                      # win-x64 + linux-x64
+pwsh -File tools/make-release.ps1 -Rid win-x64         # 只打一个平台
+pwsh -File tools/make-release.ps1 -Rid win-x64 -Target gui
+```
+
+每个平台发布一份**自包含、多文件**的产物，打成
+`publish/<rid>/ShaderRipper-<target>-<version>-<rid>.zip`。
+
+**不裁剪、不单文件**：两者都会让插件失效。裁剪后的自包含发布会把运行时程序集折进原生代码，
+插件引用 `System.Runtime` 时没有文件可解析；单文件发布则把同样的程序集藏进 exe，
+`Assembly.LoadFrom` 什么也找不到。**多文件自包含是插件唯一能工作的形态**，也是用户能自行
+排查的形态。
+
+schema 类型树、修复表、TMP 布局、按 RID 的原生库已全部嵌入库内，首次使用时解压到
+`%TEMP%\ShaderRipper\`，因此产物没有任何伴生数据文件。
 `src/ShaderRipper/Grammar/` 下的 ANTLR 词法/语法分析器是提前生成并入库的，因此构建不需要 JVM。改过 `.g4` 之后用 `py -3 scripts/gen_grammar.py` 重新生成（需要 java 和 `antlr-complete.jar`，用 `--antlr <路径>` 指定位置）。
 
-## 验证脚本
+## 测试
 
-`scripts/` 目录只放校验工具——`verify_logic.py`、`verify_glsl.py`、`scan_unwritten.py`、`scan_nan.py`、`scan_props.py`、`usc_check.py`（其协议客户端为 `usc_compile.py`）以及 `gen_grammar.py`。它们是开发期工具，不参与构建；每个脚本的 docstring 说明了它检查什么、怎么跑。它们所校验的不变量见[语义一致性验证](#语义一致性验证scriptsverifylogicpy)一节。
+`src/ShaderRipper.Tests` 是一层 NUnit 单测，覆盖既不需要 Unity 也不需要游戏数据的纯逻辑
+——平台表、载荷格式识别、UnityFS 读取、变体规划、ShaderLab 合法性检查、矩阵链折叠、
+d3d9 token 反汇编、插件注册表。一秒内跑完：
+
+```bash
+dotnet test src/ShaderRipper.Tests/ShaderRipper.Tests.csproj -c Release
+```
+
+`scripts/` 下的 harness 负责单测够不到的部分：它们需要真实游戏数据或 Unity 自己的编译器。
+见[正确性验证](#正确性验证)。
+
+## 插件
+
+管线有三处可扩展：**容器**（本工具读不了的封装格式）、**后端**（翻不了译的载荷格式）
+和**发射后处理**（对生成出的 HLSL 做改写）。插件就是一个类库，实现
+`IShaderRipperPlugin` 并注册它需要的那几项。
+
+```bash
+# 看加载了什么，以及它们被询问的先后顺序
+ShaderRipper.exe --plugins
+
+# 指定 <exe>/plugins 之外的目录
+ShaderRipper.exe --game "游戏名_Data" --shaderlab out --plugin-dir ./my-plugins
+
+# 完全忽略插件——"与上个版本行为一致"的可复现写法
+ShaderRipper.exe --game "游戏名_Data" --shaderlab out --no-plugins
+```
+
+| 能力 | 接口 | 调用时机 |
+|---|---|---|
+| 认领输入字节 | `IContainerProvider` | 每个候选文件一次 |
+| 枚举某个后端的程序 | `ISlotReader` | 每个 shader × 槽位 |
+| 翻译单个程序 | `IProgramTranslator` | 每个程序一次 |
+| 改写生成的 HLSL | `IEmitterPass` | 每个程序体一次 |
+
+每项能力都带优先级：内置为 `0`，插件默认 `100`。查询时数字小的先被执行；同一平台 id
+后来注册者胜出——否则一个永远轮不到被询问的条目等于不可用。
+
+插件抛异常会被跳过、导出继续；每种不同的失败只报告一次，避免一个在 400 个 shader 上
+都失败的 pass 把真正的问题淹掉。`SHADERRIP_PLUGINDBG=1` 会打印实际生效顺序，并确认某个
+pass 真的被调用过。
+
+**[插件 API 参考](docs/api.md)**——每个接口、它拿到什么参数、什么时候被调用，全部由源码
+自带的文档注释生成，因此不会与代码脱节：
+
+```bash
+py -3 scripts/gen_api_docs.py     # 读 bin/Release/net10.0/ShaderRipper.xml，写出 docs/api.md
+```
+
+> 进程内插件依赖 `Assembly.LoadFrom`，所以 **NativeAOT** 发布无法加载：`--plugins` 会
+> 说明这一点并只使用内置后端。自包含发布之所以不裁剪、保持多文件，也是同一个原因——
+> 见[发布打包](#发布打包)。
+>
+> [`examples/ShaderRipper.Plugin.Example`](examples/ShaderRipper.Plugin.Example/ExamplePlugin.cs)
+> 是三个扩展点的完整示例。它不在解决方案内，按路径单独构建。
 
 ## 渲染器支持
 
-产物按游戏**实际打包的后端载荷**逐平台处理，只有两种载荷有翻译器：
+产物按游戏**实际打包的后端载荷**逐平台处理，只有两种载荷有翻译器，另有一种只有反汇编器：
 
 | 载荷（`m_Platforms` 里的后端）                          | Windows | Linux | macOS    | 产物                              |
 | ----------------------------------------------- | ------- | ----- | -------- | ------------------------------- |
 | dxbc：d3d11、xboxone、xboxone-d3d12、gamecore*     | ✅       | ✅     | ⚠️ 未验证   | ShaderLab + HLSLPROGRAM（汇编直译）   |
 | dxbc 容器里的 DXIL chunk（D3D12 / SM6）               | ✅       | ✅     | ❌ 无 macOS DXC | 反汇编；回译未验证                       |
 | glsl：gles20 / gles3 / openglcore / opengl      | ✅       | ✅     | ⚠️ 未验证   | ShaderLab + HLSLPROGRAM（GLSL 回译） |
-| d3d9 / metal / vulkan / 主机平台 / webgpu         | —       | —     | —        | 跳过（没有对应翻译器）                     |
+| d3d9：SM2/SM3 token 流                             | ✅       | ✅     | ✅        | 仅反汇编（`.orig.asm`），无翻译器            |
+| metal / vulkan / 主机平台 / webgpu                 | —       | —     | —        | 跳过（没有对应翻译器）                     |
 
 > macOS 未实测：托管路径理论上可用（自行 `dotnet publish -r osx-arm64` 打包），DXIL 反汇编因无官方 macOS 版 DXC 而不可用。
-> 一个 shader 通常带多个后端槽位，工具会逐个处理；只带 d3d9 / metal / vulkan 的游戏不会有任何产出。
+> 一个 shader 通常带多个后端槽位，工具会逐个处理；只带 metal / vulkan 的游戏不会有任何产出。
+>
+> `--platform <名字|id>` 只读一个槽位。同时带 d3d11 与 gles3 的构建永远优先 d3d11，所以这是单独看 GLSL 路线产物的唯一方式。指定一个**完全不会有产出**的后端（vulkan、metal）是错误——`--only` 曾踩过"空导出却 exit 0"的坑；`d3d9` 会被接受，因为它的程序仍会作为反汇编落盘。
+>
+> d3d9 **刻意不做回译**：SM2/SM3 与 DXBC 是不同方言（`texld` / `mova`、绝对寄存器号，而不是 `dcl_` 前缀加相对 `r#` 编号），DXBC 发射器读不了它，为它再写一套翻译器不划算。该 Pass 会保留渲染状态，并附带一条说明：程序已读出但未翻译——这才是构建数据实际能支撑的结论。
 
 ## 使用
 
 ```bash
 # 最简：指向游戏根目录（或它的 <游戏名>_Data），输出到 <输入>_Ripped
-ShaderRipper.exe --game "…/steamapps/common/A Dance of Fire and Ice"
+ShaderRipper.exe --game "…/steamapps/common/某游戏"
 
 # 指定输出目录，并把每个 shader 写成 .shader（交付物）
-ShaderRipper.exe --game "…/A Dance of Fire and Ice" --shaderlab out
+ShaderRipper.exe --game "…/某游戏" --shaderlab out
 
 # 只导出名字含 Bloom 的 shader，同时把每个程序的原始反汇编也落盘
 ShaderRipper.exe --game "游戏名_Data" --out out --only Bloom --orig-asm
@@ -182,14 +236,18 @@ Windows / Linux 构建格式一致，APK 从 zip 内读取。
 | `--orig-asm` | 额外把原始反汇编（`.orig.asm`）或原 GLSL（`.orig.glsl`）写进 `<名字>/` 子目录；与 `--programs` 互不隐含 |
 | `--jobs <N>` | 并发线程数，默认逻辑核数；`--jobs 1` 为串行 |
 | `--only <文本>` | 只处理名字含该文本的 shader |
-| `--platform <名\|id>` | 只读这一个后端的槽（d3d11 / gles3 / gles20 / openglcore / opengl …）；同时有 d3d11 和 gles3 的构建永远先取 d3d11，只有指定它才能单独看 GLSL 路线的产物。指定没有翻译器的后端（vulkan / d3d9 / metal）会直接报错，而不是导出 0 个 |
+| `--platform <名\|id>` | 只读这一个后端的槽（d3d11 / gles3 / gles20 / openglcore / opengl / d3d9 …）；同时有 d3d11 和 gles3 的构建永远先取 d3d11，只有指定它才能单独看 GLSL 路线的产物。指定完全没有产出的后端（vulkan / metal）会直接报错，而不是导出 0 个；d3d9 可指定，其程序会作为反汇编落盘 |
 | `--no-dedup` | 保留每个副本（默认同一路径只留一份：优先有固定容器路径的，并列取 path id 最小者） |
 | `--builtin` | 连 Unity 自带 shader 一起导出（默认跳过，只统计跳过了多少） |
 | `--overwrite`（别名 `--clean`） | 写前清空输出目录，只清本工具自己产出的内容 |
 | `--self-contained` | 引擎声明直接内联，不用 `#include`（可独立编译，但 Unity 导入时会拒绝） |
+| `--strip-dxbc-registers` | 移除 DXBC 来源 ShaderLab 的 `: register(bN/tN/sN)` 绑定，让 Unity 自己分配槽位（保留 `packoffset`；GLSL 通道与独立程序不受影响） |
 | `--quiet` / `--verbose` | 只输出最后的总账 / 额外输出每个文件的标题、结构与耗时 |
 | `--lang <en\|zh>` | 界面语言，默认跟随系统 UI 语言 |
 | `--tmp-layouts <文件\|目录>` / `--no-tmp-layout` / `--builtin-index <文件>` | 名称表覆盖项（默认用内嵌的那份） |
+| `--plugins` | 列出已加载的容器、后端与发射后处理，按被询问的顺序 |
+| `--plugin-dir <目录>` | 插件目录（默认 `<exe>/plugins`） |
+| `--no-plugins` | 不加载插件，只用内置后端 |
 | `--list-shaders <文件>` | 列出 SerializedFile / bundle 里的 shader（名字、pathId、容器路径），不写文件 |
 | `--dump <文件> [--dump-filter <文本>]` | 打印每个 shader 的结构：平台槽位、pass/子程序数、属性、非默认渲染状态 |
 | `--asm <文件> [--out <文件>]` | 一份反汇编 → HLSL（默认打到 stdout） |
@@ -218,130 +276,31 @@ Windows / Linux 构建格式一致，APK 从 zip 内读取。
 
 ## 正确性验证
 
-[`docs/verification/`](docs/verification/) 是一次完整往返：输入是打包进 Unity 6 测试工程的着色器源码（`*_original.shader`），输出是从该工程的构建产物里提取回来的结果（`*_ripper.shader` 带逐指令注释，`*_ripper_noasm.shader` 是去掉注释的同一份），另有所有已编译变体的 DXBC 反汇编合集。这两份 `_ripper` 是当时的产物，现在的前端只往文件头写说明（遇到翻译不了的指令才写 `// TODO`），不再逐条注释。源码随仓库提供，你自己打包一遍就能复现。
+三项检查，全部离线，都在 `scripts/` 下：
 
-| 着色器 | 属性 | 变体 | fragment 指令 |
-|---|---|---|---|
-| `ShaderRipperTest/ExtremeFlow` | 37 | 1 | 1328 |
-| `ShaderRipperTest/VariantMonster` | 20 | 60 | 合计 84,425，单变体 777–1911 |
+| Harness | 它回答什么 |
+|---|---|
+| `verify_logic.py` | 生成出的 HLSL 编译回 DXBC 后，算的是不是同一件事 |
+| `verify_glsl.py` | 同上，针对 GLSL 路线，参照物是它自己的载荷 |
+| `usc_check.py` | Unity 自己的编译器接受每一个写出的 `.shader` 吗 |
 
-每个变体都用 `d3dcompiler_47` 以 `ps_5_0` 重新编译验证：1/1 与 60/60 全部通过，0 条未翻译指令，0 处 `TODO`；控制流原样保留（ExtremeFlow：3 个循环、5 个出口、2 处 `discard`，`ddx`/`ddy` 都在）。
+最近一次发布所用语料的实测结果：
 
-### 语义一致性验证（`scripts/verify_logic.py`）
-
-「编译通过」不等于「逻辑一致」。把反编译出的 HLSL 重新编译回 DXBC、再反汇编，与原始反汇编逐项比对以下不变量：
-
-1. cbuffer 寄存器不消失（声明宽度会被 fxc 按实际读取裁剪，不算差异）
-2. cbuffer 读取行集合：重建不可多读原始从未读过的行
-3. 采样/取值调用数：按**生成源码里的调用数**比对（fxc 会合并同坐标采样，编译产物的数量不可作准）
-4. `sincos` 的 sin/cos 输出数：少一个意味着某个寄存器从未被写
-5. `discard` / `ldms` / `gather` 等不可被优化的指令数
-6. 立即数集合：1.0 与 -1.0 的掩码之争就藏在这里
-
-在一个真实商业构建（425 个 shader / 3,263 个程序，其中 3,195 个 DXBC 程序）上：**3,195 / 3,195 通过**，`scripts/scan_unwritten.py` 报告 0 个「读未写寄存器」。同时 `scripts/usc_check.py`（Unity 官方 `UnityShaderCompiler`）全部编译通过。
-
-```sh
-py -3 scripts/verify_logic.py <导出目录> -j 6      # DXBC 路线：逻辑一致性
-py -3 scripts/verify_glsl.py <导出目录> -j 6       # GLSL 路线：载荷 vs 生成
-py -3 scripts/scan_unwritten.py <导出目录>          # 读到未写的寄存器
-py -3 scripts/scan_nan.py <导出目录>                # NaN 掩码逃逸到渲染目标
-py -3 scripts/scan_props.py <Assets 目录>          # Properties 泄漏进 include 集合
-py -3 scripts/usc_check.py <导出目录> -u <Unity>    # Unity 官方编译器
-py -3 scripts/gen_grammar.py                       # 从 *.g4 重新生成解析器
+```
+verify_logic  428/428 = 100%     scan_unwritten  0 处未写入的 lane
+verify_glsl    34/34  = 100%     scan_nan        0 处逃逸的 NaN
+usc_check       89/89            NUnit 单测      144/144
 ```
 
-### 可读性 Pass（模式识别）
-
-输出除了正确，还要看得出原来的意图。三处模式重写在**同一份语义**上换一种写法：
-
-| Pass | 识别 | 输出 |
-|---|---|---|
-| 布尔掩码归一 | 逐次写入做 def-use：该值在**下一次重写前**只被分支/选择/比较/位运算读取 | `? 1.0f : 0.0`（而不是 `asfloat(0xFFFFFFFFu)`，那是 IEEE NaN） |
-| 矩阵乘折叠 | `mul r1,v.y,M[1]; mad r1,M[0],v.x,r1; mad r0,M[2],v.z,r1; add r0,r0,M[3]` | 一条 `mul(M, v)`；累加器与目标可以不同寄存器，末项可以是输出寄存器；收尾行可以晚几条指令（fxc 会把喂给向量的计算调度在中间） |
-| `UnityObjectToClipPos` | `mul(ObjectToWorld, v)` 的结果直接喂给 `mul(MatrixVP, ·)` | `o.pos = UnityObjectToClipPos(v.xyz)` —— 8 条指令变 1 条 |
-
-**关于 `1.0f` 的判据**：不能无条件替换。DXBC 的比较写真值 -1（全 1 位模式），像
-`lt → iadd(-t,v) → itof → ge → and` 这种区间选择器会**把掩码当数值算**，换成 1.0
-会让整段符号翻转。所以判据是**逐次写入的数据流**：从这条比较往后扫，直到该 lane 被重写，
-期间每次读取都必须是分支/`movc`/比较/位运算——全是布尔消费才能用 `1.0f`（真值等价，且不再产生 NaN）。
-
-判据必须是 per-write 而不是 per-register：真实 shader 里同一个 lane 常常先存掩码、
-`` `if (r0.x) { r0.x = ... }` `` 随后又存数字。整寄存器判定会把这类全部拒掉——
-第一版正是如此，4123 处掩码一个都没改。改成 def-use 后降到 **144**（−96.5%）。
-
-**关于「分量被重读」**：一条 `mul(M, v)` 只在同一时刻读四个分量，但 fxc 会把「喂其他分量
-的计算」调度到中间，顺手覆盖掉其中一个。`ADOFAI_HoldShader` 就是这个形状：
-
-```hlsl
-mul  r2,   r0.xxxx, VP[1]        // 读的是「旧的」 r0.x
-mul  r0.x, v0.y,    O2W[1].w     // r0.x 变成了世界坐标的 w
-mad  o0,   VP[3],   r0.xxxx, r1  // 这里读的是「新的」 r0.x
-```
-
-直接折成 `mul(VP, float4(x, y, z, w))` 会取到错的 `x`。所以每个分量都记下它读自哪个
-寄存器的哪个 lane；若它在收尾行之前被写过，就在**它还有旧值的那一刻** pin 成局部变量：
-
-```hlsl
-float pin0 = r0.x;
-r0.x = mul(unity_ObjectToWorld, float4(v0.x, v0.y, v0.z, v0.w)).w;
-o0.xyzw = mul(unity_MatrixVP, float4(r0.y, pin0, r1.z, r0.x));
-```
-
-这也正是这类 shader **不该**变成 `UnityObjectToClipPos` 的原因：它的 clip 坐标由
-物体空间 `xyz` 与 object-to-world 乘积的 `w` 拼成，和「变换顶点位置」不是一回事。
-只有严格的 `mul(VP, mul(O2W, float4(v, 1.0)))` 链才会换成宏。
-
-矩阵声明在两条输出路径上不同：ShaderLab 文件经 `UnityCG.cginc` 拿到 `float4x4`，可用宏；`--programs` 的独立文件按反汇编的布局声明为 `float4 M[4]`，`mul` 不接受，所以该文件自带一份按行点积实现的 `UnityObjectToClipPos`（同样两次乘法，只是展开）。
-
-折叠的边界是严格的：四行必须来自同一个数组、索引正好 0/1/2/3、目标掩码都是完整 `xyzw`、中间寄存器在两次乘积之间没有被别的指令写过，**并且**两次乘积必须紧邻、中间寄存器在第二次乘积之后已经不再被读。收尾行可以晚几条指令（fxc 会把喂给向量的计算调度在中间），但扫描在遇到写累加器或流控指令时立即停止。
-
-最后一条是实测出来的：`mul r0, v, ObjectToWorld … mul r1, r0, MatrixVP` 合成一次 `UnityObjectToClipPos` 会**删掉 r0**，而需要世界坐标的顶点着色器（`mul r0.y, r0.y, unity_MatrixV[1].z` 求视空间深度）随后会读到未初始化的寄存器。`scan_unwritten.py` 正是靠这个从 0 变成 80 才发现它。
-
-GLSL 路线没有可对拍的第二编译器，所以参照物是 GLSL 载荷本身：逐 stage 比纹理取值数、
-赋值目标及其次数、比较运算符、内在函数（按翻译器自己的重命名表归一）。
-在该构建上 33/33 通过；变异测试（删一条 `Sample`、少写一次寄存器）两类都能被抓。
-
-以 ExtremeFlow 的 if/else 链为例，输入：
-
-```hlsl
-if (energy < 0.5)      accum *= 1.05;
-else if (energy < 1.0) accum += float3(0.02, 0.01, 0.03);
-else if (energy < 1.8) accum = lerp(accum, accum * _ColorC.rgb, 0.25);
-else                   accum = saturate(accum) * (0.9 + 0.1 * sin(fl));
-
-if (accum.g > 1.4) break;              // 提前跳出 [loop]
-```
-
-输出：
-
-```csharp
-r3.xyw = float3(r4.x * 1.05, r4.y * 1.05, r4.z * 1.05);                       // 第 1 臂
-r6.xyz = float3((r3.z < 0.5) ? -1.0 : 0.0, (r3.z < 1.0) ? -1.0 : 0.0,
-                (r3.z < 1.8) ? -1.0 : 0.0);                                   // 三个判据还在
-r7.xyz = float3(mad(r4.x, _ColorC.x, -(r4.x)), ...);                          // lerp：accum*color - accum
-r7.xyz = float3(mad(r7.x, 0.25, r4.x), ...);                                  //   ... * 0.25 + accum
-r3.xyw = float3(r6.x != 0.0 ? r3.x : r5.x, ...);                              // 选择树
-r2.w = (1.4 < r3.y) ? 1.0 : 0.0;
-if (any(r2.w)) { r2.xyz = float3(r3.x, r3.y, r3.w); break; }                  // 提前退出被重建
-```
-
-编译器把分支链压成了谓词选择树，并把 `lerp` 改写成两条 `mad`；直译原样保留这个形态，而不是去猜原来的 `if/else`。这里的 `-1.0` 不是笔误——DXBC 的比较指令为真时写的是全 1 掩码，后面消费这些值的斜坡运算依赖这个符号，改成 `1.0` 会让判断整个反过来。这也解释了为什么输出比输入指令多（ExtremeFlow 1328 vs 1097）：编译器做过的算子融合拿不回来，硬猜就是编造。
-
-### 名称与标签
-
-有两类标识符不是照抄而是重新拼写，因为序列化数据里存的形态根本不是手写 shader 会用的：
-
-- **ShaderLab 标签大小写。** 资产里标签键是大写（`LIGHTMODE`、`FORWARDBASE`）。Unity 的解析器对**键**不区分
-  大小写，所以文件仍然能用，但**值**是精确匹配的——因此 `"LIGHTMODE" = "FORWARDBASE"` 会写成
-  `"LightMode" = "ForwardBase"`。文档里列出的键全部规范化，`true`/`false` 转成 `True`/`False`。
-- **纹理名。** Unity 按名字把采样器绑到纹理（`SamplerState sampler__MainTex`），裸 `s1` 会被直接拒绝。
-  名字来自资产自己的纹理反射；但两边数目很少对得上——`[PerRendererData]` 的纹理从不出现在表里，而某个
-  变体可能采样了它没有属性的内置纹理——所以反射能命名的先命名，剩下的寄存器按声明顺序取未用过的属性名。
-  shader 没有声明属性的纹理保留位置名 `tN`。
+过一遍真实 Unity 6 测试工程的往返记录——原始源码、反解回来的产物、每个变体的合并反汇编
+——在 [`docs/verification/`](docs/verification/) 下。每项检查具体怎么做、什么算真差异而不是
+编译器的合法改写、以及它守护的可读性 pass，见
+[`docs/verification.zh-CN.md`](docs/verification.zh-CN.md)。
 
 ## 限制
 
-- Metal / Vulkan / WebGPU / d3d9 载荷没有翻译器：这些槽位直接跳过，不做猜测
+- Metal / Vulkan / WebGPU 载荷没有翻译器：这些槽位直接跳过，不做猜测
+- d3d9 有反汇编器但没有翻译器：写出 `.orig.asm`，不生成 Pass 主体
 - 纯 console 平台（PS/Switch）无可读产物
 - d3d12 在数据里表现为 dxbc 槽位中的一个 DXIL chunk：反汇编可用，HLSL 回译未验证
 - HLSL 是逐指令直译：寄存器复现和编译器的运算合并都原样保留，等价但啰嗦，不是地道的作者源码
