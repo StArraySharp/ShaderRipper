@@ -6,7 +6,7 @@
 
 > 💡 **本项目代码 100% 由 AI 生成**（DeepSeek / GLM 协作完成），人工负责需求、验收与发布。
 
-**支持的载荷**：dxbc —— d3d11、Xbox / GameCore 槽位（DXBC 汇编逐条直译 HLSL），以及 dxbc 容器里的 DXIL chunk（经 dxcompiler 反汇编，回译未验证）；glsl —— GLES3 / GLES2 / OpenGLCore / OpenGL（GLSL 回译 HLSL）；d3d9 —— SM2/SM3（仅反汇编）。其余后端（Metal、Vulkan、主机平台、WebGPU）没有翻译器，会被跳过。
+**支持的载荷**：dxbc —— d3d11、Xbox / GameCore 槽位（DXBC 汇编逐条直译 HLSL），以及 dxbc 容器里的 DXIL chunk（经 dxcompiler 反汇编，回译未验证）；glsl —— GLES3 / GLES2 / OpenGLCore / OpenGL（GLSL 回译 HLSL）；d3d9 —— SM2/SM3（仅反汇编）。其余后端（Metal、Vulkan、主机平台、WebGPU）没有翻译器，会被跳过。计算着色器（`ComputeShader` 资源）同样会导出，产物是 `.compute`，每个 kernel 一个入口点。
 
 ## 编译
 
@@ -109,6 +109,7 @@ py -3 scripts/gen_api_docs.py     # 读 bin/Release/net10.0/ShaderRipper.xml，�
 | dxbc 容器里的 DXIL chunk（D3D12 / SM6）               | ✅       | ✅     | ❌ 无 macOS DXC | 反汇编；回译未验证                       |
 | glsl：gles20 / gles3 / openglcore / opengl      | ✅       | ✅     | ⚠️ 未验证   | ShaderLab + HLSLPROGRAM（GLSL 回译） |
 | d3d9：SM2/SM3 token 流                             | ✅       | ✅     | ✅        | 仅反汇编（`.orig.asm`），无翻译器            |
+| 计算着色器（`cs_5_0` kernel 程序）                  | ✅       | ✅     | ⚠️ 未验证  | `.compute`（每个 kernel 一个 `[numthreads]` 入口） |
 | metal / vulkan / 主机平台 / webgpu                 | —       | —     | —        | 跳过（没有对应翻译器）                     |
 
 > macOS 未实测：托管路径理论上可用（自行 `dotnet publish -r osx-arm64` 打包），DXIL 反汇编因无官方 macOS 版 DXC 而不可用。
@@ -156,7 +157,9 @@ ShaderRipper.exe --stats <含 asm 的目录>
 `Resources.Load` 路径全靠它还原），不用手动指到 `_Data`。Git Bash 那种 `/e/SteamLibrary/...`
 写法在未被 shell 转换时会按盘符重试，不会被当成不存在的路径。
 
-注意：HLSLPROGRAM 里是**编译后汇编的直译**，不是作者源码（源码不在游戏包内）；属性、状态、Pass 结构、变体 `#if` 链均忠实还原。
+注意：HLSLPROGRAM 里是**编译后汇编的直译**，不是作者源码（源码不在游戏包内）；属性、状态、Pass 结构、`UsePass` 引用、变体 `#if` 链均忠实还原。
+
+`UsePass` 从 `SerializedShader.m_Dependencies` 恢复，资产里存的是 `{from, to}` 对；这一行会写进**每个** SubShader，因为漏掉它的 SubShader 在该质量等级下就没有这个 pass。
 
 ### 程序块语法
 
@@ -207,11 +210,24 @@ Windows / Linux 构建格式一致，APK 从 zip 内读取。
 
 ```
 <out>/
+├── .shaderripper-export     这个目录是什么、本次导出计数与全部诊断
+├── .shaderripper-cache.json 增量状态（带 --programs / --orig-asm 的运行时不存在）
 └── Assets/
     ├── Resources/…/X.shader   Resources.Load 路径（由 globalgamemanagers 的 m_Container 还原）
     ├── Shader/X.shader        表里没有的 shader（Unity 自带、Always Included 等）
+    ├── Shader/X.compute       计算着色器：每个 kernel 一条 #pragma kernel + 一个 [numthreads] 入口
     └── …/X/                   仅 --programs 或 --orig-asm：每个程序的 HLSL / 原始反汇编，就在 X.shader 旁边
 ```
+
+### 重复导出到同一目录
+
+第二次导出只重译变化的部分。每个 shader 以输入文件身份（路径、大小、修改时间）加 path id 作为键，
+同时校验产物文件的哈希——手改过的产物会被重新生成，而不是被静默保留。状态存在
+`.shaderripper-cache.json`；库重新编译或输出开关变化会让整份缓存失效；`--no-incremental`
+强制全部重译；带 `--programs` / `--orig-asm` 的运行直接绕过缓存（那些产物不在复用判据里）。
+
+`.shaderripper-export` 同时是本次运行的日志：控制台统计的数字和每一条诊断都在里面，
+所以放了一个月的目录依然能说清自己是怎么来的。
 
 ## ⚠️ 对 IL2CPP + 仅 D3D 后端打包的游戏不友好
 
@@ -239,6 +255,7 @@ Windows / Linux 构建格式一致，APK 从 zip 内读取。
 | `--platform <名\|id>` | 只读这一个后端的槽（d3d11 / gles3 / gles20 / openglcore / opengl / d3d9 …）；同时有 d3d11 和 gles3 的构建永远先取 d3d11，只有指定它才能单独看 GLSL 路线的产物。指定完全没有产出的后端（vulkan / metal）会直接报错，而不是导出 0 个；d3d9 可指定，其程序会作为反汇编落盘 |
 | `--no-dedup` | 保留每个副本（默认同一路径只留一份：优先有固定容器路径的，并列取 path id 最小者） |
 | `--builtin` | 连 Unity 自带 shader 一起导出（默认跳过，只统计跳过了多少） |
+| `--no-incremental` | 即使产物已是最新也重新翻译（默认保留产物和 `.shaderripper-cache.json` 里的记录） |
 | `--overwrite`（别名 `--clean`） | 写前清空输出目录，只清本工具自己产出的内容 |
 | `--self-contained` | 引擎声明直接内联，不用 `#include`（可独立编译，但 Unity 导入时会拒绝） |
 | `--strip-dxbc-registers` | 移除 DXBC 来源 ShaderLab 的 `: register(bN/tN/sN)` 绑定，让 Unity 自己分配槽位（保留 `packoffset`；GLSL 通道与独立程序不受影响） |
@@ -289,7 +306,7 @@ Windows / Linux 构建格式一致，APK 从 zip 内读取。
 ```
 verify_logic  428/428 = 100%     scan_unwritten  0 处未写入的 lane
 verify_glsl    34/34  = 100%     scan_nan        0 处逃逸的 NaN
-usc_check       89/89            NUnit 单测      144/144
+usc_check       89/89            NUnit 单测      170/170
 ```
 
 过一遍真实 Unity 6 测试工程的往返记录——原始源码、反解回来的产物、每个变体的合并反汇编
@@ -303,4 +320,6 @@ usc_check       89/89            NUnit 单测      144/144
 - d3d9 有反汇编器但没有翻译器：写出 `.orig.asm`，不生成 Pass 主体
 - 纯 console 平台（PS/Switch）无可读产物
 - d3d12 在数据里表现为 dxbc 槽位中的一个 DXIL chunk：反汇编可用，HLSL 回译未验证
+- 计算着色器导出的是每个 kernel 的基础变体：资产里确实存了按关键字编译的多份程序，但当初编译用的
+  guard 没有存，所以只写关键字 pragma，不写分支
 - HLSL 是逐指令直译：寄存器复现和编译器的运算合并都原样保留，等价但啰嗦，不是地道的作者源码

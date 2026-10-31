@@ -1,10 +1,9 @@
 <Project Sdk="Microsoft.NET.Sdk">
   <PropertyGroup>
-    <!-- Desktop front end over the library.  Deliberately NOT in ShaderRipper.slnx
-         and not referenced by the CLI: it is a local convenience build, and the
-         whole directory is git-ignored.  Build it by path with dotnet build on
-         this csproj; the publish command is in README.gui.md next to it (XML
-         comments cannot carry the double dash of a command line switch). -->
+    <!-- Desktop front end over the library.  Build it from ShaderRipper.slnx like
+         the other projects, or publish it on its own with `dotnet publish` on this
+         csproj; the publish command is in README.gui.md next to it (XML comments
+         cannot carry the double dash of a command line switch). -->
     <OutputType>WinExe</OutputType>
     <TargetFramework>net10.0</TargetFramework>
     <Nullable>disable</Nullable>

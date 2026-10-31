@@ -17,6 +17,13 @@ namespace ShaderRipper.Ast
         /// colour target and cannot share the oN handling.
         /// </summary>
         OSpecial,
+
+        /// <summary>
+        /// A compute system value (`vThreadID`, `vGroupID`, ...).  Named, not
+        /// numbered: the identity of the value is the whole declaration, and the
+        /// emitter resolves it to the matching <c>SV_*</c> entry point argument.
+        /// </summary>
+        VSv,
     }
 
     /// <summary>
@@ -154,6 +161,12 @@ namespace ShaderRipper.Ast
         /// the declaration itself, because it is the only place the values exist.
         /// </summary>
         public List<float[]> Icb = new();
+
+        /// <summary>
+        /// <c>dcl_thread_group x, y, z</c>: the compute kernel's thread-group size.
+        /// Empty for the graphics stages, which have no such declaration.
+        /// </summary>
+        public int[] ThreadGroup = System.Array.Empty<int>();
 
         /// <summary>
         /// The stage's input and output signature tables, read from the leading
@@ -297,6 +310,7 @@ namespace ShaderRipper.Ast
                     break;
                 case DxbcAsmParser.DCL_RESOURCE:
                     d.Kind = "texture";
+                    d.Raw = ctx.GetText();
                     d.Register = reg == null ? 0 : IndexOf(reg.GetText());
                     d.Dimension = DimensionOf(ctx.GetText());
                     d.Structured = ctx.GetText().Contains("structured", StringComparison.OrdinalIgnoreCase);
@@ -325,6 +339,7 @@ namespace ShaderRipper.Ast
                     // named a resource that did not exist (X3004, undeclared
                     // identifier).
                     d.Kind = "uav";
+                    d.Raw = ctx.GetText();
                     d.Register = reg == null ? 0 : IndexOf(reg.GetText());
                     d.Dimension = DimensionOf(ctx.GetText());
                     d.Structured = ctx.GetText().Contains("structured", StringComparison.OrdinalIgnoreCase);
@@ -337,14 +352,32 @@ namespace ShaderRipper.Ast
                                         d.Stride = Number(atom.number());
                     }
                     break;
+                case DxbcAsmParser.DCL_THREADGROUP:
+                    // `dcl_thread_group 8, 4, 1`: the compute kernel's numthreads.
+                    d.Kind = "threadgroup";
+                    var sizes = new List<int>();
+                    foreach (var n in ctx.number()) sizes.Add(Number(n));
+                    if (sizes.Count == 3) ThreadGroup = sizes.ToArray();
+                    break;
                 case DxbcAsmParser.DCL_INPUT:
                 case DxbcAsmParser.DCL_INPUT_PS:
                 case DxbcAsmParser.DCL_INPUT_SIV:
                 case DxbcAsmParser.DCL_INPUT_SGV:
                 case DxbcAsmParser.DCL_INPUT_PS_SIV:
                 case DxbcAsmParser.DCL_INPUT_PS_SGV:
+                    // `dcl_input vThreadID.xy`: the compute stage's system value,
+                    // which shares the `v` register kind with the vertex inputs but is
+                    // not one.  Its register index is meaningless (the operands are
+                    // spelled by name), so the name is what the declaration carries.
                     d.Kind = "input";
-                    d.Register = ctx.operand() == null ? 0 : OperandOf(ctx.operand()).Index;
+                    d.Raw = ctx.GetText();
+                    var svOp = ctx.operand() == null ? null : OperandOf(ctx.operand());
+                    if (svOp != null && svOp.Kind == RegKind.VSv)
+                    {
+                        d.Special = svOp.Special;
+                        d.Register = -1;
+                    }
+                    else d.Register = svOp?.Index ?? 0;
                     break;
                 case DxbcAsmParser.DCL_OUTPUT:
                 case DxbcAsmParser.DCL_OUTPUT_SIV:
@@ -482,11 +515,20 @@ namespace ShaderRipper.Ast
             }
 
             var reg = atom.register();
-            var token = reg.regToken();
+            var token = reg?.regToken();
+            if (token == null)
+            {
+                // A declaration whose operand does not start with a register (a
+                // `dcl_*` spelling this grammar's register rule does not cover).
+                // One unreadable declaration must not take the whole program down:
+                // the declaration is skipped and the body still translates.
+                o.Kind = RegKind.Null;
+                return o;
+            }
             string text = token.GetText();
             o.Kind = KindOf(text);
             o.Index = IndexOf(text);
-            if (o.Kind == RegKind.OSpecial) o.Special = text;
+            if (o.Kind == RegKind.OSpecial || o.Kind == RegKind.VSv) o.Special = text;
             o.Swizzle = reg.SWIZZLE()?.GetText();
             var idx = reg.indexExpr();
             if (idx != null)
@@ -553,6 +595,10 @@ namespace ShaderRipper.Ast
             // The named output registers are checked first: `oDepth` would
             // otherwise read as `o` with a non-numeric index and collapse to `o0`.
             if (tokenText is "oDepth" or "oMask") return RegKind.OSpecial;
+            if (tokenText.StartsWith("vThread", StringComparison.Ordinal) ||
+                tokenText.StartsWith("vGroup", StringComparison.Ordinal) ||
+                tokenText.StartsWith("vDispatch", StringComparison.Ordinal))
+                return RegKind.VSv;
             if (tokenText.StartsWith("cb", StringComparison.Ordinal)) return RegKind.Cb;
             if (tokenText.StartsWith("icb", StringComparison.Ordinal)) return RegKind.Icb;
             return char.ToLowerInvariant(tokenText[0]) switch

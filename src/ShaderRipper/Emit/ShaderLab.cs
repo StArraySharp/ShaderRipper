@@ -82,6 +82,13 @@ namespace ShaderRipper.Emit
             public int LOD;
             public List<(string k, string v)> Tags = new();
             public List<PassText> Passes = new();
+            /// <summary>
+            /// <c>UsePass</c> arguments, already in <c>Shader/Pass</c> form.  They are
+            /// written after the passes so the file keeps the order Unity's own
+            /// inspector shows, and because a borrowed pass that also appears in the
+            /// body would otherwise shadow the body's copy.
+            /// </summary>
+            public List<string> UsePasses = new();
         }
 
         public static string Wrap(string name, string fallback, IReadOnlyList<SubShaderText> subShaders,
@@ -116,6 +123,8 @@ namespace ShaderRipper.Emit
                     if (ss.Tags.Count > 0) sb.Append("        Tags { ").Append(Tags(ss.Tags)).Append(" }\n");
                     if (ss.LOD != 0) sb.Append("        LOD ").Append(ss.LOD).Append('\n');
                     foreach (var p in ss.Passes) AppendPass(sb, p);
+                    foreach (string use in ss.UsePasses)
+                        sb.Append("        UsePass \"").Append(use.Replace('"', '_')).Append("\"\n");
                     sb.Append("    }\n");
                 }
             }

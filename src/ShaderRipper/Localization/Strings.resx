@@ -81,6 +81,9 @@ Export:
                      path can be reused instead of one folder per run
     --no-dedup       keep every copy of a shader (default: one copy per path)
     --builtin        include Unity's own shaders as well
+    --no-incremental translate every shader even when its output file is already
+                     current (default: keep an unchanged file and its entry in
+                     .shaderripper-cache.json)
     --only &lt;text&gt;    only shaders whose name contains this
     --platform &lt;name|id&gt; read only this platform's slot (d3d11 / d3d9 / gles3 /
                      gles20 / openglcore / opengl / metal / vulkan / webgpu);
@@ -179,6 +182,11 @@ Other:
     <comment>Appended to ExportSummary when Unity's own shaders were filtered out. Leading space is deliberate.</comment>
   </data>
 
+  <data name="ExportSummaryUnchanged">
+    <value> unchanged={0}</value>
+    <comment>Appended to ExportSummary when the incremental cache left existing files alone. Leading space is deliberate.</comment>
+  </data>
+
   <data name="Note">
     <value>  note: {0}</value>
     <comment>One diagnostic note, indented under the summary.</comment>
@@ -252,6 +260,11 @@ Other:
   <data name="DumpOrigin">
     <value>    container={0} source={1} fallback={2}</value>
     <comment>--dump: where the shader came from and what it falls back to.</comment>
+  </data>
+
+  <data name="DumpDependencies">
+    <value>    dependencies={0}</value>
+    <comment>--dump: the shader's m_Dependencies list, one entry per UsePass/Fallback reference.</comment>
   </data>
 
   <data name="DumpNone">
@@ -359,9 +372,13 @@ Other:
     <comment>{0} = path, {1} = source file.</comment>
   </data>
 
-  <data name="LogStructure">
-    <value>{0} pass  {1} variant(s)  {2} prop(s)  {3} platform(s)</value>
+  <data name="LogStructure">    <value>{0} pass  {1} variant(s)  {2} prop(s)  {3} platform(s)</value>
     <comment>Per-shader structure counts, printed under the info line when verbose.</comment>
+  </data>
+
+  <data name="LogUnchanged">
+    <value>unchanged</value>
+    <comment>Per-shader detail under the output path when the incremental cache kept the existing file.</comment>
   </data>
 
   <data name="LogStructureTarget">

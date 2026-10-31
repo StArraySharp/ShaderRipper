@@ -677,6 +677,28 @@ namespace ShaderRipper.Emit
         /// 0x7FFFFFFB instead of 5, and `max(x, asint(-x))` stops being `abs(x)`.
         /// Negating the int is the operation the original performs.
         /// </summary>
+        private string IntOperand(Operand o, bool unsigned)
+        {
+            if (o == null) return null;
+            // A compute system value is declared as a `uintN` parameter, so it is
+            // already an integer: `svThreadID.x` reads directly, and wrapping it in
+            // `asint(...)` would name a value the entry point does not have.
+            if (o.Kind == RegKind.VSv) return Expr(o);
+            return unsigned ? AsUInt(o) : AsInt(o);
+        }
+
+        /// <summary>
+        /// Does this operand name a value an integer instruction can read directly?
+        ///
+        /// Two cases: a compute system value, which the entry point declares as
+        /// `uintN`; and a register already carrying the integer shadow (see
+        /// <see cref="_intRegs"/>).  Neither needs a reinterpret.
+        /// </summary>
+        private string IntDirect(Operand o) =>
+            o == null ? null
+            : o.Kind == RegKind.VSv ? Expr(o)
+            : (o.Kind == RegKind.R ? IntShadow(o, false) : null);
+
         private string IntReinterpret(Operand o, bool unsigned)
         {
             if (o == null) return null;
@@ -738,24 +760,75 @@ namespace ShaderRipper.Emit
         private static string LitInt(Operand o)
         {
             if (o == null || o.Kind != RegKind.Literal) return null;
-            if (o.LitBits == null || o.LitBits.Length == 0)
+            return LiteralIntOf(o, o.LitBits, o.Lit);
+        }
+
+        /// <summary>
+        /// The integer a literal holds, narrowed to the lanes its swizzle names.
+        ///
+        /// A swizzle on a literal is not decoration: `iadd r4.zw, r2.wwww,
+        /// l(0, 0, 2, 1)` adds a DIFFERENT constant to each destination lane, and
+        /// reading only component 0 gave the `.w` lane the `.z` lane's value -- which
+        /// is how a two-iteration nested loop became an unbounded index (`X3504`,
+        /// "literal loop terminated early due to out of bounds array access").
+        /// </summary>
+        private static string LiteralIntOf(Operand o, uint[] bits, float[] lit)
+        {
+            string sw = (o.Swizzle ?? "").TrimStart('.');
+            int n = sw.Length;
+            if (n == 0 || n == 4)
+                return Gen(bits, lit, 0);
+
+            if (sw.All(c => c == sw[0]))
+                return Gen(bits, lit, "xyzw".IndexOf(sw[0]) is int idx && idx >= 0 ? idx : 0);
+
+            var parts = new List<string>(n);
+            foreach (char c in sw)
             {
-                if (o.Lit == null || o.Lit.Length == 0) return null;
-                return unchecked((int)BitConverter.SingleToUInt32Bits(o.Lit[0]))
-                    .ToString(CultureInfo.InvariantCulture);
+                int idx = "xyzw".IndexOf(c);
+                if (idx < 0) return Gen(bits, lit, 0);
+                parts.Add(Gen(bits, lit, idx));
             }
-            int bits = unchecked((int)o.LitBits[0]);
-            return bits.ToString(CultureInfo.InvariantCulture);
+            return parts.Count == 1 ? parts[0] : $"int{n}({string.Join(", ", parts)})";
+
+            static string Gen(uint[] bits, float[] lit, int lane)
+            {
+                if (bits is { Length: > 0 })
+                    return unchecked((int)bits[Math.Min(lane, bits.Length - 1)])
+                        .ToString(CultureInfo.InvariantCulture);
+                if (lit is { Length: > 0 })
+                    return unchecked((int)BitConverter.SingleToUInt32Bits(lit[Math.Min(lane, lit.Length - 1)]))
+                        .ToString(CultureInfo.InvariantCulture);
+                return null;
+            }
         }
 
         /// <summary>The literal's bits as an unsigned integer, or null.</summary>
         private static string LitUInt(Operand o)
         {
             if (o == null || o.Kind != RegKind.Literal) return null;
-            uint bits = o.LitBits is { Length: > 0 }
-                ? o.LitBits[0]
-                : BitConverter.SingleToUInt32Bits(o.Lit is { Length: > 0 } l ? l[0] : 0f);
-            return bits.ToString(CultureInfo.InvariantCulture) + "u";
+            // Same lane selection as LitInt: `l(0, 0, 2, 1).zw` names two constants.
+            string sw = (o.Swizzle ?? "").TrimStart('.');
+            if (sw.Length is 0 or 4)
+                return Gen(o, 0);
+            if (sw.All(c => c == sw[0]))
+                return Gen(o, "xyzw".IndexOf(sw[0]) is int i && i >= 0 ? i : 0);
+
+            var parts = new List<string>(sw.Length);
+            foreach (char c in sw)
+            {
+                int idx = "xyzw".IndexOf(c);
+                parts.Add(Gen(o, idx < 0 ? 0 : idx));
+            }
+            return parts.Count == 1 ? parts[0] : $"uint{parts.Count}({string.Join(", ", parts)})";
+
+            static string Gen(Operand o, int lane)
+            {
+                if (o.LitBits is { Length: > 0 } bits)
+                    return bits[Math.Min(lane, bits.Length - 1)].ToString(CultureInfo.InvariantCulture) + "u";
+                float f = o.Lit is { Length: > 0 } l ? l[Math.Min(lane, l.Length - 1)] : 0f;
+                return BitConverter.SingleToUInt32Bits(f).ToString(CultureInfo.InvariantCulture) + "u";
+            }
         }
 
         /// <summary>
@@ -1975,6 +2048,17 @@ namespace ShaderRipper.Emit
             }
         }
 
+        /// <summary>
+        /// True for a `dcl_resource_raw` / `dcl_uav_raw`: an untyped byte buffer.
+        ///
+        /// The declaration grammar has no separate rule for it (the token is
+        /// <c>dcl_resource_raw</c>, matched by the generic resource rule), so the raw
+        /// wording is what distinguishes it.  A raw view has no dimension, which is
+        /// also why <see cref="Decl"/>'s <c>Dimension</c> cannot answer this.
+        /// </summary>
+        private static bool RawBuffer(Decl d) =>
+            d.Raw != null && d.Raw.Contains("_raw", StringComparison.OrdinalIgnoreCase);
+
         private void DeclareResources()
         {
             var textures = _m.Decls.Where(d => d.Kind == "texture")
@@ -1997,6 +2081,16 @@ namespace ShaderRipper.Emit
                     // a 8-byte offset into a 16-byte one, are then unreachable.
                     // `ByteAddressBuffer` takes the byte address directly, so the
                     // address arithmetic stays exactly as the original wrote it.
+                    _sb.Append($"ByteAddressBuffer {name} : register(t{d.Register});\n");
+                    continue;
+                }
+                // `dcl_resource_raw t0` is an untyped buffer: `ld_raw` reads it by
+                // byte offset with no stride and no format, which is exactly
+                // `ByteAddressBuffer.Load`.  Declaring it as a Texture2D left the
+                // emitted `t0.Load4(...)` with no matching overload, and every
+                // compute kernel reads its input lists this way.
+                if (RawBuffer(d))
+                {
                     _sb.Append($"ByteAddressBuffer {name} : register(t{d.Register});\n");
                     continue;
                 }
@@ -2054,7 +2148,7 @@ namespace ShaderRipper.Emit
                 // with a coordinate.  Both are `RW`: a u# register only accepts the
                 // read-write spelling (a plain ByteAddressBuffer binds to t# and fxc
                 // answers X3530, "buffer requires a 't' register").
-                string uty = d.Structured ? "RWByteAddressBuffer"
+                string uty = d.Structured || RawBuffer(d) ? "RWByteAddressBuffer"
                            : d.Dimension switch
                            {
                                3 => "RWTexture3D<float4>",
@@ -2106,11 +2200,11 @@ namespace ShaderRipper.Emit
             bool bound = (_m.Stage is "vs" ? _m.InputSig : _m.InputSig) is { Count: > 0 };
             if (!bound)
             {
-                foreach (var d in _m.Decls.Where(x => x.Kind == "input")
+                foreach (var d in _m.Decls.Where(x => x.Kind == "input" && x.Register >= 0)
                                           .GroupBy(x => x.Register).Select(g => g.First())
                                           .OrderBy(x => x.Register))
                     _sb.Append($"static float4 v{d.Register};\n");
-                if (_m.Decls.Any(x => x.Kind == "input")) _sb.Append('\n');
+                if (_m.Decls.Any(x => x.Kind == "input" && x.Register >= 0)) _sb.Append('\n');
             }
             // Indexable temps are real arrays whose length the declaration states.
             // A single `_x[512]` for every program was both oversized and shared
@@ -2139,7 +2233,21 @@ namespace ShaderRipper.Emit
         private void EmitEntry()
         {
             bool vert = _m.Stage is "vs";
+            bool compute = _m.Stage is "cs";
             _iface = new ShaderInterface();
+            if (compute)
+            {
+                // A compute kernel has no appdata/v2f: its inputs are system values
+                // and its output is the UAVs it writes.  The signature is built from
+                // the declarations, and the body below is the same one every stage
+                // uses -- registers, instruction loop, no return value.
+                _sb.Append(ComputeSignature()).Append("\n{\n");
+                _indent = 1;
+                EmitBody();
+                _sb.Append("}\n");
+                return;
+            }
+
             if (vert)
             {
                 _iface.BuildAppdata(_m.InputSig);
@@ -2221,6 +2329,59 @@ namespace ShaderRipper.Emit
             // whole function: an early return path assigns it too.
             if (vert && hasOut) Line("v2f o = (v2f)0;");
 
+            EmitBody();
+            _sb.Append("}\n");
+        }
+
+        /// <summary>
+        /// The <c>void kernel(...)</c> header of a compute shader.
+        ///
+        /// A kernel's inputs are system values, not a vertex/fragment payload, so
+        /// the parameter list is built from the <c>dcl_input vThread*</c> rows: one
+        /// <c>uintN sv&lt;Name&gt;</c> per distinct value, with the <c>SV_*</c>
+        /// semantic the value names.  The stage returns nothing.
+        /// </summary>
+        private string ComputeSignature()
+        {
+            var seen = new List<string>();
+            var parms = new List<string>();
+            foreach (var d in _m.Decls)
+            {
+                if (d.Kind != "input") continue;
+                // The spelling is on the declaration; the register index of a system
+                // value is deliberately -1, so it cannot be confused with an input
+                // register the vertex stage declares.
+                string reg = d.Special;
+                if (string.IsNullOrEmpty(reg) || seen.Contains(reg)) continue;
+                seen.Add(reg);
+                parms.Add($"{ComputeSvType(reg)} {ComputeSvbake(reg)} : {ComputeSemantic(reg)}");
+            }
+            return "void CSMain(" + string.Join(", ", parms) + ")";
+        }
+
+        /// <summary>
+        /// The type a compute system value reads as.  Every one of them is an
+        /// unsigned integer coordinate, except a flattened in-group index which is
+        /// scalar.
+        /// </summary>
+        private static string ComputeSvType(string reg) =>
+            reg == "vThreadIDInGroupFlattened" ? "uint" : "uint3";
+
+        /// <summary>The HLSL semantic a DXBC compute system value stands for.</summary>
+        private static string ComputeSemantic(string reg) => reg switch
+        {
+            "vThreadID" or "vDispatchThreadID" => "SV_DispatchThreadID",
+            "vThreadIDInGroup" or "vThreadIDInGroupFlattened" => "SV_GroupThreadID",
+            "vGroupID" or "vThreadGroupID" or "vGroupThreadID" => "SV_GroupID",
+            _ => "SV_DispatchThreadID",
+        };
+
+        /// <summary>
+        /// The function body every stage shares: register locals, then one emitted
+        /// statement per instruction, then this stage's return.
+        /// </summary>
+        private void EmitBody()
+        {
             _temps = Math.Max(_m.Temps,
                 _m.Code.SelectMany(i => i.Args).Where(a => a.Kind == RegKind.R)
                       .Select(a => a.Index).DefaultIfEmpty(0).Max() + 1);
@@ -2295,13 +2456,12 @@ namespace ShaderRipper.Emit
             }
 
             // `ret` already wrote the return; only a program whose last instruction
-            // is not one needs it here.
-            if (_m.Code.Count == 0 || _m.Code[^1].Opcode != "ret")
+            // is not one needs it here.  A compute kernel returns nothing.
+            if ((_m.Code.Count == 0 || _m.Code[^1].Opcode != "ret") && _m.Stage is not "cs")
             {
                 _sb.Append('\n');
                 ReturnStatement();
             }
-            _sb.Append("}\n");
         }
 
         /// <summary>
@@ -2311,6 +2471,12 @@ namespace ShaderRipper.Emit
         /// </summary>
         private void ReturnStatement()
         {
+            if (_m.Stage is "cs")
+            {
+                // A compute kernel has no return value.
+                Line("return;");
+                return;
+            }
             bool vert = _m.Stage is "vs";
             if (vert && _iface != null && _iface.VsOutReg.Count > 0)
             {
@@ -2452,6 +2618,18 @@ namespace ShaderRipper.Emit
             return parts.Length == 1 ? parts[0] : $"float{parts.Length}({string.Join(", ", parts)})";
         }
 
+        /// <summary>
+        /// The identifier a compute system value reads as.
+        ///
+        /// The entry point declares one parameter per system value the kernel
+        /// touches, so the operand name is the parameter name: `vThreadID` becomes
+        /// `svThreadID` (a local spelled exactly like the register would read as a
+        /// DXBC register in the body).  The mapping is the one
+        /// <see cref="ComputeSignature"/> used to declare it, so the two cannot drift.
+        /// </summary>
+        private static string ComputeSvbake(string special) =>
+            string.IsNullOrEmpty(special) ? "svThreadID" : "sv" + special[1..];
+
         /// <summary>The register an operand names, with no swizzle or modifier.</summary>
         private string Core(Operand o)
         {
@@ -2459,6 +2637,9 @@ namespace ShaderRipper.Emit
             {
                 RegKind.R => $"r{o.Index}",
                 RegKind.V => string.IsNullOrEmpty(o.IndexRaw) ? $"v{o.Index}" : $"_inputs[{CbIndex(o, o.Row)}]",
+                // A compute system value has no register number: it is the SV_*
+                // entry point argument of the same name.
+                RegKind.VSv => ComputeSvbake(o.Special),
                 RegKind.O => $"o{o.Index}",
                 // `oDepth` / `oMask`: the local the return statement copies into the
                 // SV_Depth / SV_Coverage field.
@@ -2925,10 +3106,10 @@ namespace ShaderRipper.Emit
             if (src.Length < 4) src = src.PadRight(4, src[^1]);
             var clone = new Operand
             {
-                Kind = o.Kind, Index = o.Index, Row = o.Row,
+                Kind = o.Kind, Index = o.Index, Row = o.Row, Special = o.Special,
                 Swizzle = "." + string.Concat(mask.Select(c => src["xyzw".IndexOf(c)])),
                 Negate = o.Negate, Abs = o.Abs, Lit = o.Lit, Raw = o.Raw,
-                LitBits = o.LitBits, IntLit = o.IntLit,
+                IndexRaw = o.IndexRaw, LitBits = o.LitBits, IntLit = o.IntLit,
             };
             return clone;
         }
@@ -3126,7 +3307,7 @@ namespace ShaderRipper.Emit
             // left a `// TODO` line behind and the whole computation that fed the
             // value became dead code -- which is how two cbuffer reads disappeared
             // from a rebuilt program.
-            if (ins.Opcode is "store_uav_typed" or "store_structured" or "atomic_iadd")
+            if (ins.Opcode is "store_uav_typed" or "store_structured" or "atomic_iadd" or "store_raw")
                 return EmitUavStore(ins.Opcode, a);
 
             string d = Expr(a[0]);
@@ -3399,7 +3580,15 @@ namespace ShaderRipper.Emit
                          + $"{LitInt(a[2]) ?? AsInt(a[2])}) ? {MaskFor(a[0])} : 0.0;");
                     return true;
                 case "imad":
-                    IntResult(ins, $"{AsInt(a[1])} * {AsInt(a[2])} + {AsInt(a[3])}");
+                    // `imad dst, src0, src1, src2` is a three-operand multiply-add, and
+                    // the operands are INTEGERS even when the destination register is
+                    // read as a float elsewhere.  Both halves matter to a compute
+                    // kernel: its address arithmetic is entirely `imad`, and reading
+                    // only a[1]/a[2] dropped the addend that carries the thread index.
+                    IntResult(ins, a.Count > 3
+                        ? $"{IntDirect(a[1]) ?? AsInt(a[1])} * {IntDirect(a[2]) ?? AsInt(a[2])} + " +
+                          $"{IntDirect(a[3]) ?? AsInt(a[3])}"
+                        : $"{IntDirect(a[1]) ?? AsInt(a[1])} * {IntDirect(a[2]) ?? AsInt(a[2])}");
                     return true;
                 case "ineg":
                     IntResult(ins, $"-{AsInt(a[1])}");
@@ -3622,6 +3811,15 @@ namespace ShaderRipper.Emit
                 case "ld_structured":
                     return LoadStructured(a, d);
 
+                // A raw-buffer read: `ld_raw_indexable(raw_buffer)... r0.xy,
+                // r1.x, t0.xyzx`.  Arguments are (dst, byteAddress, resource), and
+                // the byte address is already in bytes -- there is no stride to
+                // apply.  Compute shaders read their input lists this way, so
+                // without this handler a kernel body stops at its first load.
+                case "ld_raw_indexable":
+                case "ld_raw":
+                    return LoadRaw(a, d);
+
                 // A multisampled load: `ldms_indexable(texture2dms)... r0.w,
                 // r1.xyzw, t0.yzwx, r0.y` reads sample `a[4]` at location a[1].
                 // HLSL spells it Texture2DMS.Load(int2 location, int sample), and
@@ -3737,6 +3935,27 @@ namespace ShaderRipper.Emit
         {
             if (a.Count < 4) return false;
             Line($"{d} = {TexName(a[2].Index)}.{method}(sampler_{TexName(a[2].Index)}, {Coord(a[1], a[2].Index)});");
+            return true;
+        }
+
+        /// <summary>
+        /// A raw-buffer read: <c>ld_raw</c> / <c>ld_raw_indexable</c>, with arguments
+        /// (dst, byteAddress, resource).
+        ///
+        /// A raw view has no element type and no stride, so the address is already
+        /// the byte offset and passes through unchanged.  The resource is declared as
+        /// a <c>ByteAddressBuffer</c> by <see cref="DeclareResources"/>.
+        /// </summary>
+        private bool LoadRaw(List<Operand> a, string d)
+        {
+            if (a.Count < 3) return false;
+
+            // `ld_raw ... u0` reads back a UAV; `t0` reads an SRV.  The two
+            // namespaces are separate, so the name follows the operand kind.
+            bool isUav = a[2].Kind == RegKind.U;
+            int res = a[2].Index;
+            string name = isUav ? UavName(res) : TexName(res);
+            Line($"{d} = {name}.Load{Comps(a[0])}(asuint({Scalar(a[1])}));");
             return true;
         }
 
@@ -3894,6 +4113,17 @@ namespace ShaderRipper.Emit
                 case "atomic_iadd":
                     if (a.Count < 3) return false;
                     Line($"{name}.InterlockedAdd({uavAddress(a[1], null, decl?.Stride ?? 0)}, asuint({Scalar(a[2])}));");
+                    return true;
+
+                // `store_raw u0.xyz, r0.x, r2.xyzx`: (target, byte address, value).
+                // A raw UAV has no stride, so the address is already the byte offset.
+                // Compute kernels write their results this way.
+                case "store_raw":
+                    if (a.Count < 3) return false;
+                    {
+                        string suffix = DestWidth(a[0]) switch { 2 => "2", 3 => "3", 4 => "4", _ => "" };
+                        Line($"{name}.Store{suffix}(asuint({Scalar(a[1])}), asuint({Expr(a[2])}));");
+                    }
                     return true;
             }
             return false;

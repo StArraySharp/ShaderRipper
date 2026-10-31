@@ -6,7 +6,7 @@ Extract shaders from Unity game data and rebuild them as readable **ShaderLab + 
 
 > 💡 **This project's code is 100% AI-generated** (DeepSeek / GLM collaboration), with human work limited to requirements, acceptance testing and release.
 
-**Supported payloads**: dxbc — d3d11, Xbox / GameCore slots (instruction-by-instruction DXBC → HLSL translation), and DXIL chunks inside a dxbc container via dxcompiler (disassembly, back-translation unverified); glsl — GLES3 / GLES2 / OpenGLCore / OpenGL (GLSL back-translation to HLSL); d3d9 — SM2/SM3 (disassembly only). Other backends (Metal, Vulkan, console, WebGPU) have no translator and are skipped.
+**Supported payloads**: dxbc — d3d11, Xbox / GameCore slots (instruction-by-instruction DXBC → HLSL translation), and DXIL chunks inside a dxbc container via dxcompiler (disassembly, back-translation unverified); glsl — GLES3 / GLES2 / OpenGLCore / OpenGL (GLSL back-translation to HLSL); d3d9 — SM2/SM3 (disassembly only). Other backends (Metal, Vulkan, console, WebGPU) have no translator and are skipped. Compute shaders (`ComputeShader` assets) are exported too, as `.compute` files with one entry point per kernel.
 
 ## Build
 
@@ -121,6 +121,7 @@ have a translator, and one more has a disassembler:
 | DXIL chunk inside a dxbc container (D3D12 / SM6) | ✅ | ✅ | ❌ no macOS DXC | Disassembly; back-translation unverified |
 | glsl: gles20 / gles3 / openglcore / opengl | ✅ | ✅ | ⚠️ untested | ShaderLab + HLSLPROGRAM (GLSL back-translation) |
 | d3d9: SM2/SM3 token stream | ✅ | ✅ | ✅ | Disassembly only (`.orig.asm`); no translator |
+| ComputeShader (`cs_5_0` kernel programs) | ✅ | ✅ | ⚠️ untested | `.compute` (one `[numthreads]` entry point per kernel) |
 | metal / vulkan / console platforms / webgpu | — | — | — | skipped (no translator) |
 
 > macOS is untested: the managed paths should work (publish yourself with `-r osx-arm64`), but DXIL disassembly is unavailable since Microsoft ships no macOS DXC build.
@@ -170,7 +171,11 @@ ShaderRipper.exe --stats <dir-with-asm>
 pointing at the data directory is optional. A Git Bash style `/e/SteamLibrary/...` argument that the
 shell did not translate is retried as the drive it names instead of being taken as a missing path.
 
-Note: the HLSLPROGRAM body is a **translation of the compiled assembly**, not the author's source (source code is not shipped in game data); properties, render state, Pass structure, and variant `#if` chains are faithfully reconstructed.
+Note: the HLSLPROGRAM body is a **translation of the compiled assembly**, not the author's source (source code is not shipped in game data); properties, render state, Pass structure, `UsePass` lines and variant `#if` chains are faithfully reconstructed.
+
+`UsePass` is recovered from `SerializedShader.m_Dependencies`, which stores each borrowed pass as a
+`{from, to}` pair; the line is written into every SubShader, because a SubShader that omits it has no
+such pass for the quality level it selects.
 
 ### Program dialect
 
@@ -224,12 +229,29 @@ Output is always an AssetRipper-style tree that can be copied over an ExportedPr
 
 ```
 <out>/
+├── .shaderripper-export     what this directory is, the run's counters and its diagnostics
+├── .shaderripper-cache.json incremental state (no --programs / --orig-asm run)
 └── Assets/
     ├── Resources/…/X.shader  Resources.Load paths (restored from m_Container in globalgamemanagers)
     ├── Shader/X.shader       shaders the table does not list (Unity's own, Always Included, …)
+    ├── Shader/X.compute      compute shaders: one #pragma kernel + [numthreads] entry point each
     └── …/X/                  --programs or --orig-asm only: per-program HLSL / original disassembly,
                               beside X.shader
 ```
+
+### Re-running an export
+
+A second run into the same directory re-translates only what changed. Each shader is
+keyed by its input file's identity (path, size, write time) plus its path id, and its
+output file's hash is checked as well — so a file you edited by hand is regenerated
+instead of being silently kept. The state lives in `.shaderripper-cache.json` and is
+invalidated wholesale when the library is rebuilt or an output switch changes;
+`--no-incremental` translates everything, and a run with `--programs` or `--orig-asm`
+bypasses the cache (those artifacts are not part of the reuse test).
+
+`.shaderripper-export` doubles as the run's log: it carries the same counters the
+console tally prints and every diagnostic note, so a directory left alone for a month
+still says what produced it.
 
 ## ⚠️ Unfriendly to IL2CPP games shipping only D3D backends
 
@@ -256,6 +278,7 @@ For more readable output, prefer game data that includes **GLES3 / OpenGLCore** 
 | `--only <text>` | Only shaders whose name contains the text |
 | `--no-dedup` | Keep every copy (default: one copy per path — a fixed container path wins, ties break on the lowest path id) |
 | `--builtin` | Include Unity's own shaders too (skipped by default, the tally says how many) |
+| `--no-incremental` | Translate every shader even when its output file is already current (default: keep the file and its `.shaderripper-cache.json` entry) |
 | `--overwrite` (alias `--clean`) | Empty the output directory first; only content this tool produced is removed |
 | `--self-contained` | Inline the engine declarations instead of `#include` (compiles standalone; Unity rejects it on import) |
 | `--strip-dxbc-registers` | Drop the `: register(bN/tN/sN)` bindings from DXBC-sourced ShaderLab so Unity assigns slots itself (`packoffset` is kept; GLSL passes and standalone programs are untouched) |
@@ -266,7 +289,7 @@ For more readable output, prefer game data that includes **GLES3 / OpenGLCore** 
 | `--plugin-dir <dir>` | Plugin directory (default `<exe>/plugins`) |
 | `--no-plugins` | Skip loading plugins; built-in backends only |
 | `--list-shaders <file>` | List the shaders inside a SerializedFile / bundle (name, pathId, container path); writes nothing |
-| `--dump <file> [--dump-filter <text>]` | Print each shader's structure: platform slots, pass/sub-program counts, properties, non-default render state |
+| `--dump <file> [--dump-filter <text>]` | Print each shader's structure: platform slots, pass/sub-program counts, properties, `UsePass` refs, non-default render state; for a compute shader, its kernels and backends |
 | `--asm <file> [--out <file>]` | One disassembly → HLSL (stdout by default) |
 | `--glsl <file> [--shaderlab]` | One GLSL payload → HLSL (with `--shaderlab`, wrap it and self-check the result) |
 | `--emit <dir> <outDir>` | Translate every `*.asm` / `*.glsl` under a directory into HLSL, mirroring the tree |
@@ -307,7 +330,7 @@ Measured on the corpora used for the last release:
 ```
 verify_logic  428/428 = 100%     scan_unwritten  0 unwritten lanes
 verify_glsl    34/34  = 100%     scan_nan        0 escaping NaNs
-usc_check       89/89            NUnit suite     144/144
+usc_check       89/89            NUnit suite     170/170
 ```
 
 A round trip through a real Unity 6 test project — the source, what came back out, and
@@ -322,4 +345,6 @@ rewrite, and the readability passes it guards are described in
 - d3d9 has a disassembler but no translator: the `.orig.asm` is written, the pass body is not
 - Pure console platforms (PS/Switch) have no readable output
 - d3d12 shows up as a DXIL chunk in a dxbc slot: disassembly works, HLSL back-translation is unverified
+- A compute shader exports the base variant of each kernel: the per-keyword programs exist in the asset, but
+  the guards they were compiled under do not, so the keyword pragmas are emitted without the branches
 - The HLSL is a per-instruction transliteration: register reuse and compiler fusion are kept as-is, so it is equivalent but verbose rather than idiomatic source

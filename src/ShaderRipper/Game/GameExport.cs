@@ -29,6 +29,13 @@ namespace ShaderRipper.Game
             /// fails the well-formedness check is counted as processed but not
             /// emitted, so this can be lower than <see cref="Shaders"/>).</summary>
             public int Emitted;
+            /// <summary>
+            /// Shaders whose output file was already the one this run would write,
+            /// so it was left untouched.  Counted separately from
+            /// <see cref="Emitted"/> because "wrote 0 files" and "had nothing to do"
+            /// are different answers and the tally is read for both.
+            /// </summary>
+            public int Unchanged;
             /// <summary>Unity's own shaders left out of the export.</summary>
             public int BuiltinSkipped;
             public readonly List<string> Notes = new();
@@ -51,6 +58,12 @@ namespace ShaderRipper.Game
             public string Rel;
             /// <summary>Folder holding this shader's per-program files.</summary>
             public string DirName;
+            /// <summary>
+            /// Identity of the bytes this shader came from, for the incremental
+            /// cache; null when the source file cannot be inspected, which makes
+            /// the entry unusable and the shader re-translated.
+            /// </summary>
+            public string SourceKey;
         }
 
         /// <summary>
@@ -150,7 +163,7 @@ namespace ShaderRipper.Game
                                 bool programs = false, IReadOnlyList<string> files = null,
                                 bool overwrite = false, int jobs = 1,
                                 System.Threading.CancellationToken cancel = default,
-                                int? platform = null)
+                                int? platform = null, bool incremental = true)
         {
             var s = new Stats();
             ExportDir.Prepare(outDir, overwrite);
@@ -225,6 +238,7 @@ namespace ShaderRipper.Game
                     // keyed by it, and a bundle node's name is the only thing that
                     // identifies the file once it has been extracted.
                     sh.SourceFile ??= inName;
+                    sh.InputPath ??= inPath;
                     // The bundle's own AssetBundle.m_Container names the project path
                     // every object came from.  This is the ONLY record of where a
                     // bundle-packed shader used to live: the Shader object carries
@@ -317,8 +331,31 @@ namespace ShaderRipper.Game
                     s.Notes.Add(Localization.Strings.F("PathTaken", name, rel));
                     Log.Warn(name, Localization.Strings.F("PathTaken", name, rel));
                 }
-                seats[i] = new Seat { Sh = sh, Name = name, Rel = rel, DirName = Safe(name, used) };
+                seats[i] = new Seat
+                {
+                    Sh = sh,
+                    Name = name,
+                    Rel = rel,
+                    DirName = Safe(name, used),
+                    SourceKey = ExportCache.SourceKey(sh.InputPath, sh.PathId),
+                };
             }
+
+            // The incremental cache.  `--programs` and `--orig-asm` write extra
+            // per-program files the reuse test does not look at, so a run that asks
+            // for them bypasses the cache rather than reporting a shader as unchanged
+            // while its program folder is empty.
+            bool reusable = incremental && shaderLab && !programs && !origAsm && platform == null;
+            var cache = reusable
+                ? ExportCache.Load(outDir, ExportCache.ProfileOf(
+                      $"jobs={jobs}", $"dedup={dedup}", $"builtin={builtin}", $"only={only}"))
+                : null;
+            var fresh = new List<Seat>(seats.Length);
+            var kept = new List<string>(seats.Length);
+
+            // The key a cache entry is filed under: a compute shader's file is a
+            // `.compute`, so that is the path its state has to be remembered by.
+            static string KeyOf(Seat s) => s.Sh.IsCompute ? ComputePath(s.Rel) : s.Rel;
 
             if (jobs > 1)
             {
@@ -328,6 +365,7 @@ namespace ShaderRipper.Game
                 // queue order, which keeps the notes list in the same order a
                 // sequential run produces.
                 var per = new Stats[seats.Length];
+                var reused = new bool[seats.Length];
                 System.Threading.Tasks.Parallel.For(0, seats.Length,
                     new System.Threading.Tasks.ParallelOptions { MaxDegreeOfParallelism = jobs },
                     i =>
@@ -335,9 +373,19 @@ namespace ShaderRipper.Game
                         // A cancelled run stops taking new work; what is in flight
                         // finishes, so every file on disk is a whole shader.
                         if (cancel.IsCancellationRequested) return;
-                        per[i] = ExportSeat(seats[i], outDir, resMap, shaderLab, programs, origAsm, platform);
-                    });
-                foreach (var ps in per) if (ps != null) Merge(s, ps);
+                        if (cache != null && cache.IsCurrent(KeyOf(seats[i]), seats[i].SourceKey, outDir))
+                        {
+                            reused[i] = true;
+                            return;
+                        }
+                            per[i] = ExportSeat(seats[i], outDir, resMap, shaderLab, programs, origAsm, platform);
+                        });
+                for (int i = 0; i < seats.Length; i++)
+                {
+                        if (reused[i]) { s.Unchanged++; kept.Add(KeyOf(seats[i])); continue; }
+                        if (per[i] != null) Merge(s, per[i]);
+                        fresh.Add(seats[i]);
+                }
                 s.Shaders = seats.Length;
             }
             else
@@ -346,8 +394,23 @@ namespace ShaderRipper.Game
                 {
                     if (cancel.IsCancellationRequested) break;
                     s.Shaders++;
+                    if (cache != null && cache.IsCurrent(KeyOf(seat), seat.SourceKey, outDir))
+                    {
+                        s.Unchanged++;
+                        kept.Add(KeyOf(seat));
+                        Log.Info(seat.Name, KeyOf(seat), Localization.Strings.Get("LogUnchanged"));
+                        continue;
+                    }
                     Merge(s, ExportSeat(seat, outDir, resMap, shaderLab, programs, origAsm, platform));
+                    fresh.Add(seat);
                 }
+            }
+
+            if (cache != null)
+            {
+                foreach (var seat in fresh) cache.Record(KeyOf(seat), seat.SourceKey, outDir);
+                cache.Prune(outDir, fresh.Select(KeyOf).Concat(kept));
+                cache.Save();
             }
 
             if (cancel.IsCancellationRequested)
@@ -356,7 +419,7 @@ namespace ShaderRipper.Game
                 // as complete.
                 s.Notes.Add(Localization.Strings.Get("ExportCancelled"));
             else
-                ExportDir.Finish(outDir, s.Emitted, programs ? s.Programs : 0);
+                ExportDir.Finish(outDir, s, programs ? s.Programs : 0);
             return s;
         }
 
@@ -960,6 +1023,12 @@ namespace ShaderRipper.Game
                                          bool shaderLab, bool programs, bool origAsm,
                                          int? platform, Stats s)
         {
+            if (sh.IsCompute)
+            {
+                ExportCompute(sh, name, rel, outDir, shaderLab, origAsm, s);
+                return;
+            }
+
             string full = Path.Combine(outDir, rel.Replace('/', Path.DirectorySeparatorChar));
             string relDir = Path.GetDirectoryName(full) ?? outDir;
             Directory.CreateDirectory(relDir);
@@ -1082,6 +1151,32 @@ namespace ShaderRipper.Game
                     Log.Warn(name, Localization.Strings.F("ShaderLabNotWellFormed", name, errs));
                 }
             }
+        }
+
+        /// <summary>
+        /// The path a ComputeShader's file actually lands on.
+        ///
+        /// The claiming pass derives a `.shader` path for every object, which is what
+        /// keeps a compute shader and a shader with the same name from colliding; the
+        /// extension changes only at the point the file is written.
+        /// </summary>
+        internal static string ComputePath(string rel) =>
+            rel.EndsWith(".shader", StringComparison.OrdinalIgnoreCase)
+                ? rel[..^".shader".Length] + ".compute"
+                : rel + ".compute";
+
+        /// <summary>
+        /// Write one ComputeShader as a <c>.compute</c> file.
+        ///
+        /// The naming and directory rules are the Shader route's (claiming already
+        /// happened), only the extension and the wrapper differ.
+        /// </summary>
+        private static void ExportCompute(Shader sh, string name, string rel, string outDir,
+                                          bool shaderLab, bool origAsm, Stats s)
+        {
+            string full = Path.Combine(outDir, ComputePath(rel).Replace('/', Path.DirectorySeparatorChar));
+            if (shaderLab) WarnIfForeign(full, name);
+            ComputeExport.Export(sh.Compute, name, rel, outDir, shaderLab, origAsm, s);
         }
 
         /// <summary>
@@ -1742,10 +1837,20 @@ namespace ShaderRipper.Game
         private static List<Emit.ShaderLab.SubShaderText> PassTree(
             Shader sh, string shaderName, Dictionary<Pass, PassBuild> programs)        {
             var list = new List<Emit.ShaderLab.SubShaderText>();
+            // m_Dependencies is shader-level in the asset while UsePass is
+            // SubShader-level in ShaderLab, so a borrowed pass is written into every
+            // SubShader.  A SubShader without it would silently lose the pass for
+            // that quality level, which is the failure this is here to prevent;
+            // repeating it costs nothing since each level compiles on its own.
+            var borrowed = new List<string>();
+            foreach (var dep in sh.ParsedForm?.Dependencies ?? new List<ShaderDependency>())
+                if (dep.Ref.Length > 0 && !borrowed.Contains(dep.Ref)) borrowed.Add(dep.Ref);
+
             foreach (var ss in sh.ParsedForm?.SubShaders ?? new List<SubShader>())
             {
                 var text = new Emit.ShaderLab.SubShaderText { LOD = ss.LOD };
                 text.Tags.AddRange(ss.Tags);
+                text.UsePasses.AddRange(borrowed);
 
                 for (int pi = 0; pi < ss.Passes.Count; pi++)
                 {

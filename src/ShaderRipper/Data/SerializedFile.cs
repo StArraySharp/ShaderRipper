@@ -24,8 +24,16 @@ namespace ShaderRipper.Data
         public byte[] Raw;
         public TypeNode Schema;
         public TypeNode MaterialSchema;
+        public TypeNode ComputeSchema;
         public readonly List<Shader> Shaders = new List<Shader>();
         public readonly List<MaterialAsset> Materials = new List<MaterialAsset>();
+
+        /// <summary>
+        /// <c>ComputeShader</c> objects (ClassID 72).  They are not Shaders and are
+        /// not in <see cref="Shaders"/>: the entry point is a kernel, the output form
+        /// is <c>.compute</c>, and nothing about a pass applies.
+        /// </summary>
+        public readonly List<ComputeShaderAsset> ComputeShaders = new List<ComputeShaderAsset>();
 
         /// <summary>m_Externals entries: index+1 == the PPtr m_FileID that names it.</summary>
         public readonly List<string> Externals = new List<string>();
@@ -82,7 +90,7 @@ namespace ShaderRipper.Data
 
             sf.Schema = tpkClass?.Invoke(sf.UnityVersion, 48);
             sf.MaterialSchema = tpkClass?.Invoke(sf.UnityVersion, 21);
-
+            sf.ComputeSchema = tpkClass?.Invoke(sf.UnityVersion, 72);
             // `typeCount` comes from the file too.  Cap it against the metadata that
             // is actually left: a type entry is at least 20 bytes (classId plus the
             // 16-byte hash), so anything larger is bad data and would allocate an
@@ -159,6 +167,33 @@ namespace ShaderRipper.Data
                     {
                         if (Environment.GetEnvironmentVariable("SHADERRIP_TYPEDBG") == "1")
                             Console.Error.WriteLine($"  [!] AssetBundle pathId={e.pathId}: {ex.Message}");
+                    }
+                }
+                else if (classIds[e.typeId] == 72 && sf.ComputeSchema != null)
+                {
+                    try
+                    {
+                        var compute = ComputeShaderReader.Parse(sf, sf.ComputeSchema, e.pathId, e.off, e.size);
+                        if (compute != null)
+                        {
+                            // A compute shader travels in the same list as a Shader so
+                            // the naming, dedup and claim pipeline applies unchanged;
+                            // `IsCompute` is what routes it to the `.compute` writer.
+                            sf.ComputeShaders.Add(compute);
+                            sf.Shaders.Add(new Shader
+                            {
+                                PathId = e.pathId,
+                                Offset = e.off,
+                                Size = e.size,
+                                Name = compute.Name,
+                                Compute = compute,
+                            });
+                        }
+                    }
+                    catch (Exception ex)
+                    {
+                        if (Environment.GetEnvironmentVariable("SHADERRIP_TYPEDBG") == "1")
+                            Console.Error.WriteLine($"  [!] ComputeShader pathId={e.pathId}: {ex.Message}");
                     }
                 }
             }
@@ -508,8 +543,18 @@ namespace ShaderRipper.Data
                         break;
 
                     case "m_Dependencies":
+                        // Stored as {from, to} pairs, not as strings: reading the
+                        // values as strings silently dropped every UsePass.
                         foreach (var kv in AsList(sr.ReadValue(c)))
-                            if (kv is string ks) result.Dependencies.Add(ks);
+                        {
+                            if (kv is not Dictionary<string, object> dep) continue;
+                            var one = new ShaderDependency
+                            {
+                                From = Str(dep, "from"),
+                                To = Str(dep, "to"),
+                            };
+                            if (one.Ref.Length > 0) result.Dependencies.Add(one);
+                        }
                         break;
 
                     case "m_KeywordFlags":
