@@ -41,6 +41,18 @@ param(
 )
 
 $ErrorActionPreference = 'Stop'
+
+# `-File` callers pass the RID list as one comma-joined string (the CI does
+# `-Rid win-x64,linux-x64`), and [string[]] binds that as a single element --
+# the loop then hands `dotnet publish -r win-x64,linux-x64` to MSBuild in one
+# piece and MSBuild reads the second RID as a bare switch (MSB1006 "Switch:
+# linux-x64").  Split every element on commas and trim, so both caller forms
+# (an array or a joined string) reach the loop as one RID per element.
+$Rid = @($Rid |
+    ForEach-Object { $_ -split ',' } |
+    ForEach-Object { $_.Trim() } |
+    Where-Object { $_ })
+
 $root = Split-Path -Parent $PSScriptRoot
 Push-Location $root
 try {
