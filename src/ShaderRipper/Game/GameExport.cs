@@ -1268,7 +1268,7 @@ namespace ShaderRipper.Game
         /// mapping is therefore a list per slot: keeping only one owner silently
         /// dropped the program from every other pass that declared it.
         /// </summary>
-        private static (Dictionary<int, List<Pass>> passOf, Dictionary<int, SubProgram> spOf) PassMaps(Shader sh, int platformIndex = -1)
+        internal static (Dictionary<int, List<Pass>> passOf, Dictionary<int, SubProgram> spOf) PassMaps(Shader sh, int platformIndex = -1)
         {
             var passOf = new Dictionary<int, List<Pass>>();
             var spOf = new Dictionary<int, SubProgram>();

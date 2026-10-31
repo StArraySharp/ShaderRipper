@@ -22,7 +22,6 @@ public class BundleTests
         public uint Version = 8;
         public bool PadTo16 = true;
         public bool BlocksInfoAtEnd;
-        public bool CompressInfo;
         public List<(string path, byte[] data)> Nodes = new();
 
         public byte[] Build()

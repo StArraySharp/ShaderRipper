@@ -1282,6 +1282,14 @@ namespace ShaderRipper.Resolve
             // carries it and is still t0 in every sprite shader, because the renderer
             // binds it to the slot the compiler gave it rather than to a slot of its
             // own.  (Ordering those last instead measured 206 wrong bindings.)
+            //
+            // Serialization backs that up structurally: a sprite-pipeline shader
+            // measured in the wild (ADOFAI/Frames, Unity 6000.3.25f1) carries zero
+            // m_TextureParams on every sub-program, and the pass name table lists no
+            // texture at all -- the sprite renderer owns t0 by convention, so
+            // property order is the only source there is.  It can still be gamed: a
+            // host that only ever SetTexture()s a later property writes a slot
+            // nothing samples, and the leading name then mislabels the sprite.
             var texProps = new List<string>();
             if (props != null)
                 foreach (var p in props.Where(p => TextureTypes.Contains(p.Type)))
