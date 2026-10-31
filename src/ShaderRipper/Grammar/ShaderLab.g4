@@ -132,6 +132,7 @@ subShaderItem
     : tagsBlock
     | lodDecl
     | passBlock
+    | usePassDecl
     | subShaderBlock
     | SEMI
     ;
@@ -231,6 +232,13 @@ dependencyDecl
     : DEPENDENCY stringLiteral
     ;
 
+// `UsePass "Standard/FORWARD"`: a pass borrowed from another shader.  It lives at
+// SubShader level, beside `Pass { }`, and the pass name is conventionally
+// upper-cased by Unity.
+usePassDecl
+    : USEPASS stringLiteral
+    ;
+
 // ---------------------------------------------------------------------------
 // Lexer
 // ---------------------------------------------------------------------------
@@ -256,6 +264,7 @@ NAME         : 'Name' ;
 FALLBACK     : 'Fallback' ;
 CUSTOMEDITOR : 'CustomEditor' ;
 DEPENDENCY   : 'Dependency' ;
+USEPASS      : 'UsePass' ;
 
 // `//` and `/* */` comments are skipped: ShaderLab has no comment-carrying
 // construct, and the emitted files use them only for annotation.

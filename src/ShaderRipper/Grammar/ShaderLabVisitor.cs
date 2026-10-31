@@ -232,5 +232,11 @@ public interface IShaderLabVisitor<Result> : IParseTreeVisitor<Result> {
 	/// <param name="context">The parse tree.</param>
 	/// <return>The visitor result.</return>
 	Result VisitDependencyDecl([NotNull] ShaderLabParser.DependencyDeclContext context);
+	/// <summary>
+	/// Visit a parse tree produced by <see cref="ShaderLabParser.usePassDecl"/>.
+	/// </summary>
+	/// <param name="context">The parse tree.</param>
+	/// <return>The visitor result.</return>
+	Result VisitUsePassDecl([NotNull] ShaderLabParser.UsePassDeclContext context);
 }
 } // namespace ShaderRipper

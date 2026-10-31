@@ -234,7 +234,8 @@ namespace ShaderRipper
                               opt.Has("--shaderlab"),
                               opt.Has("--orig-asm"), !opt.Has("--no-dedup"), opt.Has("--builtin"),
                               opt.Has("--programs"), Overwrite(opt),
-                              Jobs(opt.Value("--jobs")), platform);
+                              Jobs(opt.Value("--jobs")), platform,
+                              !opt.Has("--no-incremental"));
         }
 
         /// <summary>
@@ -267,10 +268,11 @@ namespace ShaderRipper
         private static int ExportGame(string dataDir, string outDir, string only, bool shaderLab,
                                       bool origAsm = false, bool dedup = true, bool builtin = false,
                                       bool programs = false,
-                                      bool overwrite = false, int jobs = 1, int? platform = null) =>
+                                      bool overwrite = false, int jobs = 1, int? platform = null,
+                                      bool incremental = true) =>
             RunExport(() => ShaderRipper.Game.GameExport.Run(
                 dataDir, outDir, only, shaderLab, origAsm, dedup, builtin, programs,
-                null, overwrite, jobs, default, platform), only);
+                null, overwrite, jobs, default, platform, incremental), only);
 
         /// <summary>
         /// Run an export and report it.
@@ -346,7 +348,8 @@ namespace ShaderRipper
                 opt.Value("--only"), opt.Has("--shaderlab"), opt.Has("--orig-asm"),
                 !opt.Has("--no-dedup"), opt.Has("--builtin"),
                 opt.Has("--programs"), values,
-                Overwrite(opt), Jobs(opt.Value("--jobs")), default, platform));
+                Overwrite(opt), Jobs(opt.Value("--jobs")), default, platform,
+                !opt.Has("--no-incremental")));
             return s;
         }
 
@@ -480,6 +483,8 @@ namespace ShaderRipper
             string summary = Strings.F("ExportSummary", s.Files, s.Shaders, s.Emitted,
                                        s.Programs, s.Disassembled, s.Translated,
                                        s.Skipped, s.Failed);
+            if (s.Unchanged > 0)
+                summary += Strings.F("ExportSummaryUnchanged", s.Unchanged);
             if (s.BuiltinSkipped > 0)
                 summary += Strings.F("ExportSummaryBuiltinSkipped", s.BuiltinSkipped);
             Console.WriteLine(summary);
@@ -583,6 +588,22 @@ namespace ShaderRipper
                         continue;
                     total++;
 
+                    if (sh.IsCompute)
+                    {
+                        // A compute shader has no passes, properties or keywords in
+                        // the ShaderLab sense; what a reader wants to know is which
+                        // kernels it declares and which backends it shipped for.
+                        var cv = sh.Compute;
+                        Console.WriteLine("  " + n);
+                        Console.WriteLine($"    compute: type={sh.PathId} kernels={cv.KernelNames.Count} " +
+                                          $"variants={cv.Variants.Count}");
+                        foreach (var kv in cv.Variants)
+                            Console.WriteLine($"      backend={Platforms.Get(kv.Platform).Name}({kv.Platform}) " +
+                                              $"level={kv.Level} kernels={kv.Kernels.Count}");
+                        foreach (string k in cv.KernelNames) Console.WriteLine("      kernel " + k);
+                        continue;
+                    }
+
                     int passes = 0, subs = 0;
                     foreach (var ss in sh.ParsedForm?.SubShaders ?? new List<SubShader>())
                         foreach (var p in ss.Passes)
@@ -607,7 +628,9 @@ namespace ShaderRipper
                                                 sh.ParsedForm?.KeywordNames.Count ?? 0));
                     Console.WriteLine(Strings.F("DumpPlatforms", string.Join(", ", plats)));
                     Console.WriteLine(Strings.F("DumpOrigin", container2, source, sh.FallbackName));
-                    foreach (string line in states) Console.WriteLine("      " + line);
+                    if (sh.ParsedForm?.Dependencies is { Count: > 0 } deps)
+                        Console.WriteLine(Strings.F("DumpDependencies",
+                            string.Join("; ", deps.Select(d => d.Ref))));                    foreach (string line in states) Console.WriteLine("      " + line);
                 }
             }
             Console.Error.WriteLine(Strings.F("ListShadersSummary", total, files.Count));

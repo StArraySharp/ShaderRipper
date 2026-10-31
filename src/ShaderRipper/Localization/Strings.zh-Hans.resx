@@ -80,6 +80,8 @@
                     可以直接复用同一个目录，不必每次新建
     --no-dedup       保留每一个副本（默认：每个路径只留一份）
     --builtin        连 Unity 自带的 shader 一起导出
+    --no-incremental 即使输出文件已是最新也重新翻译（默认：未变化的文件连同
+                     .shaderripper-cache.json 里的记录一起保留）
     --only &lt;文本&gt;    只处理名字含有该文本的 shader
     --platform &lt;名|id&gt; 只读该平台的槽（d3d11 / d3d9 / gles3 / gles20 /
                      openglcore / opengl / metal / vulkan / webgpu）；
@@ -176,6 +178,11 @@
     <comment>过滤掉 Unity 自带 shader 时追加在 ExportSummary 后。开头的空格是故意的。</comment>
   </data>
 
+  <data name="ExportSummaryUnchanged">
+    <value> 未变化={0}</value>
+    <comment>增量缓存保留已有文件时追加在 ExportSummary 后。开头的空格是故意的。</comment>
+  </data>
+
   <data name="Note">
     <value>  提示: {0}</value>
     <comment>一条诊断信息，缩进在统计行下方。</comment>
@@ -244,6 +251,11 @@
   <data name="DumpPlatforms">
     <value>    平台=[{0}]</value>
     <comment>--dump：该 shader 覆盖的平台列表。</comment>
+  </data>
+
+  <data name="DumpDependencies">
+    <value>    依赖={0}</value>
+    <comment>--dump：shader 的 m_Dependencies 列表，每条是一个 UsePass/Fallback 引用。</comment>
   </data>
 
   <data name="DumpOrigin">
@@ -359,6 +371,11 @@
   <data name="LogStructure">
     <value>{0} 个通道  {1} 个变体  {2} 个属性  {3} 个平台</value>
     <comment>单个 shader 的结构统计，verbose 级别打印在信息行下方。</comment>
+  </data>
+
+  <data name="LogUnchanged">
+    <value>未变化</value>
+    <comment>增量缓存保留下已有文件时，输出路径下方的那行说明。</comment>
   </data>
 
   <data name="LogStructureTarget">

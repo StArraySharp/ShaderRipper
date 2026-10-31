@@ -180,6 +180,57 @@ Shader "Test/Broken"
         Assert.That(text, Does.Contain("_Any (\"_Any\", 2D)"));
         Assert.That(text, Does.Not.Contain("1D"));
     }
+
+    /// <summary>
+    /// A borrowed pass is written at SubShader level, where Unity expects it.
+    /// Losing it drops a whole pass from the shipped shader -- typically the
+    /// shadow caster -- so the emitter has to write the line at all.
+    /// </summary>
+    [Test]
+    public void WrapWritesUsePassAtSubShaderLevel()
+    {
+        var sub = new ShaderLab.SubShaderText();
+        sub.UsePasses.Add("Standard/FORWARD");
+        var text = ShaderLab.Wrap("Test/Borrower", "",
+            new List<ShaderLab.SubShaderText> { sub }, new List<Property>());
+
+        Assert.That(text, Does.Contain("UsePass \"Standard/FORWARD\""));
+        Assert.That(ShaderLab.Check(text), Is.Empty);
+    }
+
+    /// <summary>
+    /// Two SubShaders each need their own copy: a SubShader that omits the line
+    /// has no such pass for the quality level it selects.
+    /// </summary>
+    [Test]
+    public void WrapWritesUsePassIntoEverySubShader()
+    {
+        var a = new ShaderLab.SubShaderText();
+        var b = new ShaderLab.SubShaderText { LOD = 300 };
+        a.UsePasses.Add("Standard/SHADOWCASTER");
+        b.UsePasses.Add("Standard/SHADOWCASTER");
+
+        var text = ShaderLab.Wrap("Test/Borrower", "",
+            new List<ShaderLab.SubShaderText> { a, b }, new List<Property>());
+
+        Assert.That(text.Split("UsePass").Length - 1, Is.EqualTo(2));
+        Assert.That(ShaderLab.Check(text), Is.Empty);
+    }
+
+    /// <summary>
+    /// `m_Dependencies` stores {from, to}; only one half is guaranteed to carry
+    /// the slash, so the ref has to fall back rather than emit `UsePass ""`.
+    /// </summary>
+    [Test]
+    public void DependencyRefPrefersTheQualifiedHalf()
+    {
+        Assert.That(new ShaderDependency { From = "FORWARD", To = "Standard/FORWARD" }.Ref,
+                    Is.EqualTo("Standard/FORWARD"));
+        Assert.That(new ShaderDependency { From = "Other/FORWARD", To = "FORWARD" }.Ref,
+                    Is.EqualTo("Other/FORWARD"));
+        Assert.That(new ShaderDependency { From = "FORWARD", To = "" }.Ref,
+                    Is.EqualTo("FORWARD"));
+    }
 }
 
 /// <summary>

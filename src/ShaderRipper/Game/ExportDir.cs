@@ -25,7 +25,10 @@ namespace ShaderRipper.Game
         internal const string Marker = ".shaderripper-export";
 
         /// <summary>The only top-level names an export creates.</summary>
-        private static readonly string[] Produced = { "Assets", "Disassembly", Marker };
+        private static readonly string[] Produced =
+        {
+            "Assets", "Disassembly", Marker, ExportCache.CacheFileName,
+        };
 
         /// <summary>
         /// Make <paramref name="dir"/> ready to receive an export, emptying it first
@@ -56,17 +59,45 @@ namespace ShaderRipper.Game
         /// that translated everything and wrote nothing (an output switch was
         /// missing) used to leave a marker claiming `shaders: 425` over an empty
         /// directory, which made the next look at it start from a false premise.
+        ///
+        /// The marker doubles as the export's own log: the run's counters and every
+        /// diagnostic note are written here, so a directory left alone for a month
+        /// still says what produced it and what went wrong without the console
+        /// transcript.  It stays small -- the notes are the same eight-or-so lines
+        /// the summary prints -- because it sits in the output tree.
         /// </summary>
-        internal static void Finish(string dir, int shaders, int programs)
+        internal static void Finish(string dir, GameExport.Stats stats, int programs)
         {
             try
             {
-                var text = "ShaderRipper export directory\n" +
-                           $"shaders: {shaders}\n";
-                if (programs > 0) text += $"programs: {programs}\n";
-                text += $"at: {DateTime.Now:yyyy-MM-dd HH:mm:ss}\n" +
-                        "Re-running with --overwrite empties this directory first.\n";
-                File.WriteAllText(Path.Combine(dir, Marker), text);
+                var text = new System.Text.StringBuilder();
+                text.Append("ShaderRipper export directory\n");
+                // `shaders` is the files now in the directory: written this run plus
+                // the ones the cache proved were already current.  Reporting only the
+                // written count made a second, fully-cached run say `shaders: 0` over
+                // a directory holding 425.
+                text.Append($"shaders: {stats.Emitted + stats.Unchanged}\n");
+                if (programs > 0) text.Append($"programs: {programs}\n");
+                // The same counters the console tally carries: an export is judged by
+                // what it skipped and what it failed on, not only by how many files
+                // it left behind.
+                text.Append($"files: {stats.Files}\n");
+                text.Append($"programs translated: {stats.Translated} of {stats.Programs} "
+                            + $"(disassembled {stats.Disassembled})\n");
+                if (stats.Emitted > 0 || stats.Unchanged > 0)
+                    text.Append($"written: {stats.Emitted}  unchanged: {stats.Unchanged}\n");
+                if (stats.Skipped > 0) text.Append($"skipped: {stats.Skipped}\n");
+                if (stats.BuiltinSkipped > 0) text.Append($"builtin skipped: {stats.BuiltinSkipped}\n");
+                text.Append($"failed: {stats.Failed}\n");
+                if (stats.Notes.Count > 0)
+                {
+                    text.Append('\n');
+                    foreach (string note in stats.Notes)
+                        text.Append("  ").Append(note).Append('\n');
+                }
+                text.Append($"at: {DateTime.Now:yyyy-MM-dd HH:mm:ss}\n");
+                text.Append("Re-running with --overwrite empties this directory first.\n");
+                File.WriteAllText(Path.Combine(dir, Marker), text.ToString());
             }
             catch (IOException) { }        // a read-only target is not worth failing over
             catch (UnauthorizedAccessException) { }

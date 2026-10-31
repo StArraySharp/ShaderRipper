@@ -57,6 +57,7 @@ declaration
     | DCL_RESOURCE sampleCount? typeSpecGroup? regToken (COMMA dclArgs)?
     | DCL_UAV sampleCount? typeSpecGroup? regToken (COMMA dclArgs)?
     | DCL_TGSM typeSpecGroup? regToken (COMMA dclArgs)?
+    | DCL_THREADGROUP number COMMA number COMMA number
     | DCL_INPUT_PS_SIV interpolationMode* operand COMMA IDENT
     | DCL_INPUT_PS_SGV interpolationMode* operand COMMA IDENT
     | DCL_INPUT_SIV interpolationMode* operand COMMA IDENT
@@ -156,7 +157,7 @@ register
 // token type while the parser stays indifferent to it.  REG_ONAME comes last so
 // the numeric forms keep their own token.
 regToken
-    : REG_CB | REG_ICB | REG_R | REG_V | REG_V_INDEXED | REG_O | REG_T | REG_S | REG_U | REG_X | REG_A | REG_G | REG_M
+    : REG_CB | REG_ICB | REG_R | REG_V | REG_V_SYSTEM | REG_V_INDEXED | REG_O | REG_T | REG_S | REG_U | REG_X | REG_A | REG_G | REG_M
     | REG_ONAME
     ;
 
@@ -209,6 +210,7 @@ DCL_TEMPS          : 'dcl_temps' ;
 DCL_RESOURCE       : 'dcl_resource_' [A-Za-z0-9_]+ ;
 DCL_UAV            : 'dcl_uav_' [A-Za-z0-9_]+ ;
 DCL_TGSM           : 'dcl_tgsm_' [A-Za-z0-9_]+ ;
+DCL_THREADGROUP    : 'dcl_thread_group' ;
 DCL_OTHER          : 'dcl_' [A-Za-z0-9_]+ ;
 
 // Registers.  Each kind is its own token so the visitor reads it off the token
@@ -221,6 +223,12 @@ REG_V   : 'v' [0-9]+ ;
 // numeric register suffix.  Keep the bare `v` distinct from IDENT so it can
 // enter the same register/index-expression rule as `cb0[r1.x + 25]`.
 REG_V_INDEXED : 'v' ;
+// The compute stage's system-value inputs share the `v` prefix but are spelled
+// by name: there is no register number, and the identity of the value is the
+// whole point of the declaration.  Longest match puts them ahead of both
+// REG_V_INDEXED and IDENT.
+REG_V_SYSTEM : 'vThreadIDInGroupFlattened' | 'vThreadIDInGroup' | 'vThreadID'
+             | 'vThreadGroupID' | 'vGroupThreadID' | 'vGroupID' | 'vDispatchThreadID' ;
 REG_O   : 'o' [0-9]+ ;
 REG_T   : 't' [0-9]+ ;
 REG_S   : 's' [0-9]+ ;

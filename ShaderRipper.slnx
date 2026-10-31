@@ -6,6 +6,7 @@
          Re-add it here to build it again. -->
     <Project Path="src/ShaderRipper/ShaderRipper.csproj" />
     <Project Path="src/ShaderRipper.Application/ShaderRipper.Application.csproj" />
+    <Project Path="src/ShaderRipper.Gui/ShaderRipper.Gui.csproj" />
     <Project Path="src/ShaderRipper.Tests/ShaderRipper.Tests.csproj" />
   </Folder>
 </Solution>
