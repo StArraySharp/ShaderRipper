@@ -1249,7 +1249,9 @@ namespace ShaderRipper.Resolve
         /// <remarks>
         /// Priority: the asset's own <c>m_TextureParams</c> reflection (name + t#
         /// register straight out of the serialized program parameters -- the same
-        /// table UnityPlayer's runtime consumes), falling back to property
+        /// table UnityPlayer's runtime consumes); then, for sprite-pipeline
+        /// programs, the engine's main-texture name (<c>[MainTexture]</c>
+        /// attribute, else the literal <c>_MainTex</c>); then property
         /// declaration order only when the asset kept no texture list.  Property
         /// order is NOT register order: one commercial title's FloorMesh declares _TileTex first but
         /// binds it to t2, which silently swapped three samplers and broke the look.
@@ -1275,21 +1277,14 @@ namespace ShaderRipper.Resolve
                 // The property-order pass below fills the remainder.
             }
 
-            // The declaration order is the only signal left.  Weak, but measured:
+            // The declaration order is the only signal left for everything past the
+            // main texture.  Weak, but measured:
             // over every pass of the reference corpus whose reflection names t0, the
             // property table lists that texture FIRST -- 849 of 849, whatever the
             // property flags say.  `[PerRendererData]` is no exception: `_MainTex`
             // carries it and is still t0 in every sprite shader, because the renderer
             // binds it to the slot the compiler gave it rather than to a slot of its
             // own.  (Ordering those last instead measured 206 wrong bindings.)
-            //
-            // Serialization backs that up structurally: a sprite-pipeline shader
-            // measured in the wild (ADOFAI/Frames, Unity 6000.3.25f1) carries zero
-            // m_TextureParams on every sub-program, and the pass name table lists no
-            // texture at all -- the sprite renderer owns t0 by convention, so
-            // property order is the only source there is.  It can still be gamed: a
-            // host that only ever SetTexture()s a later property writes a slot
-            // nothing samples, and the leading name then mislabels the sprite.
             var texProps = new List<string>();
             if (props != null)
                 foreach (var p in props.Where(p => TextureTypes.Contains(p.Type)))
@@ -1309,6 +1304,43 @@ namespace ShaderRipper.Resolve
             // '_MainTex'`), and the second binding is a leftover sampler anyway.
             var used = new HashSet<string>(TexName.Values, StringComparer.Ordinal);
             var spare = texProps.Where(p => !used.Contains(p)).ToList();
+
+            // The engine resolves the main texture by NAME, and that is the only
+            // name it resolves.  UnityPlayer's sprite path
+            // (SpriteIntermediateRenderer::SetupProperties) picks the property in
+            // three levels -- the `[MainTexture]` attribute (property flags
+            // & 0x80, via Material::SearchFirstPropertyNameIdByAttribute), then
+            // the literal `_MainTex` (kSLPropMainTex), then the first texture
+            // property -- and hands that NAME to the property sheet; the slot it
+            // lands on is the renderer's t0 by convention, not by lookup.  Gated
+            // here on the sprite-pipeline marker (a `UnityPerDrawSprite` entry in
+            // the pass name table) because outside that pipeline nothing in the
+            // engine forces a main texture onto t0.  Measured in the wild on
+            // ADOFAI/Frames (Unity 6000.3.25f1): every sub-program carries zero
+            // m_TextureParams and the pass name table lists no texture at all,
+            // yet t0 is the sprite -- named `_MainTex` while `_MainTex` sits
+            // first in the property table.  Everything past the main texture has
+            // no engine mechanism at all: with m_TextureParams empty, tN (N > 0)
+            // stays a declaration-order guess, hence the `inferred` note.
+            string mainName = null;
+            int mainReg = open.Count > 0 ? open[0] : -1;
+            if (open.Count > 0 && _nameTable.Contains("UnityPerDrawSprite"))
+            {
+                string flagged = spare.FirstOrDefault(p =>
+                {
+                    var q = props?.FirstOrDefault(x => x.Name == p);
+                    return q != null && (q.Flags & 0x80) != 0;
+                });
+                string literal = flagged ?? (spare.Contains("_MainTex") ? "_MainTex" : null);
+                if (literal != null)
+                {
+                    TexName[mainReg] = literal;
+                    mainName = literal;
+                    spare.Remove(literal);
+                    open = open.Skip(1).ToList();
+                }
+            }
+
             // The two lists rarely line up.  A texture property the shader never
             // samples in this variant (a `multi_compile` branch that is compiled out)
             // leaves more properties than registers; a built-in sampler Unity injects
@@ -1318,15 +1350,19 @@ namespace ShaderRipper.Resolve
             // own textures right and the leftovers stay `tN`.
             int n = Math.Min(spare.Count, open.Count);
             for (int i = 0; i < n; i++) TexName[open[i]] = spare[i];
-            if (n == 0)
+            if (n == 0 && mainName == null)
                 FileNotes.Add($"{open.Count} texture register(s) the asset did not name -- left as tN");
             else if (guessed)
-                // The names above are an inference, not a reading: this pass kept no
-                // reflection, so nothing in the asset proves the slot holds that
-                // property rather than one the pass never uses.  Say so in the file
-                // instead of letting the result look authoritative.
-                FileNotes.Add("texture names inferred from property order: " +
-                          string.Join(", ", Enumerable.Range(0, n).Select(i => $"t{open[i]}={spare[i]}")));
+            {
+                var parts = new List<string>();
+                if (mainName != null)
+                    parts.Add($"t{mainReg}={mainName} (engine main-texture name, sprite pipeline)");
+                if (n > 0)
+                    parts.Add("remaining texture names inferred from property order: " +
+                              string.Join(", ", Enumerable.Range(0, n).Select(i => $"t{open[i]}={spare[i]}")));
+                if (parts.Count > 0)
+                    FileNotes.Add(string.Join("; ", parts));
+            }
         }
     }
 }
