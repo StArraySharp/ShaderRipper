@@ -81,6 +81,10 @@
     --no-dedup       保留每一个副本（默认：每个路径只留一份）
     --builtin        连 Unity 自带的 shader 一起导出
     --only &lt;文本&gt;    只处理名字含有该文本的 shader
+    --platform &lt;名|id&gt; 只读该平台的槽（d3d11 / d3d9 / gles3 / gles20 /
+                     openglcore / opengl / metal / vulkan / webgpu）；
+                     默认读所有有翻译器的槽
+    --strip-dxbc-registers  移除 DXBC 来源 ShaderLab 的 register 绑定（保留 packoffset；不影响 GLSL 或独立程序）
     --self-contained 引擎声明直接内联，不用 #include
                      （可独立编译；但 Unity 导入时会拒绝）
 
@@ -88,6 +92,11 @@
     --tmp-layouts &lt;文件|目录&gt;  TMP 布局表（JSON）
     --builtin-index &lt;文件&gt;   Unity 自带 shader 名单
     --no-tmp-layout        不使用 TMP 布局表
+
+插件:
+    --plugins              列出已加载的容器、后端与发射后处理
+    --plugin-dir &lt;目录&gt;    插件目录（默认 &lt;exe&gt;/plugins）
+    --no-plugins           不加载插件，只用内置后端
 
 其它:
     --quiet                只输出最后的统计
@@ -117,6 +126,11 @@
     <comment>--overwrite 在写出前删掉了上一次的产物。{0} 目录，{1} 项数。</comment>
   </data>
 
+  <data name="ExportCancelled">
+    <value>已取消：已写出的文件保留，未写导出标记。</value>
+    <comment>可中断导出的前端用的取消提示。</comment>
+  </data>
+
   <data name="NoShaderMatched">
     <value>--only "{0}" 没有匹配到任何 shader，未写出任何文件。请检查拼写（匹配规则是名字的不区分大小写子串）。</value>
     <comment>--only 把全部 shader 过滤掉了。{0} 过滤文本。</comment>
@@ -125,6 +139,16 @@
   <data name="NothingToWrite">
     <value>没有产物可写：本命令只有在指定 --shaderlab（输出 .shader）、--programs（输出每个 program 的 HLSL）或 --orig-asm（输出反汇编）之一时才会写文件。</value>
     <comment>拒绝一次「全部翻译但什么都不写」的运行。</comment>
+  </data>
+
+  <data name="PlatformUnknown">
+    <value>--platform "{0}" 不是本工具认识的平台：请给名字（d3d11、d3d9、gles3、gles20、openglcore、opengl、metal、vulkan、webgpu）或 ShaderCompilerPlatform 的数字 id。</value>
+    <comment>--platform 无法解析。{0} 用户传入的文本。</comment>
+  </data>
+
+  <data name="PlatformNoTranslator">
+    <value>--platform {0} 在本工具里没有翻译器：它的载荷是 {1}，只有 dxbc（d3d11，以及包装在 dxbc 容器里的 d3d12 字节）和 glsl（gles3、gles20、openglcore、opengl）槽能转成 HLSL。未写出任何文件。</value>
+    <comment>强制指定了本工具无法处理的平台。{0} 平台名，{1} 载荷格式。</comment>
   </data>
 
   <data name="OverwriteForeignFile">
@@ -350,6 +374,11 @@
   <data name="WarnPassNoProgram">
     <value>通道 {0} 在构建中没有程序</value>
     <comment>{0} = 通道标识，如 "#0" 或 "0 \"Main\""</comment>
+  </data>
+
+  <data name="NoteD3d9DisassemblyOnly">
+    <value>该通道只带 {0}（SM2/SM3）程序：它们已反汇编到本文件旁边，未做翻译</value>
+    <comment>{0} = 平台名，如 "d3d9"</comment>
   </data>
 
   <data name="WarnPassNoVertex">

@@ -1,0 +1,41 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <!-- Desktop front end over the library.  Deliberately NOT in ShaderRipper.slnx
+         and not referenced by the CLI: it is a local convenience build, and the
+         whole directory is git-ignored.  Build it by path with dotnet build on
+         this csproj; the publish command is in README.gui.md next to it (XML
+         comments cannot carry the double dash of a command line switch). -->
+    <OutputType>WinExe</OutputType>
+    <TargetFramework>net10.0</TargetFramework>
+    <Nullable>disable</Nullable>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <AssemblyName>ShaderRipper.Gui</AssemblyName>
+    <!-- Matches the library, so a release asset name and the binaries inside it agree.
+         Read by tools/make-release.ps1 to name the zip. -->
+    <Version>1.2.2</Version>
+    <RootNamespace>ShaderRipper.Gui</RootNamespace>
+    <PlatformTarget>x64</PlatformTarget>
+    <!-- The window is 1180x800 at 100%; a display scale of 150% would clip the log
+         panel, so the manifest asks for per-monitor DPI awareness. -->
+    <ApplicationManifest>app.manifest</ApplicationManifest>
+    <ApplicationHighDpiMode>PerMonitorV2</ApplicationHighDpiMode>
+    <!-- Trimming stays off.  A trimmed publish builds cleanly (zero IL warnings) and
+         can even run a whole export, but it dies with 0xC0000374 STATUS_HEAP_CORRUPTION
+         on roughly two launches in three: Photino's native side keeps callbacks the
+         trimmer cannot see.  See README.gui.md. -->
+    <PublishTrimmed>false</PublishTrimmed>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\ShaderRipper\ShaderRipper.csproj" />
+    <PackageReference Include="Photino.NET" Version="4.0.16" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <!-- The three files are concatenated into one document at start-up (see Ui.cs),
+         so no custom scheme or file-system access is needed to load them. -->
+    <EmbeddedResource Include="ui\index.html" LogicalName="ShaderRipper.Gui.ui.index.html" />
+    <EmbeddedResource Include="ui\app.css" LogicalName="ShaderRipper.Gui.ui.app.css" />
+    <EmbeddedResource Include="ui\app.js" LogicalName="ShaderRipper.Gui.ui.app.js" />
+  </ItemGroup>
+</Project>

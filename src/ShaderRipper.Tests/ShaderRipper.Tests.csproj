@@ -1,0 +1,28 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <!-- Unit tests for the library's pure layers: platform tables, blob format
+         detection, variant planning, the matrix-chain folder, the ShaderLab
+         well-formedness check and the d3d9 token disassembler.  There is no
+         Unity here on purpose: everything that needs real game data or Unity's
+         own compiler is covered by the Python harnesses under scripts/ instead
+         (verify_logic, verify_glsl, usc_check).  An XML comment cannot carry the
+         double dash of a command-line switch, which is why the names above are
+         spelled without their leading dashes. -->
+    <TargetFramework>net10.0</TargetFramework>
+    <Nullable>disable</Nullable>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <IsPackable>false</IsPackable>
+    <PlatformTarget>x64</PlatformTarget>
+    <RootNamespace>ShaderRipper.Tests</RootNamespace>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <PackageReference Include="Microsoft.NET.Test.Sdk" Version="18.11.0" />
+    <PackageReference Include="NUnit" Version="5.0.0" />
+    <PackageReference Include="NUnit3TestAdapter" Version="6.3.1" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\ShaderRipper\ShaderRipper.csproj" />
+  </ItemGroup>
+</Project>

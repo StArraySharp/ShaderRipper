@@ -1,0 +1,147 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>ShaderRipper</title>
+<style>/*__STYLE__*/</style>
+</head>
+<body>
+<div class="shell">
+
+  <header class="appbar">
+    <div class="brand">
+      <svg class="logo" viewBox="0 0 24 24" aria-hidden="true">
+        <path d="M4 3h9.2a4.8 4.8 0 0 1 2.6 8.8A4.8 4.8 0 0 1 15 21H4V3Zm3 3v5h6a2.5 2.5 0 0 0 0-5H7Zm0 8v4h6.5a2 2 0 0 0 0-4H7Z"/>
+      </svg>
+      <div class="titles">
+        <h1>ShaderRipper</h1>
+        <span class="sub" id="subtitle">把 Unity 着色器还原成可读的 ShaderLab + HLSL</span>
+      </div>
+    </div>
+    <div class="appbar-right">
+      <button class="icon-btn" id="themeBtn" title="配色模式（跟随系统 → 浅色 → 深色）" aria-label="配色模式">
+        <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 2a10 10 0 1 0 0 20 10 10 0 0 0 0-20Zm0 2v16a8 8 0 0 1 0-16Z"/></svg>
+      </button>
+    </div>
+  </header>
+
+  <main class="content">
+
+    <!-- ------------------------------------------------ 左栏：参数 -->
+    <section class="pane">
+
+      <article class="card">
+        <header class="card-head">
+          <h2>输入</h2>
+          <span class="badge">必填</span>
+        </header>
+        <p class="hint">指向 <code>*_Data</code> 目录、游戏根目录，或只装 AssetBundle 的目录。</p>
+        <div class="field">
+          <input id="dataDir" spellcheck="false" placeholder="E:\SteamLibrary\…\Game_Data">
+          <button class="btn tonal" id="pickData">选择</button>
+        </div>
+        <div class="stack">
+          <label class="label" for="only">只导出匹配的名字</label>
+          <input id="only" spellcheck="false" placeholder="留空 = 全部；不区分大小写的子串">
+        </div>
+      </article>
+
+      <article class="card">
+        <header class="card-head">
+          <h2>输出</h2>
+        </header>
+        <div class="field">
+          <input id="outDir" spellcheck="false" placeholder="…\Game_Data_Ripped">
+          <button class="btn tonal" id="pickOut">选择</button>
+        </div>
+        <label class="switchrow">
+          <input type="checkbox" id="overwrite">
+          <span class="track"></span>
+          <span class="switchtext">覆盖已有目录 <code>--overwrite</code></span>
+        </label>
+        <p class="hint">目录里若有不是本工具写的文件，覆盖会被拒绝，不会误删。</p>
+      </article>
+
+      <article class="card">
+        <header class="card-head">
+          <h2>产物</h2>
+          <span class="badge soft">至少一项</span>
+        </header>
+        <div class="chips" id="outputs">
+          <button class="chip" data-k="shaderlab" aria-pressed="true"><code>.shader</code> 文件</button>
+          <button class="chip" data-k="programs" aria-pressed="true">程序 HLSL</button>
+          <button class="chip" data-k="origAsm" aria-pressed="false">反汇编</button>
+        </div>
+
+        <div class="divider"></div>
+
+        <label class="switchrow">
+          <input type="checkbox" id="dedup" checked>
+          <span class="track"></span>
+          <span class="switchtext">同名 shader 去重</span>
+        </label>
+        <label class="switchrow">
+          <input type="checkbox" id="builtin">
+          <span class="track"></span>
+          <span class="switchtext">包含 Unity 内置 shader</span>
+        </label>
+
+        <div class="slider-field">
+          <div class="slider-head">
+            <label for="jobs">并行度</label>
+            <output id="jobsOut">8</output>
+          </div>
+          <input type="range" id="jobs" min="1" max="32" step="1" value="8">
+          <p class="hint">日志里的完成数按 shader 计；并行度取核数时 400 个 shader 约 20 秒。</p>
+        </div>
+      </article>
+
+    </section>
+
+    <!-- ------------------------------------------------ 右栏：运行与日志 -->
+    <section class="pane pane-right">
+
+      <article class="card runcard">
+        <div class="runcard-head">
+          <div class="runcard-title">
+            <h2>导出</h2>
+            <p class="state" id="state">就绪</p>
+          </div>
+          <div class="runcard-actions">
+            <button class="btn text" id="reveal" disabled>打开目录</button>
+            <button class="btn filled" id="run">
+              <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M8 5v14l11-7L8 5Z"/></svg>
+              <span id="runLabel">开始导出</span>
+            </button>
+          </div>
+        </div>
+
+        <div class="progress" id="progress"><span id="bar"></span></div>
+        <div class="progress-meta">
+          <span id="counts">—</span>
+          <span id="percent"></span>
+        </div>
+
+        <div class="stats" id="stats"></div>
+      </article>
+
+      <article class="card logcard">
+        <div class="log-head">
+          <h2>日志</h2>
+          <div class="log-actions">
+            <button class="btn text" id="saveLog">保存</button>
+            <button class="btn text" id="clearLog">清空</button>
+          </div>
+        </div>
+        <div class="log" id="log" role="log" aria-live="polite">
+          <p class="log-empty">选好目录后点「开始导出」，这里会实时显示每个 shader 的处理结果。</p>
+        </div>
+      </article>
+
+    </section>
+  </main>
+</div>
+<script>/*__SCRIPT__*/</script>
+</body>
+</html>

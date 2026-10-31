@@ -171,7 +171,7 @@ namespace ShaderRipper.Emit
         }
 
         private static readonly HashSet<string> NumberedSemantics = new(StringComparer.OrdinalIgnoreCase)
-        { "TEXCOORD", "COLOR", "BLENDWEIGHT", "BLENDINDICES" };
+        { "TEXCOORD", "COLOR", "BLENDWEIGHT", "BLENDINDICES", "INTERP" };
 
         /// <summary>
         /// System-value semantics that must be declared as integers (compared
@@ -184,7 +184,7 @@ namespace ShaderRipper.Emit
         /// </summary>
         private static readonly HashSet<string> IntegralSemantics = new(StringComparer.Ordinal)
         { "SVVERTEXID", "SVINSTANCEID", "SVPRIMITIVEID", "SVVIEWID",
-          "SVRENDERTARGETARRAYINDEX", "SVCOVERAGE" };
+          "SVRENDERTARGETARRAYINDEX", "SVCOVERAGE", "SVSAMPLEINDEX" };
 
         private static string NormSemantic(string s) =>
             string.IsNullOrEmpty(s) ? "" : s.Replace("_", "").ToUpperInvariant();

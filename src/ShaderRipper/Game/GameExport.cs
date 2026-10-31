@@ -61,13 +61,13 @@ namespace ShaderRipper.Game
         /// </summary>
         private static Stats ExportSeat(Seat seat, string outDir,
                                         Dictionary<(string file, long pathId), string> resMap,
-                                        bool shaderLab, bool programs, bool origAsm)
+                                        bool shaderLab, bool programs, bool origAsm, int? platform)
         {
             var s = new Stats();
             try
             {
                 ExportShader(seat.Sh, seat.Name, seat.Rel, seat.DirName, outDir, resMap,
-                             shaderLab, programs, origAsm, s);
+                             shaderLab, programs, origAsm, platform, s);
             }
             catch (Exception e)
             {
@@ -147,7 +147,9 @@ namespace ShaderRipper.Game
         public static Stats Run(string dataDir, string outDir, string only, bool shaderLab,
                                 bool origAsm = false, bool dedup = true, bool builtin = false,
                                 bool programs = false, IReadOnlyList<string> files = null,
-                                bool overwrite = false, int jobs = 1)
+                                bool overwrite = false, int jobs = 1,
+                                System.Threading.CancellationToken cancel = default,
+                                int? platform = null)
         {
             var s = new Stats();
             ExportDir.Prepare(outDir, overwrite);
@@ -188,6 +190,8 @@ namespace ShaderRipper.Game
                         ? Probe(inBytes)
                         : (File.Exists(inPath) ? Probe(File.ReadAllBytes(inPath)) : "(missing)");
                     s.Notes.Add($"{inName}: {e.Message}{probe}");
+                    if (Environment.GetEnvironmentVariable("SHADERRIP_STACK") == "1")
+                        Console.Error.WriteLine($"[{inName}]{probe}\n{e}");
                     continue;
                 }
                 s.Files++;
@@ -325,19 +329,33 @@ namespace ShaderRipper.Game
                 var per = new Stats[seats.Length];
                 System.Threading.Tasks.Parallel.For(0, seats.Length,
                     new System.Threading.Tasks.ParallelOptions { MaxDegreeOfParallelism = jobs },
-                    i => per[i] = ExportSeat(seats[i], outDir, resMap, shaderLab, programs, origAsm));
-                foreach (var ps in per) Merge(s, ps);
+                    i =>
+                    {
+                        // A cancelled run stops taking new work; what is in flight
+                        // finishes, so every file on disk is a whole shader.
+                        if (cancel.IsCancellationRequested) return;
+                        per[i] = ExportSeat(seats[i], outDir, resMap, shaderLab, programs, origAsm, platform);
+                    });
+                foreach (var ps in per) if (ps != null) Merge(s, ps);
                 s.Shaders = seats.Length;
             }
             else
             {
                 foreach (var seat in seats)
                 {
+                    if (cancel.IsCancellationRequested) break;
                     s.Shaders++;
-                    Merge(s, ExportSeat(seat, outDir, resMap, shaderLab, programs, origAsm));
+                    Merge(s, ExportSeat(seat, outDir, resMap, shaderLab, programs, origAsm, platform));
                 }
             }
-            ExportDir.Finish(outDir, s.Emitted, programs ? s.Programs : 0);
+
+            if (cancel.IsCancellationRequested)
+                // No marker: the directory is this tool's, but the export behind it is
+                // not the one that was asked for, and the next run should not treat it
+                // as complete.
+                s.Notes.Add(Localization.Strings.Get("ExportCancelled"));
+            else
+                ExportDir.Finish(outDir, s.Emitted, programs ? s.Programs : 0);
             return s;
         }
 
@@ -938,7 +956,8 @@ namespace ShaderRipper.Game
         /// </summary>
         private static void ExportShader(Shader sh, string name, string rel, string dirName, string outDir,
                                          Dictionary<(string file, long pathId), string> resMap,
-                                         bool shaderLab, bool programs, bool origAsm, Stats s)
+                                         bool shaderLab, bool programs, bool origAsm,
+                                         int? platform, Stats s)
         {
             string full = Path.Combine(outDir, rel.Replace('/', Path.DirectorySeparatorChar));
             string relDir = Path.GetDirectoryName(full) ?? outDir;
@@ -973,11 +992,17 @@ namespace ShaderRipper.Game
             // Every platform the game shipped, one at a time: d3d11 drives the
             // DXBC route, the GLES/GL platforms drive the GLSL route, everything
             // else is noted and skipped (no translator for it in this project).
+            //
+            // A forced platform narrows this to one slot.  That is not only for
+            // comparison: a build with both d3d11 and gles3 slots always takes the
+            // d3d11 one, so the GLSL route can only be exercised -- and its output
+            // only be judged -- when d3d11 is excluded.
             for (int pi = 0; pi < (sh.Platforms?.Length ?? 0); pi++)
             {
                 int pid = (int)sh.Platforms[pi];
-                var info = Platforms.Get(pid);
-                if (info == null || info.Format is not ("dxbc" or "glsl")) continue;
+                if (platform.HasValue && pid != platform.Value) continue;
+                var info = Plugins.PlatformCatalog.Get(pid);
+                if (info == null || !Plugins.PlatformCatalog.CanRead(pid)) continue;
 
                 byte[] decoded;
                 try { decoded = BlobTool.DecodeBlob(sh, pi); }
@@ -986,7 +1011,9 @@ namespace ShaderRipper.Game
 
                 if (info.Format == "dxbc") ExportDxbc(sh, name, info, decoded, dir, dirName,
                     passOf, spOf, kwIndex, props, perPass, programs, origAsm, s);
-                else ExportGlsl(sh, name, info, decoded, dir, passOf, spOf, kwIndex, perPass, s, origAsm);
+                else if (info.Format == "glsl") ExportGlsl(sh, name, info, decoded, dir, passOf, spOf, kwIndex, perPass, s, origAsm);
+                else if (info.Format == "d3d9") ExportD3d9(sh, name, info, decoded, dir, passOf, spOf, perPass, origAsm, s);
+                else ExportPlugin(sh, name, info, decoded, dir, passOf, spOf, kwIndex, props, perPass, origAsm, s);
             }
 
             // A shader whose passes all failed to translate still carries things
@@ -1121,8 +1148,8 @@ namespace ShaderRipper.Game
             for (int pi = 0; pi < (sh.Platforms?.Length ?? 0); pi++)
             {
                 int pid = (int)sh.Platforms[pi];
-                var info = Platforms.Get(pid);
-                if (info == null || info.Format is not ("dxbc" or "glsl")) continue;
+                var info = Plugins.PlatformCatalog.Get(pid);
+                if (info == null || !Plugins.PlatformCatalog.CanRead(pid)) continue;
 
                 // A raw payload is already decompressed: carve its containers by
                 // header rather than running the slot-table decoder over them.
@@ -1144,7 +1171,9 @@ namespace ShaderRipper.Game
 
                 if (info.Format == "dxbc") ExportDxbc(sh, name, info, decoded, null, null,
                     passOf, spOf, kwIndex, props, perPass, false, false, s, null, pre);
-                else ExportGlsl(sh, name, info, decoded, null, passOf, spOf, kwIndex, perPass, s, false);
+                else if (info.Format == "glsl") ExportGlsl(sh, name, info, decoded, null, passOf, spOf, kwIndex, perPass, s, false);
+                else if (info.Format == "d3d9") ExportD3d9(sh, name, info, decoded, null, passOf, spOf, perPass, false, s);
+                else ExportPlugin(sh, name, info, decoded, null, passOf, spOf, kwIndex, props, perPass, false, s, null);
             }
 
             var (text, error) = WrapShader(sh, name, perPass, props);
@@ -1152,10 +1181,11 @@ namespace ShaderRipper.Game
         }
 
         /// <summary>Every blob index maps to this one pass.</summary>
-        private static Dictionary<int, Pass> Only(Pass pass)
+        private static Dictionary<int, List<Pass>> Only(Pass pass)
         {
-            var map = new Dictionary<int, Pass>();
-            for (int i = 0; i < 256; i++) map[i] = pass;
+            var one = new List<Pass> { pass };
+            var map = new Dictionary<int, List<Pass>>();
+            for (int i = 0; i < 256; i++) map[i] = one;
             return map;
         }
 
@@ -1205,8 +1235,8 @@ namespace ShaderRipper.Game
             for (int pi = 0; pi < (sh.Platforms?.Length ?? 0); pi++)
             {
                 int pid = (int)sh.Platforms[pi];
-                var info = Platforms.Get(pid);
-                if (info == null || info.Format is not ("dxbc" or "glsl")) continue;
+                var info = Plugins.PlatformCatalog.Get(pid);
+                if (info == null || !Plugins.PlatformCatalog.CanRead(pid)) continue;
 
                 byte[] decoded;
                 try { decoded = BlobTool.DecodeBlob(sh, pi); }
@@ -1216,24 +1246,41 @@ namespace ShaderRipper.Game
                 if (info.Format == "dxbc")
                     ExportDxbc(sh, sh.Name, info, decoded, null, null, passOf, spOf,
                                kwIndex, props, perPass, false, false, s, into);
-                else
+                else if (info.Format == "glsl")
                     ExportGlsl(sh, sh.Name, info, decoded, null, passOf, spOf, kwIndex,
                                perPass, s, false, into);
+                else if (info.Format == "d3d9")
+                    ExportD3d9(sh, sh.Name, info, decoded, null, passOf, spOf, perPass, false, s, into);
+                else
+                    ExportPlugin(sh, sh.Name, info, decoded, null, passOf, spOf, kwIndex,
+                                 props, perPass, false, s, into);
             }
         }
 
-        /// <summary>Pass and sub-program lookups keyed by blob index.</summary>
-        private static (Dictionary<int, Pass> passOf, Dictionary<int, SubProgram> spOf) PassMaps(Shader sh)
+        /// <summary>
+        /// Which passes and which sub-program each blob slot belongs to.  The name
+        /// table and the asset's own reflection hang off those, and a blob index is
+        /// the only thing the decoded slot tells us.
+        ///
+        /// A slot usually belongs to one pass, but Unity stores one compiled copy of
+        /// a program that several passes share -- two passes whose vertex and
+        /// fragment are byte-identical end up declaring the same blob indices.  The
+        /// mapping is therefore a list per slot: keeping only one owner silently
+        /// dropped the program from every other pass that declared it.
+        /// </summary>
+        private static (Dictionary<int, List<Pass>> passOf, Dictionary<int, SubProgram> spOf) PassMaps(Shader sh, int platformIndex = -1)
         {
-            var passOf = new Dictionary<int, Pass>();
+            var passOf = new Dictionary<int, List<Pass>>();
             var spOf = new Dictionary<int, SubProgram>();
             foreach (var ss in sh.ParsedForm?.SubShaders ?? new List<SubShader>())
                 foreach (var p in ss.Passes)
                     foreach (var sp in p.SubPrograms)
                     {
-                        passOf[sp.BlobIndex] = p;
-                        // Two passes can share a blob index; the one that declares the
-                        // reflection is the useful entry, so keep the richer one.
+                        if (platformIndex >= 0 && !MatchesPlatform(sp.GpuProgramType, (int)sh.Platforms[platformIndex])) continue;
+                        if (!passOf.TryGetValue(sp.BlobIndex, out var owners))
+                            passOf[sp.BlobIndex] = owners = new List<Pass>();
+                        if (!owners.Contains(p)) owners.Add(p);
+
                         if (!spOf.TryGetValue(sp.BlobIndex, out var have) ||
                             sp.ConstantBuffers.Count > have.ConstantBuffers.Count)
                             spOf[sp.BlobIndex] = sp;
@@ -1241,14 +1288,17 @@ namespace ShaderRipper.Game
             return (passOf, spOf);
         }
 
-        /// <summary>
-        /// A file name short enough for a log line.
-        ///
-        /// Bundle members arrive as "archive.bundle/CAB-&lt;32 hex&gt;", which is 40
-        /// characters of noise in a column that is already carrying a path.  The
-        /// archive plus a shortened member id keeps the line identifiable without
-        /// dominating it.
-        /// </summary>
+        // Blob indices are local to a backend, not unique across the shader.
+        private static bool MatchesPlatform(int type, int platform) => type == 0 || (platform switch
+        {
+            4 => type is >= 13 and <= 22,
+            9 => type is 2 or 3 or 4,
+            15 => type is 6 or 7 or 8,
+            5 => type == 5,
+            1 => type == 1,
+            _ => true,
+        });
+
         private static string ShortSource(string source)
         {
             if (string.IsNullOrEmpty(source)) return null;
@@ -1307,13 +1357,17 @@ namespace ShaderRipper.Game
         // ------------------------------------------------------------------
 
         private static void ExportDxbc(Shader sh, string name, PlatformInfo info, byte[] decoded,
-            string dir, string dirName, Dictionary<int, Pass> passOf, Dictionary<int, SubProgram> spOf,
+            string dir, string dirName, Dictionary<int, List<Pass>> passOf, Dictionary<int, SubProgram> spOf,
             Dictionary<int, string> kwIndex, List<Property> props,
             Dictionary<Pass, PassBuild> perPass, bool programs, bool origAsm, Stats s,
             List<(int blobIndex, string stage, string hlsl)> collected = null,
             List<BlobTool.BlobSlot> preSlots = null)
         {
-            var slots = preSlots ?? BlobTool.DecodeSlots(decoded, UsedBlobIndices(sh));
+            int platformIndex = Array.IndexOf(sh.Platforms, (uint)info.Id);
+            if (sh.ParsedForm?.SubShaders.SelectMany(ss => ss.Passes).SelectMany(p => p.SubPrograms)
+                .Any(sp => sp.GpuProgramType != 0) == true)
+                (passOf, spOf) = PassMaps(sh, platformIndex);
+            var slots = preSlots ?? BlobTool.DecodeSlots(decoded, spOf.Keys.ToList());
             // The disassembly carries no reflection (Unity strips RDEF), so the
             // only source for `cb1[7]`'s name is the asset's own parameter blob.
             var paramCbs = BlobTool.ParseParamBlobs(decoded);
@@ -1339,7 +1393,9 @@ namespace ShaderRipper.Game
                 if (module.Code.Count == 0) { s.Skipped++; continue; }
 
                 spOf.TryGetValue(slot.BlobIndex, out var sub);
-                passOf.TryGetValue(slot.BlobIndex, out var pass);
+                List<Pass>? owners = null;
+                passOf.TryGetValue(slot.BlobIndex, out owners);
+                var pass = owners is { Count: > 0 } ? owners[0] : null;
                 module.Cb = NameConstantBuffers(module, name, pass, sub, props, paramCbs, allParamCbs,
                                                 matrixRows);
 
@@ -1377,15 +1433,18 @@ namespace ShaderRipper.Game
                 }
 
                 if (pass == null) continue;
-                if (!perPass.TryGetValue(pass, out var build)) perPass[pass] = build = new PassBuild();
-                if (cbNotes.TryGetValue(pass, out var passNotes))
-                    foreach (string note in passNotes)
-                        if (!build.Notes.Contains(note)) build.Notes.Add(note);
-                build.Target = Math.Max(build.Target, ShaderModel(r.Profile));
-                var kw = VariantPlan.KeywordsOf(sub, kwIndex);
-                var key = VariantPlan.Key(kw);
-                if (module.Stage is "ps") build.Add(build.Ps, build.Keys, key, kw, r.Hlsl);
-                else if (module.Stage is "vs") build.Add(build.Vs, build.Keys, key, kw, r.Hlsl);
+                foreach (var owner in owners!)
+                {
+                    if (!perPass.TryGetValue(owner, out var build)) perPass[owner] = build = new PassBuild();
+                    if (cbNotes.TryGetValue(pass, out var passNotes))
+                        foreach (string note in passNotes)
+                            if (!build.Notes.Contains(note)) build.Notes.Add(note);
+                    build.Target = Math.Max(build.Target, ShaderModel(r.Profile));
+                    var kw = VariantPlan.KeywordsOf(sub, kwIndex);
+                    var key = VariantPlan.Key(kw);
+                    if (module.Stage is "ps") build.Add(build.Ps, build.Keys, key, kw, r.Hlsl);
+                    else if (module.Stage is "vs") build.Add(build.Vs, build.Keys, key, kw, r.Hlsl);
+                }
             }
         }
 
@@ -1394,17 +1453,18 @@ namespace ShaderRipper.Game
         // ------------------------------------------------------------------
 
         private static void ExportGlsl(Shader sh, string name, PlatformInfo info, byte[] decoded,
-            string dir, Dictionary<int, Pass> passOf, Dictionary<int, SubProgram> spOf,
+            string dir, Dictionary<int, List<Pass>> passOf, Dictionary<int, SubProgram> spOf,
             Dictionary<int, string> kwIndex, Dictionary<Pass, PassBuild> perPass, Stats s,
             bool origSrc = false, List<(int blobIndex, string stage, string hlsl)> collected = null)
         {
-            // Slot i of the payload belongs to the i-th used blob index -- the
-            // same convention the DXBC slot table follows.
-            var order = UsedBlobIndices(sh).OrderBy(x => x).ToList();
+            int platformIndex = Array.IndexOf(sh.Platforms, (uint)info.Id);
+            if (sh.ParsedForm?.SubShaders.SelectMany(ss => ss.Passes).SelectMany(p => p.SubPrograms)
+                .Any(sp => sp.GpuProgramType != 0) == true)
+                (passOf, spOf) = PassMaps(sh, platformIndex);
             var progs = ProgramSource.Extract(decoded);
             if (Environment.GetEnvironmentVariable("SHADERRIP_PROBE") == "1")
             {
-                Console.Error.WriteLine($"[probe] {name} platform={info.Name} offsets={sh.Offsets.Length} order=[{string.Join(",", order)}] progs={progs.Count}");
+                Console.Error.WriteLine($"[probe] {name} platform={info.Name} offsets={sh.Offsets.Length} slots=[{string.Join(",", spOf.Keys)}] progs={progs.Count}");
                 foreach (var pp in sh.ParsedForm.SubShaders.SelectMany(x => x.Passes))
                     Console.Error.WriteLine($"[probe]   pass '{pp.StateName}' sp=" + string.Join(" ", pp.SubPrograms.Select(x => $"{x.BlobIndex}[{string.Join("/", x.KeywordIndices)}]")));
             }
@@ -1412,7 +1472,7 @@ namespace ShaderRipper.Game
             foreach (var pr in progs)
             {
                 if (pr.Format != BlobFormat.Glsl || string.IsNullOrEmpty(pr.Text)) { s.Skipped++; continue; }
-                int bi = pr.BlobIndex < order.Count ? order[pr.BlobIndex] : pr.BlobIndex;
+                int bi = pr.BlobIndex;
 
                 var r = GlslTranslator.Translate(pr.Text,
                     sh.ParsedForm?.Props.Select(p => p.Name).ToList());
@@ -1434,11 +1494,198 @@ namespace ShaderRipper.Game
                 }
 
                 spOf.TryGetValue(bi, out var sub);
-                passOf.TryGetValue(bi, out var pass);
-                if (pass == null) continue;
-                if (!perPass.TryGetValue(pass, out var build)) perPass[pass] = build = new PassBuild();
+                List<Pass>? owners = null;
+                passOf.TryGetValue(bi, out owners);
+                if (owners == null || owners.Count == 0) continue;
                 var kw = VariantPlan.KeywordsOf(sub, kwIndex);
-                build.Add(build.Glsl, build.GKeys, VariantPlan.Key(kw), kw, r.Hlsl);
+                foreach (var owner in owners)
+                {
+                    if (!perPass.TryGetValue(owner, out var build)) perPass[owner] = build = new PassBuild();
+                    build.Add(build.Glsl, build.GKeys, VariantPlan.Key(kw), kw, r.Hlsl);
+                }
+            }
+        }
+
+        // ------------------------------------------------------------------
+        // d3d9 route (SM2/SM3): disassembly only
+        // ------------------------------------------------------------------
+
+        /// <summary>
+        /// The d3d9 slot: disassemble every program, translate none.
+        ///
+        /// Unity's SM2/3 payload is a bare token stream in a different dialect
+        /// from DXBC (<c>texld</c>/<c>mova</c>, absolute register numbers), so the
+        /// DXBC emitter cannot read it and no back-translation is attempted --
+        /// the same position DXIL is in.  The disassembly is still the artifact a
+        /// person needs to hand-write the shader, so each program lands beside the
+        /// .shader as <c>&lt;blobIndex&gt;_&lt;stage&gt;.orig.asm</c>.
+        ///
+        /// Nothing reaches the .shader body: a pass with only d3d9 programs keeps
+        /// its render state and says so in a note, which is exactly what the
+        /// build's data supports.
+        /// </summary>
+        private static void ExportD3d9(Shader sh, string name, PlatformInfo info, byte[] decoded,
+            string dir, Dictionary<int, List<Pass>> passOf, Dictionary<int, SubProgram> spOf,
+            Dictionary<Pass, PassBuild> perPass, bool origAsm, Stats s,
+            List<(int blobIndex, string stage, string hlsl)> collected = null)
+        {
+            var progs = ProgramSource.Extract(decoded);
+
+            foreach (var pr in progs)
+            {
+                if (pr.Format != BlobFormat.D3d9) continue;
+                s.Programs++;
+
+                string asm = D3D9Asm.Disassemble(decoded, pr.Offset, pr.Length, out string stage);
+                if (asm == null) { s.Skipped++; continue; }
+                s.Disassembled++;
+
+                if (dir != null && origAsm)
+                {
+                    Directory.CreateDirectory(dir);
+                    File.WriteAllText(Path.Combine(dir, $"{pr.BlobIndex}_{stage}.orig.asm"), asm);
+                }
+
+                // The pass still needs a line saying its program was read but not
+                // translated; without it the .shader looks like a build-stripped
+                // one, which is a different (and wrong) claim.
+                if (!passOf.TryGetValue(pr.BlobIndex, out var owners) || owners == null) continue;
+                foreach (var owner in owners)
+                {
+                    if (!perPass.TryGetValue(owner, out var build))
+                        perPass[owner] = build = new PassBuild();
+                    string note = Localization.Strings.F("NoteD3d9DisassemblyOnly", info.Name);
+                    if (!build.Notes.Contains(note)) build.Notes.Add(note);
+                }
+            }
+        }
+
+        // ------------------------------------------------------------------
+        // Plugin route: a backend a plugin brought its own reader and translator for
+        // ------------------------------------------------------------------
+
+        /// <summary>
+        /// Translate a backend that came from a plugin.
+        ///
+        /// The plugin supplies both halves -- how to enumerate the programs in the slot
+        /// and how to turn one into HLSL -- so this method only does the bookkeeping
+        /// the built-in routes also do: count, collect per-pass bodies, note failures.
+        /// A slot with no translator still lands on disk as a disassembly-equivalent
+        /// artefact when the plugin provides one, which is how d3d9 is handled.
+        /// </summary>
+        private static void ExportPlugin(Shader sh, string name, PlatformInfo info, byte[] decoded,
+            string dir, Dictionary<int, List<Pass>> passOf, Dictionary<int, SubProgram> spOf,
+            Dictionary<int, string> kwIndex, List<Property> props,
+            Dictionary<Pass, PassBuild> perPass, bool origAsm, Stats s,
+            List<(int blobIndex, string stage, string hlsl)> collected = null)
+        {
+            var registry = Plugins.PluginContext.Registry;
+            var entry = registry?.PlatformFor(info.Id);
+            if (entry?.SlotReader == null)
+            {
+                s.Skipped++;
+                s.Notes.Add($"{name}/{info.Name}: no slot reader registered");
+                return;
+            }
+
+            int platformIndex = Array.IndexOf(sh.Platforms, (uint)info.Id);
+            if (sh.ParsedForm?.SubShaders.SelectMany(ss => ss.Passes).SelectMany(p => p.SubPrograms)
+                .Any(sp => sp.GpuProgramType != 0) == true)
+                (passOf, spOf) = PassMaps(sh, platformIndex);
+
+            var context = new Plugins.Platforms.SlotContext
+            {
+                BlobIndices = spOf.Keys.OrderBy(x => x).ToList(),
+                Platform = entry.Descriptor,
+            };
+
+            var programs = Plugins.PluginCall.Try($"{entry.Descriptor.Name}.SlotReader",
+                () => entry.SlotReader.Read(decoded, context),
+                (IReadOnlyList<Plugins.Platforms.ProgramDescriptor>)Array.Empty<Plugins.Platforms.ProgramDescriptor>(),
+                s.Notes);
+            if (programs == null || programs.Count == 0) { s.Skipped++; return; }
+
+            var propertyNames = props?.Select(p => p.Name).ToList() ?? new List<string>();
+
+            foreach (var program in programs)
+            {
+                s.Programs++;
+                if (program.Offset < 0 || program.Length <= 0 ||
+                    program.Offset + program.Length > decoded.Length)
+                {
+                    s.Skipped++;
+                    continue;
+                }
+
+                var request = new Plugins.Platforms.TranslationRequest
+                {
+                    Payload = new ReadOnlyMemory<byte>(decoded, program.Offset, program.Length),
+                    Stage = program.Stage,
+                    BlobIndex = program.BlobIndex,
+                    Entry = program.Entry,
+                    PropertyNames = propertyNames,
+                    Platform = entry.Descriptor,
+                };
+
+                Plugins.Platforms.TranslationResult result = null;
+                if (entry.Translator != null)
+                {
+                    bool can = Plugins.PluginCall.Try($"{entry.Descriptor.Name}.CanTranslate",
+                        () => entry.Translator.CanTranslate(request), false, s.Notes);
+                    if (!can) { s.Skipped++; continue; }
+
+                    result = Plugins.PluginCall.Try($"{entry.Descriptor.Name}.Translate",
+                        () => entry.Translator.Translate(request), null, s.Notes);
+                }
+
+                if (result == null)
+                {
+                    // No translator, or it produced nothing: the program still counts as
+                    // read, which is what the d3d9 route does too.
+                    s.Disassembled++;
+                    continue;
+                }
+                if (result.Unsupported || string.IsNullOrWhiteSpace(result.Hlsl))
+                {
+                    s.Skipped++;
+                    continue;
+                }
+
+                s.Translated++;
+                string stage = result.Stage ?? program.Stage ?? "ps";
+                collected?.Add((program.BlobIndex, stage, result.Hlsl));
+
+                if (dir != null)
+                {
+                    try
+                    {
+                        Directory.CreateDirectory(dir);
+                        File.WriteAllText(Path.Combine(dir, $"{program.BlobIndex}_{stage}.hlsl"),
+                                          result.Hlsl);
+                        if (origAsm && request.Payload.Length > 0)
+                            File.WriteAllBytes(
+                                Path.Combine(dir, $"{program.BlobIndex}_{stage}.orig.bin"),
+                                request.Payload.ToArray());
+                    }
+                    catch (IOException e)
+                    {
+                        s.Notes.Add($"{name}/{info.Name}: cannot write program " +
+                                    $"{program.BlobIndex}: {e.Message}");
+                    }
+                }
+
+                if (!passOf.TryGetValue(program.BlobIndex, out var owners) || owners == null) continue;
+                spOf.TryGetValue(program.BlobIndex, out var sub);
+                var kw = VariantPlan.KeywordsOf(sub, kwIndex);
+                foreach (var owner in owners)
+                {
+                    if (!perPass.TryGetValue(owner, out var build)) perPass[owner] = build = new PassBuild();
+                    foreach (string note in result.Notes ?? Array.Empty<string>())
+                        if (!build.Notes.Contains(note)) build.Notes.Add(note);
+                    if (result.Target > 0) build.Target = Math.Max(build.Target, result.Target);
+                    if (stage == "vs") build.Add(build.Vs, build.Keys, VariantPlan.Key(kw), kw, result.Hlsl);
+                    else if (stage == "ps") build.Add(build.Ps, build.Keys, VariantPlan.Key(kw), kw, result.Hlsl);
+                }
             }
         }
 
@@ -1480,7 +1727,7 @@ namespace ShaderRipper.Game
 
                     if (programs.TryGetValue(p, out var pb))
                     {
-                        FillPass(pt, pb);
+                        FillPass(pt, pb, sh.ParsedForm);
                         // Each stage of the pass contributes its own copy of a note, and
                         // the lists differ by how many registers that stage happened to
                         // use.  One note per subject, the most complete one.
@@ -1819,18 +2066,33 @@ namespace ShaderRipper.Game
             return sb.ToString();
         }
 
-        private static void FillPass(Emit.ShaderLab.PassText pt, PassBuild pb)
+        private static string KeywordPragma(VariantPlan.Group group, ParsedForm form, Emit.ShaderLab.PassText pass)
+        {
+            var names = new[] { group.Name }.Concat(group.Alternatives).ToList();
+            bool known = names.All(n => form.KeywordNames.IndexOf(n) is int i && i >= 0 && i < form.KeywordFlags.Count);
+            bool local = known && names.All(n => (form.KeywordFlags[form.KeywordNames.IndexOf(n)] & 1) != 0);
+            bool global = known && names.All(n => (form.KeywordFlags[form.KeywordNames.IndexOf(n)] & 1) == 0);
+            if (!local && !global)
+                pass.Notes.Add("Keyword scope unknown or mixed; keeping multi_compile: " + string.Join(" ", names));
+            return "#pragma multi_compile" + (local ? "_local" : "") + " __ " + string.Join(" ", names);
+        }
+
+        private static void FillPass(Emit.ShaderLab.PassText pt, PassBuild pb, ParsedForm form)
         {
             bool hasKeywords = pb.Keys.Any(k => k.Length > 0) || pb.GKeys.Any(k => k.Length > 0);
             pt.Target = pb.Target;
 
-            // GLSL variants: one body per keyword combination, both stages inside.
-            if (pb.GKeys.Count > 0)
+            bool dxbc = pb.Vs.Count > 0 || pb.Ps.Count > 0;
+            bool glsl = !dxbc && pb.Glsl.Count > 0;
+            pt.Source = glsl ? "GLSL" : "DXBC";
+
+            // Prefer DXBC when both backends exist; never mix their slot namespaces.
+            if (glsl)
             {
                 var glslKeys = pb.GKeys.Where(k => pb.Glsl.ContainsKey(k)).ToList();
                 var glslSets = glslKeys.Select(k => new HashSet<string>(pb.Glsl[k].kw, StringComparer.Ordinal)).ToList();
                 var groups = VariantPlan.Groups(glslKeys.Select(k => pb.Glsl[k].kw));
-                pt.Pragmas.AddRange(groups.Select(g => VariantPlan.Pragma(g, glslSets)));
+                pt.Pragmas.AddRange(groups.Select(g => KeywordPragma(g, form, pt)));
                 pt.Notes.AddRange(VariantPlan.Analyze(groups, glslSets)
                     .Notes.Select(n => $"{glslKeys.Count} GLSL keyword variant(s), {groups.Count} pragma line(s): " + n));
                 pt.GlslIncludes = true;
@@ -1870,7 +2132,7 @@ namespace ShaderRipper.Game
                                 .ToList();
             var groups2 = VariantPlan.Groups(kwSets);
             var sets2 = kwSets.Select(k => new HashSet<string>(k, StringComparer.Ordinal)).ToList();
-            pt.Pragmas.AddRange(groups2.Select(g => VariantPlan.Pragma(g, sets2)));
+            pt.Pragmas.AddRange(groups2.Select(g => KeywordPragma(g, form, pt)));
             int total = kwSets.Count();
             pt.Notes.Add($"{total} keyword variant(s), {groups2.Count} pragma line(s)");
             pt.Notes.AddRange(VariantPlan.Analyze(groups2, sets2).Notes);
@@ -1881,16 +2143,27 @@ namespace ShaderRipper.Game
             // Emitting the stages as two independent guard chains would activate
             // both under the same keyword state and redefine every shared member.
             var chain = new Emit.ShaderLab.VariantChain();
+            // A pass often ships its fragment program for fewer keyword
+            // combinations than its vertex program (the ps is shared where the vs
+            // is specialised).  `#pragma fragment` is written once for the whole
+            // block, so a branch with no `frag` in it cannot compile -- and Unity
+            // reports that as "did not find shader kernel 'frag' to compile", which
+            // points at the pragma instead of at the missing body.
+            var anyVs = pb.Vs.Values.FirstOrDefault();
+            var anyPs = pb.Ps.Values.FirstOrDefault();
             foreach (var k in pb.Keys)
             {
-                bool hasVs = pb.Vs.TryGetValue(k, out var v);
-                bool hasPs = pb.Ps.TryGetValue(k, out var pv);
-                if (!hasVs && !hasPs) continue;
+                bool hadVs = pb.Vs.TryGetValue(k, out var v);
+                bool hadPs = pb.Ps.TryGetValue(k, out var pv);
+                if (!hadVs && !hadPs) continue;
+                if (!hadVs) v = anyVs;
+                if (!hadPs) pv = anyPs;
+                if (v.hlsl == null && pv.hlsl == null) continue;
                 var merged = Emit.ShaderLab.Merge(
-                    hasVs ? new Emit.ShaderLab.Stage { Hlsl = v.hlsl, Entry = "vert" } : null,
-                    hasPs ? new Emit.ShaderLab.Stage { Hlsl = pv.hlsl, Entry = "frag" } : null);
+                    v.hlsl != null ? new Emit.ShaderLab.Stage { Hlsl = v.hlsl, Entry = "vert" } : null,
+                    pv.hlsl != null ? new Emit.ShaderLab.Stage { Hlsl = pv.hlsl, Entry = "frag" } : null);
                 if (merged == null) continue;
-                chain.Guards.Add(VariantPlan.Guard(groups2, hasVs ? v.kw : pv.kw));
+                chain.Guards.Add(VariantPlan.Guard(groups2, hadVs ? v.kw : pv.kw));
                 chain.Bodies.Add(string.Join("\n", merged));
             }
             pt.Chains = chain.Bodies.Count > 0 ? new List<Emit.ShaderLab.VariantChain> { chain } : null;

@@ -101,6 +101,11 @@ namespace ShaderRipper.Emit
             "_ShadowOffsets2", "_ShadowOffsets3",
             "unity_ProbeVolumeParams", "unity_ProbeVolumeWorldToObject",
             "unity_ProbeVolumeSizeInv", "unity_ProbeVolumeMin",
+            // URP-era matrices the payload references but `UnityShaderVariables`
+            // never declares -- it ships `unity_MatrixV/P/VP` and the derived
+            // `unity_MatrixMV/MVP`, but no inverse-VP.  Engine uploads either way,
+            // so they take the local-declaration path like the light names.
+            "unity_MatrixInvVP", "unity_MatrixInvP",
         };
 
         /// <summary>
@@ -117,6 +122,64 @@ namespace ShaderRipper.Emit
             "_ShadowMapTexture", "_ShadowOffsets0", "_ShadowOffsets1",
             "_ShadowOffsets2", "_ShadowOffsets3",
             "unity_ObjectToWorld", "unity_WorldToObject",
+        };
+
+        /// <summary>
+        /// Engine names <c>UnityShaderVariables.cginc</c> / <c>UnityLightingCommon.cginc</c>
+        /// declare UNCONDITIONALLY, so a payload cbuffer member of the same name is a
+        /// redefinition of the include's copy once <c>UnityCG.cginc</c> is included.
+        ///
+        /// This is deliberately a whitelist read off the include file, not "any
+        /// <c>unity_</c> name": the stereo matrices live behind
+        /// <c>USING_STEREO_MATRICES</c>, the probe-volume block behind
+        /// <c>UNITY_LIGHT_PROBE_PROXY_VOLUME</c>, and URP-only names
+        /// (<c>unity_LightData</c>) are not in the CGIncludes at all -- dropping
+        /// those from the payload block left the identifier undeclared.
+        /// </summary>
+        private static readonly HashSet<string> IncludeDeclared = new(StringComparer.Ordinal)
+        {
+            // UnityPerDraw (UnityShaderVariables.cginc, no guard)
+            "unity_ObjectToWorld", "unity_WorldToObject", "unity_LODFade",
+            "unity_WorldTransformParams", "unity_RenderingLayer",
+            // the per-frame matrices and camera block
+            "unity_MatrixV", "unity_MatrixP", "unity_MatrixVP",
+            "unity_MatrixInvV", "unity_MatrixMV", "unity_MatrixMVP",
+            "unity_MatrixTMV", "unity_MatrixITMV",
+            "glstate_matrix_projection", "glstate_matrix_transpose_modelview0",
+            "unity_WorldToCamera", "unity_CameraToWorld",
+            "unity_CameraProjection", "unity_CameraInvProjection",
+            "unity_WorldToShadow",
+            // per-frame scalars and vectors
+            "_Time", "_SinTime", "_CosTime", "_DeltaTime",
+            "_ProjectionParams", "_ScreenParams", "_ZBufferParams", "_OrthoParams",
+            "_WorldSpaceCameraPos",
+            // spherical harmonics block (unconditional, `half4` there)
+            "unity_SHAr", "unity_SHAg", "unity_SHAb",
+            "unity_SHBr", "unity_SHBg", "unity_SHBb", "unity_SHC",
+            // UnityShaderVariables.cginc reflection-probe block: `SpecCube0` is a
+            // TextureCube via UNITY_DECLARE_TEXCUBE, the rest plain float4.
+            "unity_SpecCube0", "unity_SpecCube1",
+            "unity_SpecCube0_HDR", "unity_SpecCube1_HDR",
+            "unity_SpecCube0_BoxMax", "unity_SpecCube0_BoxMin",
+            "unity_SpecCube0_ProbePosition",
+            "unity_SpecCube1_BoxMax", "unity_SpecCube1_BoxMin",
+            "unity_SpecCube1_ProbePosition",
+            "unity_LightmapST", "unity_DynamicLightmapST",
+            "unity_ProbesOcclusion",
+        };
+
+        /// <summary>
+        /// CBUFFER NAMES the include chain declares.  A payload block of the same
+        /// name cannot be kept in any form -- even with disjoint members it is a
+        /// "Duplicate constant buffer declaration" -- so its non-include members
+        /// are demoted to plain globals at the block's position.
+        /// </summary>
+        private static readonly HashSet<string> IncludeCbufferNames = new(StringComparer.Ordinal)
+        {
+            "UnityPerDraw", "UnityPerDrawRare", "UnityPerCamera", "UnityPerCameraRare",
+            "UnityPerFrame", "UnityFog", "UnityLighting", "UnityLightingOld",
+            "UnityLightmaps", "UnityProbeVolume", "UnityReflectionProbes",
+            "UnityShadows", "UnityStereoGlobals", "UnityStereoEyeIndex",
         };
 
         private readonly List<(string type, string name)> _ins = new();
@@ -201,6 +264,21 @@ namespace ShaderRipper.Emit
             // gl_FragCoord is rewritten to sv_position (see the identifier map),
             // and that rewritten reference needs the SV_Position input.
             _usesSvPosition = !_vertex && src.Contains("gl_FragCoord", StringComparison.Ordinal);
+            // A depth-only pass writes gl_FragDepth; HLSL has no such variable, so
+            // the value has to leave through an `SV_Depth` out parameter.
+            _usesFragDepth = !_vertex && src.Contains("gl_FragDepth", StringComparison.Ordinal);
+
+            // GLSL built-ins with no HLSL spelling are routed through synthesized
+            // helpers.  The helper has to be in the file BEFORE the body renders,
+            // and `Call` only fires while the body renders -- so the need is read
+            // off the source here.  The lookbehind keeps HLSLcc's own prefixed
+            // helpers (`int_bitfieldInsert`) from triggering it.
+            if (System.Text.RegularExpressions.Regex.IsMatch(src, @"(?<![A-Za-z0-9_])bitfieldInsert\s*\("))
+                _synthHelpers.Add("bitfieldInsert");
+            if (System.Text.RegularExpressions.Regex.IsMatch(src, @"(?<![A-Za-z0-9_])bitfieldExtract\s*\("))
+                _synthHelpers.Add("bitfieldExtract");
+            if (System.Text.RegularExpressions.Regex.IsMatch(src, @"(?<![A-Za-z0-9_])atomicAdd\s*\("))
+                _synthHelpers.Add("atomicAdd");
 
             // The payload's own text says whether it expects the engine to declare
             // `unity_ProbeVolumeParams`: the pragma that turns
@@ -235,6 +313,7 @@ namespace ShaderRipper.Emit
         private readonly bool _usesInstance;
         private readonly bool _usesVertex;
         private readonly bool _usesSvPosition;
+        private readonly bool _usesFragDepth;
 
         /// <summary>
         /// The payload declares `UNITY_LIGHT_PROBE_PROXY_VOLUME`, so its own
@@ -269,12 +348,14 @@ namespace ShaderRipper.Emit
             // One union per payload, shared by its stages and by nothing else.
             var materialUnion = new Dictionary<string, string>(StringComparer.Ordinal);
             bool usesTransformTex = false;
+            var synthNeeded = new SortedSet<string>(StringComparer.Ordinal);
 
             foreach (var (stage, text) in Branches(glsl))
             {
                 if (text == null) continue;
                 bool vertex = stage == "VERTEX";
                 var t = new GlslTranslator(text, vertex, props, materialUnion);
+                synthNeeded.UnionWith(t._synthHelpers);
                 t.Read();
                 r.ParseErrors += t._r.ParseErrors;
                 if (t._r.ParseErrors > 0) continue;
@@ -307,11 +388,12 @@ namespace ShaderRipper.Emit
                     bool opensBlock = key.StartsWith("struct ", StringComparison.Ordinal)
                                       || key.StartsWith("cbuffer ", StringComparison.Ordinal);
                     if (structDepth > 0 || opensBlock
-                        || (key == "{" && (IsStructName(globals) || IsCbufferName(globals))))
+                        || (key == "{" && (IsStructName(globals) || IsCbufferName(globals)
+                                           || IsFunctionHead(globals))))
                     {
                         globals.Add(line);
                         if (key == "{" || opensBlock) structDepth++;
-                        else if (key == "};" && structDepth > 0) structDepth--;
+                        else if (structDepth > 0 && key is "}" or "};") structDepth--;
                         continue;
                     }
 
@@ -320,6 +402,26 @@ namespace ShaderRipper.Emit
                 }
                 functions.Add(fn);
             }
+
+            // Both stages declare their own uniform blocks, and each stage numbers
+            // its bindings from b0.  In one HLSL file that is both a redefinition
+            // (`cbuffer UnityPerMaterial` twice) and a register collision (the
+            // vertex `UnityPerDraw` and a fragment-only block both at b0) -- fxc
+            // rejects the file before it reads a single statement.
+            //
+            // When the include is emitted it also declares the engine blocks
+            // (`UnityPerDraw` with `unity_ObjectToWorld` inside), so a payload
+            // member the include provides is a redefinition of the include's copy
+            // and has to leave the block.
+            //
+            // The drop is a WHITELIST, not "any engine-looking name": the include
+            // declares the stereo matrices only under `USING_STEREO_MATRICES` and
+            // URP-only names (`unity_LightData`) not at all, and dropping those
+            // left the name undeclared.  Only names verified unconditional in
+            // `UnityShaderVariables.cginc` / `UnityLightingCommon.cginc` go.
+            bool includeEmitted = engineNames.Count > 0 || usesTransformTex;
+            Func<string, bool> provided = name => includeEmitted && IncludeDeclared.Contains(name);
+            MergeCbufferBlocks(globals, materialUnion, provided, includeEmitted, out bool payloadMaterial);
 
             var sb = new StringBuilder();
             sb.Append("// translated from GLSL by ShaderRipper\n");
@@ -339,14 +441,22 @@ namespace ShaderRipper.Emit
             // One `UnityPerMaterial` for the whole file, built from both stages'
             // property sets.  This is the buffer Unity fills from the Material; a
             // plain global of the same name compiles and reads zero, which is what
-            // made every GLSL-route sprite fully transparent.
-            if (materialUnion.Count > 0)
+            // made every GLSL-route sprite fully transparent.  When the payload
+            // declares the block itself, its members were folded in above and a
+            // second block would be a redefinition.
+            if (materialUnion.Count > 0 && !payloadMaterial)
             {
                 sb.Append("cbuffer UnityPerMaterial\n{\n");
                 foreach (var (name, type) in materialUnion)
                     sb.Append("    ").Append(type).Append(' ').Append(name).Append(";\n");
                 sb.Append("};\n\n");
             }
+            // The synthesized _sri_* helpers go out ONCE per file, before any
+            // payload code that calls them -- including the payload's own helper
+            // functions, which sit in `globals`.
+            foreach (string h in synthNeeded)
+                if (SynthHelperText.TryGetValue(h, out string helperText))
+                    sb.Append(helperText);
             foreach (var line in globals) sb.Append(line).Append('\n');
             sb.Append('\n');
             foreach (var fn in functions) sb.Append(fn).Append('\n');
@@ -383,6 +493,139 @@ namespace ShaderRipper.Emit
         /// <summary>Does the last global line open a cbuffer body?</summary>
         private static bool IsCbufferName(List<string> globals) =>
             globals.Count > 0 && globals[^1].TrimStart().StartsWith("cbuffer ", StringComparison.Ordinal);
+
+        /// <summary>
+        /// Does the last global line end a function signature?  Its body is a
+        /// block for the cross-stage dedup above: two synthesized overloads share
+        /// identical statement lines, and the line dedup would silently delete
+        /// the second overload's `return` -- an HLSL function without a return
+        /// statement where one is required is a syntax error.
+        /// </summary>
+        private static bool IsFunctionHead(List<string> globals)
+        {
+            if (globals.Count == 0) return false;
+            string t = globals[^1].Trim();
+            return t.Contains('(') && t.EndsWith(")", StringComparison.Ordinal) &&
+                   !t.EndsWith(";", StringComparison.Ordinal) &&
+                   !t.StartsWith("#", StringComparison.Ordinal);
+        }
+
+        private static readonly System.Text.RegularExpressions.Regex CbHeaderRx =
+            new(@"^cbuffer\s+([A-Za-z_]\w*)\s*(:.*)?$",
+                System.Text.RegularExpressions.RegexOptions.Compiled);
+        private static readonly System.Text.RegularExpressions.Regex CbRegisterRx =
+            new(@"register\(b(\d+)\)", System.Text.RegularExpressions.RegexOptions.Compiled);
+
+        /// <summary>
+        /// Merge same-named <c>cbuffer</c> blocks in a merged globals list, then
+        /// renumber the surviving registers.
+        ///
+        /// A GLSL payload is two translation units; each declares the engine
+        /// blocks it uses and numbers its own bindings from b0.  In one file that
+        /// is both a redefinition and a register collision.  The first header
+        /// wins, the members are a first-seen union across every block of that
+        /// name, and property-driven members the payload block lacks are folded
+        /// in from <paramref name="materialUnion"/>.  If the payload declares the
+        /// block itself, the caller skips its standalone property block.
+        /// </summary>
+        private static void MergeCbufferBlocks(List<string> globals,
+            Dictionary<string, string> materialUnion, Func<string, bool> provided,
+            bool includeEmitted, out bool payloadMaterial)
+        {
+            payloadMaterial = false;
+            var blocks = new List<(string name, int start, int end)>();
+            for (int i = 0; i < globals.Count; i++)
+            {
+                var m = CbHeaderRx.Match(globals[i].TrimStart());
+                if (!m.Success) continue;
+                int depth = 0, j = i + 1;
+                for (; j < globals.Count; j++)
+                {
+                    string t = globals[j].Trim();
+                    if (t == "{") depth++;
+                    else if (t.StartsWith("}", StringComparison.Ordinal))
+                    {
+                        if (--depth <= 0) break;
+                    }
+                }
+                blocks.Add((m.Groups[1].Value, i, Math.Min(j, globals.Count - 1)));
+                i = j;
+            }
+            payloadMaterial = blocks.Any(b => b.name == "UnityPerMaterial");
+            if (blocks.Count == 0) return;
+
+            var kept = new HashSet<string>(StringComparer.Ordinal);
+            var outp = new List<string>(globals.Count);
+            int idx = 0;
+            foreach (var (name, start, end) in blocks)
+            {
+                for (; idx < start; idx++) outp.Add(globals[idx]);
+                idx = end + 1;
+                if (!kept.Add(name)) continue;   // duplicate block: drop entirely
+                var members = new List<string>();
+                var seen = new HashSet<string>(StringComparer.Ordinal);
+                foreach (var b in blocks.Where(b => b.name == name))
+                    for (int k = b.start + 1; k < b.end; k++)
+                    {
+                        string t = globals[k].Trim();
+                        if (t.Length == 0 || t == "{" || t.StartsWith("}", StringComparison.Ordinal)) continue;
+                        string key = MemberKey(t);
+                        // An engine-uploaded member the include chain declares is a
+                        // redefinition of the include's copy inside its own
+                        // `UnityPerDraw`; the body reference resolves there.
+                        if (provided != null && provided(key)) continue;
+                        if (!seen.Add(key)) continue;
+                        members.Add("    " + t);
+                    }
+                if (name == "UnityPerMaterial" && materialUnion != null)
+                    foreach (var (pname, ptype) in materialUnion)
+                    {
+                        if (!seen.Add(pname)) continue;
+                        members.Add($"    {ptype} {pname};");
+                    }
+                if (includeEmitted && IncludeCbufferNames.Contains(name))
+                {
+                    // The include declares this cbuffer by NAME, so keeping any
+                    // spelling of the block is "Duplicate constant buffer
+                    // declaration".  Members the include does not provide (URP
+                    // uploads like `unity_LightData`) survive as plain globals --
+                    // nothing fills them on this route, but it is the only form
+                    // that compiles without URP's include chain.
+                    if (members.Count > 0) outp.AddRange(members);
+                    continue;
+                }
+                if (members.Count == 0) continue;   // every member went to the include
+                outp.Add(globals[start]);           // first header verbatim, renumbered below
+                outp.Add("{");
+                outp.AddRange(members);
+                outp.Add("};");
+            }
+            for (; idx < globals.Count; idx++) outp.Add(globals[idx]);
+            globals.Clear();
+            globals.AddRange(outp);
+
+            // Renumber: every stage numbered from b0, so the merged file can hold
+            // two blocks claiming one slot.  Sequential in first-occurrence order
+            // is as good a layout as any -- Unity rebinds when it compiles the
+            // pass, and the old numbers carried no meaning across stages anyway.
+            int reg = 0;
+            for (int i = 0; i < globals.Count; i++)
+            {
+                if (!CbHeaderRx.IsMatch(globals[i].TrimStart())) continue;
+                if (CbRegisterRx.IsMatch(globals[i]))
+                    globals[i] = CbRegisterRx.Replace(globals[i], $"register(b{reg++})");
+            }
+        }
+
+        /// <summary>The declared name of one cbuffer member line.</summary>
+        private static string MemberKey(string decl)
+        {
+            decl = decl.Trim().TrimEnd(';').Trim();
+            int br = decl.IndexOf('[');
+            if (br >= 0) decl = decl[..br];
+            int sp = decl.LastIndexOf(' ');
+            return sp >= 0 ? decl[(sp + 1)..].Trim() : decl;
+        }
 
         /// <summary>
         /// Split `#ifdef VERTEX` / `#ifdef FRAGMENT`.  The preprocessor is
@@ -448,6 +691,37 @@ namespace ShaderRipper.Emit
 
         private GlslParser.FunctionDefinitionContext _main;
         private readonly List<GlslParser.FunctionDefinitionContext> _helpers = new();
+        private readonly HashSet<string> _synthHelpers = new(StringComparer.Ordinal);
+
+        /// <summary>
+        /// Bodies for the GLSL built-ins HLSL lacks a spelling for, emitted once
+        /// per file after the payload's own helpers.  Both int and uint overloads:
+        /// the call site's argument types decide which one runs, matching GLSL's
+        /// per-type built-ins without any type inference here.
+        /// </summary>
+        private static readonly Dictionary<string, string> SynthHelperText =
+            new(StringComparer.Ordinal)
+        {
+            ["bitfieldInsert"] =
+                "int _sri_bitfieldInsert(int base, int insert, int offset, int bits)\n" +
+                "{\n    int mask = ((1 << bits) - 1) << offset;\n" +
+                "    return (base & ~mask) | ((insert << offset) & mask);\n}\n\n" +
+                "uint _sri_bitfieldInsert(uint base, uint insert, uint offset, uint bits)\n" +
+                "{\n    uint mask = ((1u << bits) - 1u) << offset;\n" +
+                "    return (base & ~mask) | ((insert << offset) & mask);\n}\n\n",
+            ["bitfieldExtract"] =
+                "int _sri_bitfieldExtract(int value, int offset, int bits)\n" +
+                "{\n    return (value >> offset) & ((1 << bits) - 1);\n}\n\n" +
+                "uint _sri_bitfieldExtract(uint value, uint offset, uint bits)\n" +
+                "{\n    return (value >> offset) & ((1u << bits) - 1u);\n}\n\n",
+            ["atomicAdd"] =
+                "uint _sri_atomicAdd(inout uint dest, uint value)\n" +
+                "{\n    uint original;\n    InterlockedAdd(dest, value, original);\n" +
+                "    return original;\n}\n\n" +
+                "int _sri_atomicAdd(inout int dest, int value)\n" +
+                "{\n    int original;\n    InterlockedAdd(dest, value, original);\n" +
+                "    return original;\n}\n\n",
+        };
 
         /// <summary>
         /// An SSBO / UBO interface block (`readonly buffer name { members };`).
@@ -461,6 +735,13 @@ namespace ShaderRipper.Emit
             string name = ib.IDENT(0)?.GetText() ?? "";
             if (string.IsNullOrEmpty(name)) return;
             bool isSsbo = ib.BUFFER() != null;
+            // `buffer` is read-write in GLSL; `readonly buffer` is not.  A writable
+            // SSBO has to become RWStructuredBuffer -- a plain StructuredBuffer is
+            // a const object, and fxc rejects every store on it ("l-value
+            // specifies const object") -- while the read-only spelling keeps the
+            // stronger guarantee the payload asked for.
+            bool writableSsbo = isSsbo && !ib.typeQualifier().Any(tq =>
+                tq.memoryQualifier()?.READONLY() != null);
 
             // `buffer name { T inst[]; }` -- the common HLSLcc shape: one
             // unsized array of a (usually previously declared) struct.  That
@@ -518,7 +799,7 @@ namespace ShaderRipper.Emit
                 string inst = members[0][(bar + 1)..];
                 if (inst.EndsWith("[]", StringComparison.Ordinal))
                 {
-                    _buffers.Add($"StructuredBuffer<{elem}> {inst[..^2]};");
+                    _buffers.Add($"{(writableSsbo ? "RW" : "")}StructuredBuffer<{elem}> {inst[..^2]};");
                     return;
                 }
             }
@@ -532,7 +813,7 @@ namespace ShaderRipper.Emit
             if (isSsbo)
             {
                 _buffers.Add($"struct {name}_t\n{{\n{string.Join("\n", body)}\n}};");
-                _buffers.Add($"StructuredBuffer<{name}_t> {name};");
+                _buffers.Add($"{(writableSsbo ? "RW" : "")}StructuredBuffer<{name}_t> {name};");
             }
             else
             {
@@ -628,6 +909,7 @@ namespace ShaderRipper.Emit
             ("float4x4", "unity_ProbeVolumeWorldToObject"),
             ("float3", "unity_ProbeVolumeSizeInv"),
             ("float3", "unity_ProbeVolumeMin"),
+            ("float4x4", "unity_MatrixInvVP"), ("float4x4", "unity_MatrixInvP"),
         };
 
         /// <summary>
@@ -743,8 +1025,11 @@ namespace ShaderRipper.Emit
                 samplers.Add(name);
                 _samplers.Add(name);
                 _samplerKind[name] = type;
-                _samplerKind[name] = type;
-                _samplers.Add(name);
+                // The include chain declares the reflection-probe textures itself
+                // (UNITY_DECLARE_TEXCUBE), sampler and all -- a second pair is a
+                // redefinition.  `SamplerOf` spells the include's sampler at the
+                // call sites instead.
+                if (IncludeDeclared.Contains(name)) continue;
                 string tex = type switch
                 {
                     "sampler3D" => "Texture3D",
@@ -857,7 +1142,7 @@ namespace ShaderRipper.Emit
                 if (h.compoundStatement() != null)
                     foreach (var st in h.compoundStatement().statement())
                     {
-                        string text = Render(st)?.Trim();
+                        string text = FinishStatement(Render(st)?.Trim());
                         if (string.IsNullOrEmpty(text)) continue;
                         foreach (var line in text.Split('\n'))
                         {
@@ -868,6 +1153,10 @@ namespace ShaderRipper.Emit
                     }
                 _sb.Append("}\n\n");
             }
+            // NOTE: the synthesized _sri_* helpers are NOT emitted here.  Both
+            // stages would emit identical text and the cross-stage line dedup in
+            // Translate() would eat the second copy's signature, leaving an
+            // orphaned body.  They are emitted once, at file assembly.
 
             // Vertex inputs are HLSL parameters, not file-scope globals.  The GLSL
             // body names them `in_XXX0`; declaring them as globals leaves them
@@ -940,20 +1229,26 @@ namespace ShaderRipper.Emit
             }
 
             _sb.Append(varying
-                ? (_vertex ? structName + " main(" : (mrt ? "_frag_out main(" : "float4 main(") + structName + " stage_in")
+                ? (_vertex ? structName + " main(" : (mrt ? "_frag_out main(" : "float4 main("))
                 : (_vertex ? "float4 main(" : (mrt ? "_frag_out main(" : "float4 main(")));
+            // One parameter list for both stages: appending each extra parameter
+            // straight onto the opening line is how `vs_in stage_in` and
+            // `float4 sv_position : SV_Position` ended up fused with no comma
+            // between them.
+            var entryParams = new List<string>();
             if (_vertex)
             {
-                var ps = new List<string>();
-                if (appdata) ps.Add("appdata v");
-                if (_usesInstance) ps.Add("uint sv_instance : SV_InstanceID");
-                if (_usesVertex) ps.Add("uint sv_vertex : SV_VertexID");
-                if (ps.Count > 0) _sb.Append(string.Join(", ", ps));
+                if (appdata) entryParams.Add("appdata v");
+                if (_usesInstance) entryParams.Add("uint sv_instance : SV_InstanceID");
+                if (_usesVertex) entryParams.Add("uint sv_vertex : SV_VertexID");
             }
-            else if (_usesSvPosition)
+            else
             {
-                _sb.Append("float4 sv_position : SV_Position");
+                if (varying) entryParams.Add(structName + " stage_in");
+                if (_usesSvPosition) entryParams.Add("float4 sv_position : SV_Position");
+                if (_usesFragDepth) entryParams.Add("out float _frag_depth : SV_Depth");
             }
+            if (entryParams.Count > 0) _sb.Append(string.Join(", ", entryParams));
             _sb.Append(varying
                 ? (_vertex ? ")\n{\n" : (mrt ? ")\n{\n" : ") : SV_Target\n{\n"))
                 : (_vertex ? ") : SV_Position\n{\n" : (mrt ? ")\n{\n" : ") : SV_Target\n{\n")));
@@ -981,6 +1276,15 @@ namespace ShaderRipper.Emit
             // writes into.
             foreach (var l in _locals)
             {
+                // An output register is declared further down.  A copy of it here
+                // would be a redefinition in the same scope -- `float4 o0` twice in
+                // one function is `redefinition of 'o0'`, and the payload only shows
+                // it when the fragment stage names its colour output the same way
+                // the vertex stage names the clip position.
+                string declName = l.Trim();
+                int sp = declName.LastIndexOf(' ');
+                if (sp >= 0) declName = declName[(sp + 1)..];
+                if (_outs.Any(o => o.name == declName)) continue;
                 string zero = l.TrimStart().StartsWith("bool", StringComparison.Ordinal)
                     ? " = false;"
                     : " = 0.0;";
@@ -1052,7 +1356,7 @@ namespace ShaderRipper.Emit
                 int depth = 1;   // 1 = inside the function's own body
                 foreach (var st in _main.compoundStatement().statement())
                 {
-                    string text = Render(st)?.Trim();
+                    string text = FinishStatement(Render(st)?.Trim());
                     if (string.IsNullOrEmpty(text)) continue;
                     foreach (var line in text.Split('\n'))
                     {
@@ -1221,6 +1525,72 @@ namespace ShaderRipper.Emit
             return text;
         }
 
+        /// <summary>
+        /// GLSL's atomic add returns the old value as an expression; HLSL's
+        /// InterlockedAdd is a statement with an out parameter.  A helper taking
+        /// the destination by reference cannot do it: fxc rejects a dynamically
+        /// indexed buffer element as an inout argument ("out parameters require
+        /// l-value arguments").  The call is therefore expanded in place -- a
+        /// block-scoped scratch local receives the old value, and the assignment
+        /// that fed on the call reads it.
+        /// </summary>
+        private string FinishStatement(string text)
+        {
+            const string mark = "_sri_atomicAdd(";
+            if (text == null || !text.Contains(mark, StringComparison.Ordinal)) return text;
+            // A statement can hold more than one call (both sides of a ?:, two
+            // element writes) -- each one is expanded until none is left.
+            while (text.Contains(mark, StringComparison.Ordinal))
+            {
+                int at = text.IndexOf(mark, StringComparison.Ordinal);
+            int depth = 0, end = -1;
+            for (int i = at + mark.Length - 1; i < text.Length; i++)
+            {
+                if (text[i] == '(') depth++;
+                else if (text[i] == ')')
+                {
+                    if (--depth == 0) { end = i; break; }
+                }
+            }
+            if (end < 0) return text;
+            string args = text[(at + mark.Length)..end];
+            int comma = -1; depth = 0;
+            for (int i = 0; i < args.Length; i++)
+            {
+                char c = args[i];
+                if (c == '(' || c == '[') depth++;
+                else if (c == ')' || c == ']') depth--;
+                else if (c == ',' && depth == 0) { comma = i; break; }
+            }
+            if (comma < 0) return text;
+            string dest = args[..comma].Trim();
+            string value = args[(comma + 1)..].Trim();
+
+            string head = text[..at];
+            int eq = head.LastIndexOf('=');
+            bool assign = eq > 0 && head[eq - 1] != '<' && head[eq - 1] != '>' &&
+                          head[eq - 1] != '!' && head[eq - 1] != '=';
+            string tail = text[(end + 1)..].Trim();
+            if (!assign)
+            {
+                // Result discarded: the plain two-argument statement is all it takes.
+                if (!tail.StartsWith(");", StringComparison.Ordinal)) return text;
+                text = $"InterlockedAdd({dest}, {value});" + tail[2..];
+                continue;
+            }
+            if (!System.Text.RegularExpressions.Regex.IsMatch(tail, @"^\)+;$")) return text;
+            // The renderer may have wrapped the call in casts (`(int)(`); whatever
+            // numeric cast it chose applies to the scratch value too.
+            string mid = head[(eq + 1)..];
+            string cast = System.Text.RegularExpressions.Regex.Match(
+                mid, @"\(\s*(int|uint)\s*\)").Value;
+            text = "{\n    uint _sri_old = 0;\n" +
+                   $"    InterlockedAdd({dest}, {value}, _sri_old);\n" +
+                   $"    {head[..eq].TrimEnd()} = {cast}_sri_old;\n}}" + tail[2..];
+            }
+            return text;
+        }
+
         private string Custom(ParserRuleContext ctx)
         {
             switch (ctx)
@@ -1261,7 +1631,7 @@ namespace ShaderRipper.Emit
         /// </summary>
         private string Call(string name, List<string> args)
         {
-            if (name is "texture" && args.Count == 2 && _samplers.Contains(args[0]))
+            if (name is "texture" && args.Count is 2 or 3 && _samplers.Contains(args[0]))
             {
                 string sampler = args[0];
                 string coord = args[1];
@@ -1274,7 +1644,14 @@ namespace ShaderRipper.Emit
                     var m = Swizzle.Match(coord);
                     coord = m.Success ? $"({m.Groups[1].Value}).xy" : $"({coord}).xy";
                 }
-                return $"{sampler}.Sample(sampler_{sampler}, {coord})";
+                // Three arguments is GLSL's fragment-only bias form, which is what
+                // URP's SAMPLE_TEXTURE2D_BIAS macro expands to:
+                // `texture(_BaseMap, uv, _GlobalMipBias.x)`.  HLSL has no `texture`
+                // function at all, so leaving it alone emitted a call that does not
+                // exist -- every biased fetch in a URP shader failed to compile.
+                if (args.Count == 3)
+                    return $"{sampler}.SampleBias({SamplerOf(sampler)}, {coord}, {args[2]})";
+                return $"{sampler}.Sample({SamplerOf(sampler)}, {coord})";
             }
             // GLSL's vector relations return a BOOLEAN VECTOR; HLSL's comparison
             // operators return one too, so the spelling carries over -- but the
@@ -1290,7 +1667,7 @@ namespace ShaderRipper.Emit
             // same argument, so they pass through unchanged.
 
             if (name == "textureLod" && args.Count == 3)
-                return $"{args[0]}.SampleLevel(sampler_{args[0]}, {args[1]}, {args[2]})";
+                return $"{args[0]}.SampleLevel({SamplerOf(args[0])}, {args[1]}, {args[2]})";
 
             // Integer-coordinate fetch.  GLSL's texelFetch takes (sampler, ivecN,
             // lod) and returns the unfiltered texel; HLSL's equivalent is
@@ -1316,11 +1693,48 @@ namespace ShaderRipper.Emit
                 return $"({sampler}.GetDimensions)";
             }
 
+            // GLSL bit splicing has no HLSL intrinsic.  The call goes to a
+            // synthesized helper (emitted after the payload's own, so the call
+            // shape survives for verify_glsl to compare); HLSL overloads pick
+            // int or uint per argument type, which is what GLSL's per-type
+            // built-ins did.
+            if (name == "bitfieldInsert" && args.Count == 4)
+            {
+                _synthHelpers.Add("bitfieldInsert");
+                return $"_sri_bitfieldInsert({args[0]}, {args[1]}, {args[2]}, {args[3]})";
+            }
+            if (name == "bitfieldExtract" && args.Count == 3)
+            {
+                _synthHelpers.Add("bitfieldExtract");
+                return $"_sri_bitfieldExtract({args[0]}, {args[1]}, {args[2]})";
+            }
+
+            // GLSL's atomic add returns the OLD value; HLSL's InterlockedAdd only
+            // does through its out overload, which the helper wraps.  `inout`
+            // keeps the resource element an lvalue at the call site.
+            if (name == "atomicAdd" && args.Count == 2)
+            {
+                _synthHelpers.Add("atomicAdd");
+                return $"_sri_atomicAdd({args[0]}, {args[1]})";
+            }
+
             return null;
         }
 
         private static readonly System.Text.RegularExpressions.Regex Swizzle =
             new(@"^(\w[\w.\[\]]*)\.([xyzw]+)$", System.Text.RegularExpressions.RegexOptions.Compiled);
+
+        /// <summary>
+        /// The sampler spelling for a texture at a call site.  Textures the include
+        /// chain declares use the include's own sampler name
+        /// (<c>samplerunity_SpecCube0</c>, no underscore); <c>unity_SpecCube1</c>
+        /// is declared NOSAMPLER, and Unity's own idiom samples it through
+        /// SpecCube0's sampler.
+        /// </summary>
+        private static string SamplerOf(string tex) =>
+            tex == "unity_SpecCube1" ? "samplerunity_SpecCube0"
+            : IncludeDeclared.Contains(tex) ? "sampler" + tex
+            : "sampler_" + tex;
 
         private string TokenText(IToken t)
         {
@@ -1348,6 +1762,19 @@ namespace ShaderRipper.Emit
 
         private string Identifier(string s)
         {
+            // HLSLcc prefixes a copy it found unused in THIS stage with
+            // `Xhlslcc_UnusedX` -- but the other stage (or another variant) may
+            // still read the name, and it reads it without the prefix.  Stripping
+            // the marker everywhere is what keeps the declaration and the
+            // reference spelled identically; leaving it on produced a block member
+            // `Xhlslcc_UnusedXunity_LightData` that no `unity_LightData` reference
+            // could resolve.
+            bool stripped = false;
+            if (s.StartsWith("Xhlslcc_UnusedX", StringComparison.Ordinal))
+            {
+                s = s["Xhlslcc_UnusedX".Length..];
+                stripped = true;
+            }
             if (_vertex)
             {
                 if (s == "gl_Position") return "o0";
@@ -1356,6 +1783,7 @@ namespace ShaderRipper.Emit
             }
             else
             {
+                if (s == "gl_FragDepth") return "_frag_depth";
                 if (s == "gl_FragCoord") return "sv_position";
                 if (s.StartsWith("vs_", StringComparison.Ordinal)) return s[3..].ToLowerInvariant();
                 // `SV_TargetN` -> `oN`.  Mapping every one of them onto `o0` (which
@@ -1371,6 +1799,10 @@ namespace ShaderRipper.Emit
                 }
             }
             if (s.StartsWith("hlslcc_mtx4x4", StringComparison.Ordinal)) return s["hlslcc_mtx4x4".Length..];
+            // A stripped marker with no other rule still changed the name: the
+            // caller's `?? raw` fallback must see the stripped spelling, or the
+            // block member goes out prefixed while every reference is bare.
+            if (stripped) return Renamed.TryGetValue(s, out var r) ? r : s;
             return Renamed.TryGetValue(s, out var t) ? t : null;
         }
 
