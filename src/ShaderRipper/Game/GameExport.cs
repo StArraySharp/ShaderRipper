@@ -1068,7 +1068,11 @@ namespace ShaderRipper.Game
             // falls back to reflection and (honestly noted) inference.
             var glslFs = new Dictionary<int, string>();
             var glslVs = new Dictionary<int, string>();
-            for (int gi = 0; gi < (sh.Platforms?.Length ?? 0); gi++)
+            // `SHADERRIP_NO_BORROW=1` pins the DXBC route to its own blob: no GLSL
+            // sampler names, no other platform's parameter table.  That is the honest
+            // baseline for "what a Windows-only asset can tell us".
+            bool noBorrow = Environment.GetEnvironmentVariable("SHADERRIP_NO_BORROW") == "1";
+            for (int gi = 0; gi < (sh.Platforms?.Length ?? 0) && !noBorrow; gi++)
             {
                 var ginfo = Plugins.PlatformCatalog.Get((int)sh.Platforms[gi]);
                 if (ginfo == null || ginfo.Format != "glsl") continue;
@@ -1112,6 +1116,21 @@ namespace ShaderRipper.Game
                 try { decoded = BlobTool.DecodeBlob(sh, pi); }
                 catch (Exception e) { s.Skipped++; s.Notes.Add($"{name}/{info.Name}: decode failed: {e.Message}"); continue; }
                 if (decoded == null || decoded.Length == 0) { s.Skipped++; continue; }
+
+                // Diagnostic dump of the decompressed platform payload.  Off by
+                // default; set SHADERRIP_DUMP_BLOB=<dir> to inspect a build's
+                // parameter blobs / SPIR-V / GLSL outside the tool.
+                var dumpDir = Environment.GetEnvironmentVariable("SHADERRIP_DUMP_BLOB");
+                if (!string.IsNullOrEmpty(dumpDir))
+                {
+                    try
+                    {
+                        Directory.CreateDirectory(dumpDir);
+                        string safe = new string(name.Select(c => char.IsLetterOrDigit(c) ? c : '_').ToArray());
+                        File.WriteAllBytes(Path.Combine(dumpDir, $"{safe}__{info.Name}.bin"), decoded);
+                    }
+                    catch { }
+                }
 
                 if (info.Format == "dxbc") ExportDxbc(sh, name, info, decoded, dir, dirName,
                     passOf, spOf, kwIndex, props, perPass, programs, origAsm, s, null, null, glslVs, glslFs);
@@ -1279,7 +1298,7 @@ namespace ShaderRipper.Game
             {
                 int pid = (int)sh.Platforms[pi];
                 var info = Plugins.PlatformCatalog.Get(pid);
-                if (info == null || !Plugins.PlatformCatalog.CanRead(pid)) continue;
+                if (info == null) continue;
 
                 // A raw payload is already decompressed: carve its containers by
                 // header rather than running the slot-table decoder over them.
@@ -1297,6 +1316,22 @@ namespace ShaderRipper.Game
                     catch (Exception e) { s.Skipped++; s.Notes.Add($"{name}/{info.Name}: decode failed: {e.Message}"); continue; }
                 }
                 if (decoded == null || decoded.Length == 0) { s.Skipped++; continue; }
+
+                // Diagnostic dump runs before the translator gate, so a platform
+                // this tool cannot translate (SPIR-V, Metal) can still be inspected.
+                var dumpDir0 = Environment.GetEnvironmentVariable("SHADERRIP_DUMP_BLOB");
+                if (!string.IsNullOrEmpty(dumpDir0))
+                {
+                    try
+                    {
+                        Directory.CreateDirectory(dumpDir0);
+                        string safe0 = new string(name.Select(c => char.IsLetterOrDigit(c) ? c : '_').ToArray());
+                        File.WriteAllBytes(Path.Combine(dumpDir0, $"{safe0}__{info.Name}.bin"), decoded);
+                    }
+                    catch { }
+                }
+
+                if (!Plugins.PlatformCatalog.CanRead(pid)) continue;
                 if (pre != null && pre.Count == 0) { s.Skipped++; continue; }
 
                 if (info.Format == "dxbc") ExportDxbc(sh, name, info, decoded, null, null,
@@ -1486,6 +1521,53 @@ namespace ShaderRipper.Game
         // DXBC route (d3d11): disassemble, translate, keep every variant
         // ------------------------------------------------------------------
 
+        /// <summary>
+        /// Texture bindings borrowed from any other platform slot of the same shader.
+        ///
+        /// A D3D11-only build has no source for this: UnityShaderCompiler reflects the
+        /// RDEF, writes the result into the asset, and strips RDEF from the shipped
+        /// DXBC.  The d3d11 parameter blob only records the textures whose slot the
+        /// runtime cannot derive by convention (20 of 398 shaders in ADOFAI), so the
+        /// rest stay unnamed.  A Vulkan or GL build of the *same* shader keeps them --
+        /// Vulkan because `layout(binding=N)` is mandatory, GL because
+        /// `UNITY_LOCATION(N)` is -- and both backends use the one reflection table, so
+        /// the numbers agree with the DXBC registers.
+        ///
+        /// Returns blob slot -> (texture register -> name), or null when no other slot
+        /// carries records.
+        /// </summary>
+        private static Dictionary<int, Dictionary<int, string>> BorrowTextureNames(Shader sh)
+        {
+            // Opt-out for comparison runs: `SHADERRIP_NO_BORROW=1` keeps the d3d11
+            // route strictly to what its own blob recorded, which is what a
+            // Windows-only analysis has to live with.
+            if (Environment.GetEnvironmentVariable("SHADERRIP_NO_BORROW") == "1")
+                return null;
+
+            Dictionary<int, Dictionary<int, string>> best = null;
+            int bestCount = 0;
+            for (int pi = 0; pi < (sh.Platforms?.Length ?? 0); pi++)
+            {
+                int pid = (int)sh.Platforms[pi];
+                var info = Plugins.PlatformCatalog.Get(pid);
+                if (info == null) continue;
+                if (info.Format == "dxbc") continue;      // the route we are trying to help
+
+                byte[] blob;
+                try { blob = BlobTool.DecodeBlob(sh, pi); }
+                catch { continue; }
+                if (blob == null || blob.Length == 0) continue;
+
+                var table = info.Format == "spirv"
+                    ? BlobTool.ParseVulkanTextureParams(blob)
+                    : BlobTool.ParseBlobTextureParams(blob);
+
+                int n = table.Values.Sum(x => x.Count);
+                if (n > bestCount) { bestCount = n; best = table; }
+            }
+            return best;
+        }
+
         private static void ExportDxbc(Shader sh, string name, PlatformInfo info, byte[] decoded,
             string dir, string dirName, Dictionary<int, List<Pass>> passOf, Dictionary<int, SubProgram> spOf,
             Dictionary<int, string> kwIndex, List<Property> props,
@@ -1503,6 +1585,21 @@ namespace ShaderRipper.Game
             // only source for `cb1[7]`'s name is the asset's own parameter blob.
             var paramCbs = BlobTool.ParseParamBlobs(decoded);
             var allParamCbs = paramCbs.Values.SelectMany(x => x).ToList();
+            // Same blob, different table: Unity keeps its texture binding records
+            // (name + m_Index = t#) here after stripping RDEF from the DXBC.
+            var blobTex = BlobTool.ParseBlobTextureParams(decoded);
+            // The d3d11 slot only records the textures the runtime cannot derive by
+            // convention, so most shaders have none here.  A Vulkan or GL build of the
+            // same shader does record them (both need explicit binding numbers) and
+            // uses the same register numbering, so borrow from there when available.
+            var borrowedTex = blobTex.Values.Sum(x => x.Count) == 0 ? BorrowTextureNames(sh) : null;
+            if (borrowedTex != null)
+            {
+                blobTex = borrowedTex;
+                if (Environment.GetEnvironmentVariable("SHADERRIP_TEXDBG") == "1")
+                    Console.Error.WriteLine($"[texborrow] {name}: {borrowedTex.Values.Sum(x => x.Count)} " +
+                        "binding(s) borrowed from another platform slot");
+            }
             var matrixRows = MatrixSpans(sh);
             // Notes are per program but the file shows them per pass, and the pass a
             // slot belongs to is only known once the slot has been decoded.
@@ -1529,8 +1626,56 @@ namespace ShaderRipper.Game
                 var pass = owners is { Count: > 0 } ? owners[0] : null;
                 var glslTexNames = module.Stage is "vs" ? glslVs
                                  : module.Stage is "ps" ? glslFs : null;
+                // The texture table is stored per parameter blob, which is the same slot
+                // number the constant buffers already resolve through.  Different
+                // variants of one pass record different bindings -- BlendModes/Grab has
+                // `_GrabTexture @ t1` in the two-texture variant and
+                // `_GrabTexture @ t2, _AlphaTex @ t1` in the three-texture one -- so a
+                // union would mix registers from two different pixel shaders and name
+                // t1 from whichever table came first.  Pick the table that matches this
+                // *program*: a table whose highest register is within the program's own
+                // texture-register count, preferring the most complete such table.
+                Dictionary<int, string> blobTexNames = null;
+                if (blobTex.Count > 0)
+                {
+                    int programRegs = module.Decls
+                        .Where(d => d.Kind != null && d.Kind.StartsWith("texture"))
+                        .Select(d => d.Register).Distinct().Count();
+
+                    var candidates = blobTex
+                        .Select(kv => new { Slot = kv.Key, Names = kv.Value })
+                        .ToList();
+
+                    // The sub-program's own parameter blob describes exactly this
+                    // variant, so it wins whenever it fits the program's registers.
+                    if (sub != null && sub.ParameterBlobIndex >= 0)
+                    {
+                        var ownC = candidates.FirstOrDefault(c => c.Slot == sub.ParameterBlobIndex);
+                        if (ownC != null && ownC.Names.Keys.Max() < Math.Max(programRegs, 1))
+                            blobTexNames = ownC.Names;
+                    }
+
+                    if (blobTexNames == null)
+                    {
+                        // Otherwise the most complete table whose registers all exist in
+                        // this program; ties go to the lowest slot for determinism.
+                        var fitting = candidates
+                            .Where(c => c.Names.Count <= programRegs)
+                            .OrderByDescending(c => c.Names.Count)
+                            .ThenBy(c => c.Slot)
+                            .FirstOrDefault();
+                        blobTexNames = fitting?.Names
+                            ?? candidates.OrderByDescending(c => c.Names.Count)
+                                         .ThenBy(c => c.Slot).First().Names;
+                    }
+
+                    if (Environment.GetEnvironmentVariable("SHADERRIP_TEXDBG") == "1")
+                        Console.Error.WriteLine($"[tex] {name} blk={slot.BlobIndex} stage={module.Stage} " +
+                            $"pbi={sub?.ParameterBlobIndex ?? -1} regs={programRegs} slots={blobTex.Count} " +
+                            "-> " + string.Join(",", blobTexNames.OrderBy(x => x.Key).Select(x => $"t{x.Key}={x.Value}")));
+                }
                 module.Cb = NameConstantBuffers(module, name, pass, sub, props, paramCbs, allParamCbs,
-                                                matrixRows, glslTexNames);
+                                               matrixRows, glslTexNames, blobTexNames);
 
                 // Two consumers, two shapes.  The ShaderLab wrapper merges this text
                 // into a file that includes `UnityCG.cginc` -- matrices are
@@ -2391,7 +2536,8 @@ namespace ShaderRipper.Game
             List<Property> props, Dictionary<int, List<BlobTool.CbInfo>> paramCbs,
             List<BlobTool.CbInfo> allParamCbs,
             Dictionary<string, int> matrixRows = null,
-            Dictionary<int, string> glslTexNames = null)
+            Dictionary<int, string> glslTexNames = null,
+            Dictionary<int, string> blobTexNames = null)
         {
             var nameTable = pass?.NameIndices != null
                 ? new HashSet<string>(pass.NameIndices.Keys, StringComparer.Ordinal)
@@ -2405,7 +2551,7 @@ namespace ShaderRipper.Game
 
             var r = Resolve.CbResolver.Resolve(
                 m, nameTable, props, own, -1, BestGlobals(sub), null,
-                allParamCbs, true, null, sub?.TextureParams, matrixRows, glslTexNames);
+                allParamCbs, true, null, sub?.TextureParams, matrixRows, glslTexNames, blobTexNames);
 
             if (Environment.GetEnvironmentVariable("SHADERRIP_CBDBG") == "1")
                 Console.Error.WriteLine($"[cb] {shaderName}/{sub?.BlobIndex}: "
