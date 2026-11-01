@@ -142,6 +142,15 @@ namespace ShaderRipper.Data
             return -1;
         }
 
+        /// <summary>
+        /// True when a parameter blob's constant-buffer name is the compiler's
+        /// implicit global block.  Unity has spelled it two ways: `$Globals` in most
+        /// builds, and `UnityGlobals` in others (Simple3D, Unity 6000.3) -- both are
+        /// the same block, holding the material's scalar/vector properties.
+        /// </summary>
+        public static bool IsGlobalsName(string name) =>
+            name == "$Globals" || name == "UnityGlobals";
+
         /// <summary>A constant buffer as described by a parameter blob.</summary>
         public sealed class CbInfo
         {
@@ -153,6 +162,214 @@ namespace ShaderRipper.Data
             /// <summary>Raw 24-byte member-record tails: [0, type, dim, 0, 0, offset]
             /// (verified against known layouts: _EnableExternalAlpha dim=1, float4 dim=4).</summary>
             public List<int[]> MemberTails = new();
+        }
+
+        /// <summary>
+        /// Magic that opens a Unity 6000.x program parameter blob.
+        /// </summary>
+        private const uint ParamBlobMagic = 0x0C0A75BAu;
+
+        /// <summary>UnityEngine.Rendering.TextureDimension values a record may carry.</summary>
+        private static readonly bool[] TextureDimOk = BuildTextureDimTable();
+
+        private static bool[] BuildTextureDimTable()
+        {
+            var t = new bool[16];
+            t[2] = t[3] = t[4] = t[5] = t[6] = true;   // Tex2D, Tex3D, Cube, Tex2DArray, CubeArray
+            return t;
+        }
+
+        /// <summary>
+        /// True when a record's trailing int marks it as a texture rather than a plain
+        /// value.  Unity 6000 writes 4 here for every texture record in every shader we
+        /// have measured (2D included), so it is a kind discriminator, not the 4.3
+        /// <see cref="UnityEngine.Rendering.TextureDimension"/> enumeration.
+        /// </summary>
+        private const int TextureRecordKind = 4;
+
+        /// <summary>
+        /// Parse the texture bindings out of a Vulkan platform payload.
+        ///
+        /// A Vulkan build keeps the bindings the DXBC build drops.  Unity writes
+        /// <c>layout(binding = N)</c> for every resource because the Vulkan spec
+        /// requires it, so the compiler cannot omit a record the way it does for
+        /// D3D11 (where "the property order will do" is a valid shortcut).  Measured
+        /// on ADOFAI: 395 of 398 shaders carry texture records here against 20 of
+        /// 398 in the d3d11 slot.
+        ///
+        /// Record layout is the same shape as the DXBC parameter blob, with the
+        /// binding packed into the second int:
+        /// <code>
+        ///   u32 nameLen, name, align4
+        ///   u32 m_NameIndex
+        ///   u32 0x08000000 | binding      &lt;-- descriptor set 8, binding in the low byte
+        ///   u32 m_SamplerIndex (0xFFFFFFFF when the sampler is implicit)
+        ///   u32 4                         &lt;-- texture marker
+        /// </code>
+        /// The 0x08 in the high byte is the descriptor-set marker Unity uses for
+        /// combined image samplers, and the low byte is exactly the <c>t#</c> the
+        /// DXBC backend assigned, because both backends consume the one reflection
+        /// table UnityShaderCompiler produces.
+        /// </summary>
+        /// <returns>blob slot -> (texture register -> property name).</returns>
+        public static Dictionary<int, Dictionary<int, string>> ParseVulkanTextureParams(byte[] buf)
+        {
+            var res = new Dictionary<int, Dictionary<int, string>>();
+            if (buf == null || buf.Length < 8) return res;
+
+            int count = BitConverter.ToInt32(buf, 0);
+            if (count <= 0 || count > 8192 || 4 + (long)count * 12 > buf.Length) return res;
+
+            for (int e = 0; e < count; e++)
+            {
+                int p0 = 4 + e * 12;
+                int off = BitConverter.ToInt32(buf, p0);
+                int size = BitConverter.ToInt32(buf, p0 + 4);
+                if (off < 0 || size < 8 || (long)off + size > buf.Length) continue;
+
+                int end = off + size;
+                Dictionary<int, string> found = null;
+                int p = off;
+                while (p + 4 <= end)
+                {
+                    var got = ReadAlignedName(buf, p, end);
+                    if (got == null) { p += 4; continue; }
+                    string nm = got.Value.name;
+                    int q = got.Value.next;
+                    if (q + 16 > end) { p = q; continue; }
+
+                    int nameIndex = BitConverter.ToInt32(buf, q);
+                    int packed = BitConverter.ToInt32(buf, q + 4);
+                    int sampler = BitConverter.ToInt32(buf, q + 8);
+                    int marker = BitConverter.ToInt32(buf, q + 12);
+                    if (marker == TextureRecordKind &&
+                        (packed & unchecked((int)0xFF000000)) == 0x08000000 &&
+                        !nm.StartsWith("UnityPer", StringComparison.Ordinal) &&
+                        !nm.StartsWith("$Globals", StringComparison.Ordinal))
+                    {
+                        int reg = packed & 0xFF;
+                        if (reg < 128)
+                        {
+                            found ??= new Dictionary<int, string>();
+                            if (!found.ContainsKey(reg)) found[reg] = nm;
+                        }
+                        _ = sampler;
+                    }
+                    p = q;
+                }
+
+                if (found != null && found.Count > 0) res[e] = found;
+            }
+            return res;
+        }
+
+
+        private static (string name, int next)? ReadAlignedName(byte[] b, int p, int end)
+        {
+            if (p + 4 > end) return null;
+            int n = BitConverter.ToInt32(b, p);
+            if (n <= 0 || n > 64 || p + 4 + n > end) return null;
+            for (int i = 0; i < n; i++)
+            {
+                byte c = b[p + 4 + i];
+                bool ok = c == '_' || c == '$' || (c >= 'A' && c <= 'Z') ||
+                          (c >= 'a' && c <= 'z') || (c >= '0' && c <= '9');
+                if (!ok) return null;
+            }
+            string s = System.Text.Encoding.ASCII.GetString(b, p + 4, n);
+            return (s, p + 4 + ((n + 3) & ~3));
+        }
+
+        /// <summary>
+        /// Parse the texture bindings Unity stores in the compiled program's own
+        /// parameter blob.
+        ///
+        /// This is the table the DX11 runtime actually consumes.  Unity 4.3 has the
+        /// authoritative definition (<c>Runtime/GfxDevice/GpuProgram.h</c>):
+        /// <code>
+        /// struct TextureParameter {
+        ///     FastPropertyName m_Name;   // serialized as a name-table index
+        ///     int m_Index;               // t# -- ApplyTextures passes this to SetTexture
+        ///     int m_SamplerIndex;        // s#
+        ///     TextureDimension m_Dim;
+        /// };
+        /// </code>
+        /// and <c>D3D11CommonShader::ApplyTextures</c> iterates exactly this list, so
+        /// the D3D11 backend cannot bind a texture without <c>m_Index</c>.  That is
+        /// why the data has to survive in the shipped asset even though Unity strips
+        /// RDEF out of the DXBC container.
+        ///
+        /// Record layout verified against the GLSL slots of the same shaders
+        /// (location 0 = _PlanetTex, 1 = _AlphaTex, 2 = _MaskTex in ADOFAI):
+        /// <code>
+        ///   u32 nameLen, name, align4
+        ///   u32 f0   name-table index
+        ///   u32 f1   m_Index (t#)          &lt;-- correlates 0/1/2 with the GLSL locations
+        ///   u32 f2   m_SamplerIndex
+        ///   u32 f3   record kind: 4 = texture, 0 = plain value
+        /// </code>
+        /// f3 is <em>not</em> the 4.3 <c>m_Dim</c> enumeration -- these are 2D textures
+        /// and would carry 2 -- so treat it as the kind discriminator it behaves like.
+        ///
+        /// Unity omits a record it can derive by convention, so a partial table is
+        /// normal rather than an error: ADOFAI's FloorMesh records no textures at all
+        /// while Frames records both of its own.
+        /// </summary>
+        /// <returns>blob slot -> (texture register -> property name).</returns>
+        public static Dictionary<int, Dictionary<int, string>> ParseBlobTextureParams(byte[] buf)
+        {
+            var res = new Dictionary<int, Dictionary<int, string>>();
+            if (buf == null || buf.Length < 8) return res;
+
+            int count = BitConverter.ToInt32(buf, 0);
+            if (count <= 0 || count > 8192 || 4 + (long)count * 12 > buf.Length) return res;
+
+            for (int e = 0; e < count; e++)
+            {
+                int p0 = 4 + e * 12;
+                int off = BitConverter.ToInt32(buf, p0);
+                int size = BitConverter.ToInt32(buf, p0 + 4);
+                if (off < 0 || size < 32 || (long)off + size > buf.Length) continue;
+                if (BitConverter.ToUInt32(buf, off) != ParamBlobMagic) continue;
+                int end = off + size;
+
+                Dictionary<int, string> found = null;
+                int p = off + 4;
+                while (p + 4 <= end)
+                {
+                    var got = ReadAlignedName(buf, p, end);
+                    if (got == null) { p += 4; continue; }
+                    string nm = got.Value.name;
+                    int q = got.Value.next;
+                    if (q + 16 > end) { p = q; continue; }
+
+                    int nameIndex = BitConverter.ToInt32(buf, q);
+                    int reg = BitConverter.ToInt32(buf, q + 4);
+                    int sampler = BitConverter.ToInt32(buf, q + 8);
+                    int kind = BitConverter.ToInt32(buf, q + 12);
+                    // A texture record, not a scalar/sampler record.  Verified against
+                    // the GLSL locations of the same shaders: f1 carries 0/1/2 exactly
+                    // where the GLSL has UNITY_LOCATION(0/1/2), while plain uniforms
+                    // carry f3 = 0 and a stale register number.  f3 is the kind
+                    // discriminator here, not the 4.3 m_Dim enumeration.
+                    //
+                    // f0 is NOT always 0: `_GrabTexture` in a BlendModes shader records
+                    // f0 = 1 (a per-program name-table offset), so requiring 0 dropped
+                    // exactly the built-in grab texture that dxbc cannot otherwise name.
+                    if (kind == TextureRecordKind &&
+                        reg >= 0 && reg < 128 && sampler >= 0 && sampler < 128 &&
+                        !nm.StartsWith("UnityPer", StringComparison.Ordinal) &&
+                        !nm.StartsWith("$Globals", StringComparison.Ordinal))
+                    {
+                        found ??= new Dictionary<int, string>();
+                        if (!found.ContainsKey(reg)) found[reg] = nm;
+                    }
+                    p = q;
+                }
+
+                if (found != null && found.Count > 0) res[e] = found;
+            }
+            return res;
         }
 
         /// <summary>
@@ -187,7 +404,7 @@ namespace ShaderRipper.Data
                     var rec = ReadCbRecord(buf, p, end);
                     if (rec == null) { p += 4; continue; }
                     var (cb, next) = rec.Value;
-                    if (cb.Name == "$Globals" || UnityCbuffers.Members.Any(m => m.Cb == cb.Name))
+                    if (IsGlobalsName(cb.Name) || UnityCbuffers.Members.Any(m => m.Cb == cb.Name))
                     {
                         list.Add(cb);
                         recordEnd = next;

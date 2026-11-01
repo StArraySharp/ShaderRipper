@@ -641,8 +641,12 @@ namespace ShaderRipper.Emit
             // No constructor around the value: HLSL broadcasts a scalar to the
             // destination's width, and every operand the callers pass is already the
             // width the mask asks for.
-            string value = unsigned ? $"asint({expr})" : expr;
-            Line($"i{reg}.{lanes} = {value};");
+            //
+            // The destination is the integer shadow (`iN`), which is declared `intN`,
+            // so an `asint(...)` around an unsigned expression would be a conversion
+            // from `uint` to `int` -- i.e. the identity for every value the program
+            // produces.  `iadd`/`and`/`ishl` therefore assign the expression as is.
+            Line($"i{reg}.{lanes} = {expr};");
             if (_intFloatRead[reg]) Line($"r{reg}.{lanes} = asfloat(i{reg}.{lanes});");
         }
 
@@ -659,11 +663,11 @@ namespace ShaderRipper.Emit
         /// rebuilt from the truth value rather than reinterpreted.
         /// </summary>
         private string AsInt(Operand o) =>
-            IntShadow(o, false) ?? LitInt(o) ?? MaskAsInt(o, false)
+            IntDirect(o) ?? IntShadow(o, false) ?? LitInt(o) ?? MaskAsInt(o, false)
             ?? IntReinterpret(o, false);
 
         private string AsUInt(Operand o) =>
-            IntShadow(o, true) ?? LitUInt(o) ?? MaskAsInt(o, true)
+            IntDirect(o) ?? IntShadow(o, true) ?? LitUInt(o) ?? MaskAsInt(o, true)
             ?? IntReinterpret(o, true);
 
         /// <summary>
@@ -3323,7 +3327,7 @@ namespace ShaderRipper.Emit
                     {
                         var st = new SwitchState { Subject = $"_sw{_switchSeq++}" };
                         _switches.Push(st);
-                        Line($"uint {st.Subject} = asuint({Scalar(a[0])});");
+                        Line($"uint {st.Subject} = AsUInt(a[0]);");
                         Line($"switch ({st.Subject})");
                         Line("{");
                         _indent++; _r.Blocks++;
@@ -3346,7 +3350,7 @@ namespace ShaderRipper.Emit
                                 : BitConverter.SingleToUInt32Bits(v).ToString(CultureInfo.InvariantCulture) + "u";
                         }
                         else if (a.Count > 0)
-                            label = $"asuint({Scalar(a[0])})";
+                            label = $"AsUInt(a[0])";
                         Line($"case {label}:");
                     }
                     return true;
@@ -3757,8 +3761,8 @@ namespace ShaderRipper.Emit
                         uint mask = width >= 32u ? uint.MaxValue
                                   : ((1u << (int)width) - 1u) << (int)offset;
                         uint notMask = ~mask;
-                        Line($"{d} = asfloat((asuint({Scalar(a[3])}) & {notMask}u) "
-                             + $"| ((asuint({Scalar(a[4])}) << {offset}u) & {mask}u));");
+                        Line($"{d} = asfloat((AsUInt(a[3]) & {notMask}u) "
+                             + $"| ((AsUInt(a[4]) << {offset}u) & {mask}u));");
                     }
                     return true;
 
@@ -3892,7 +3896,7 @@ namespace ShaderRipper.Emit
                     {
                         int w2 = DestWidth(a[0]);
                         string cast = w2 switch { 1 => "float", 2 => "float2", 3 => "float3", _ => "float4" };
-                        Line($"{d} = {cast}(asuint({Expr(a[1], w2)}));");
+                        Line($"{d} = {cast}(AsUInt(a[1]));");
                     }
                     return true;
 
@@ -3955,7 +3959,7 @@ namespace ShaderRipper.Emit
             bool isUav = a[2].Kind == RegKind.U;
             int res = a[2].Index;
             string name = isUav ? UavName(res) : TexName(res);
-            Line($"{d} = {name}.Load{Comps(a[0])}(asuint({Scalar(a[1])}));");
+            Line($"{d} = {name}.Load{Comps(a[0])}(AsUInt(a[1]));");
             return true;
         }
 
@@ -3991,7 +3995,10 @@ namespace ShaderRipper.Emit
             int stride = decl?.Stride ?? 0;
 
             string index = Expr(a[1]);
-            string addr = stride > 0 ? $"(asuint({index}) * {stride}u)" : $"asuint({index})";
+            // A compute system value is already a `uint`, so `asuint(svThreadID.x)` is
+            // the identity spelled as a conversion; use the operand directly.
+            string idxInt = a[1].Kind == RegKind.VSv ? index : AsUInt(a[1]);
+            string addr = stride > 0 ? $"({idxInt} * {stride}u)" : idxInt;
 
             // The byte offset is an immediate constant in every occurrence seen so
             // far (`l(8)`); a computed offset is added as another term.
@@ -4003,7 +4010,7 @@ namespace ShaderRipper.Emit
             }
             else
             {
-                addr = $"{addr} + asuint({Scalar(a[2])})";
+                addr = $"{addr} + {AsUInt(a[2])}";
             }
 
             Line($"{d} = {(isUav ? UavName(tex) : TexName(tex))}.Load{Comps(a[0])}({addr});");
@@ -4104,7 +4111,7 @@ namespace ShaderRipper.Emit
                     if (a.Count < 4) return false;
                     {
                         string suffix = DestWidth(a[0]) switch { 2 => "2", 3 => "3", 4 => "4", _ => "" };
-                        Line($"{name}.Store{suffix}({uavAddress(a[1], a[2], decl?.Stride ?? 0)}, asuint({Expr(a[3])}));");
+                        Line($"{name}.Store{suffix}({uavAddress(a[1], a[2], decl?.Stride ?? 0)}, AsUInt(a[3]));");
                     }
                     return true;
 
@@ -4112,7 +4119,7 @@ namespace ShaderRipper.Emit
                 // append index.  No output register.
                 case "atomic_iadd":
                     if (a.Count < 3) return false;
-                    Line($"{name}.InterlockedAdd({uavAddress(a[1], null, decl?.Stride ?? 0)}, asuint({Scalar(a[2])}));");
+                    Line($"{name}.InterlockedAdd({uavAddress(a[1], null, decl?.Stride ?? 0)}, AsUInt(a[2]));");
                     return true;
 
                 // `store_raw u0.xyz, r0.x, r2.xyzx`: (target, byte address, value).
@@ -4122,7 +4129,7 @@ namespace ShaderRipper.Emit
                     if (a.Count < 3) return false;
                     {
                         string suffix = DestWidth(a[0]) switch { 2 => "2", 3 => "3", 4 => "4", _ => "" };
-                        Line($"{name}.Store{suffix}(asuint({Scalar(a[1])}), asuint({Expr(a[2])}));");
+                        Line($"{name}.Store{suffix}(AsUInt(a[1]), AsUInt(a[2]));");
                     }
                     return true;
             }
@@ -4137,8 +4144,10 @@ namespace ShaderRipper.Emit
         /// </summary>
         private string uavAddress(Operand index, Operand offset, int stride)
         {
-            string idx = Scalar(index) ?? Expr(index);
-            string addr = stride > 0 ? $"(asuint({idx}) * {stride}u)" : $"asuint({idx})";
+            // `AsUInt` keeps a compute system value bare: it is already a `uint`, so
+            // `asuint(svThreadID.x)` was the identity written as a conversion.
+            string idx = AsUInt(index);
+            string addr = stride > 0 ? $"({idx} * {stride}u)" : idx;
             if (offset == null) return addr;
             if (offset.Lit is { Length: > 0 } lit)
             {
@@ -4146,7 +4155,7 @@ namespace ShaderRipper.Emit
                     ? (uint)lit[0] : BitConverter.SingleToUInt32Bits(lit[0]);
                 if (off != 0) addr = $"{addr} + {off}u";
             }
-            else addr = $"{addr} + asuint({Scalar(offset)})";
+            else addr = $"{addr} + AsUInt(offset)";
             return addr;
         }
 
@@ -4187,3 +4196,5 @@ namespace ShaderRipper.Emit
         }
     }
 }
+
+

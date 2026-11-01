@@ -230,7 +230,9 @@ namespace ShaderRipper.Resolve
                                          bool tmpLayout = false,
                                          TmpLayouts.Layout layoutHint = null,
                                          System.Collections.Generic.List<(string Name, int Index, int Sampler)> texParams = null,
-                                         Dictionary<string, int> matrixRows = null)
+                                         Dictionary<string, int> matrixRows = null,
+                                         Dictionary<int, string> glslTexNames = null,
+                                         Dictionary<int, string> blobTexNames = null)
         {
             var r = new CbResolver(new HashSet<string>(nameTable ?? new List<string>(), StringComparer.Ordinal));
             r.MatrixRows = matrixRows;
@@ -265,7 +267,7 @@ namespace ShaderRipper.Resolve
             var candidates = r.CbufferNamesInTable();
             var chosen = r.IdentityFromParamBlob(decls, used) ?? r.AssignBijection(decls, used, candidates);
             r.AssignFromSiblingHint(decls, used, chosen, identityHint);
-            if (!chosen.Values.Contains("$Globals") && TmpLayouts.Enabled)
+            if (!chosen.Values.Any(BlobTool.IsGlobalsName) && TmpLayouts.Enabled)
             {
                 var hits = new List<int>();
                 foreach (var d in decls)
@@ -292,7 +294,7 @@ namespace ShaderRipper.Resolve
             foreach (var d in decls)
             {
                 if (!r.CbName.TryGetValue(d.Register, out var cbname)) continue;
-                if (cbname == "$Globals")
+                if (BlobTool.IsGlobalsName(cbname))
                 {
                     r.MapGlobalsRows(d, used[d.Register], props);
                     continue;
@@ -334,7 +336,7 @@ namespace ShaderRipper.Resolve
                     r.FullyMapped.Add(d.Register);
             }
 
-            r.MapTextures(prog, props, texParams);
+            r.MapTextures(prog, props, texParams, glslTexNames, blobTexNames);
 
             if (Environment.GetEnvironmentVariable("SHADERRIP_CBDBG") == "1")
             {
@@ -548,9 +550,9 @@ namespace ShaderRipper.Resolve
         {
             var res = new List<string>();
             foreach (string n in _nameTable)
-                if (n == "$Globals" || UnityCbuffers.Members.Any(m => m.Cb == n))
+                if (BlobTool.IsGlobalsName(n) || UnityCbuffers.Members.Any(m => m.Cb == n))
                     res.Add(n);
-            return res.OrderBy(n => n == "$Globals" ? 0 : 1)
+            return res.OrderBy(n => BlobTool.IsGlobalsName(n) ? 0 : 1)
                       .ThenBy(n => UnityCbuffers.Members.FindIndex(m => m.Cb == n))
                       .ToList();
         }
@@ -575,7 +577,7 @@ namespace ShaderRipper.Resolve
             {
                 if (chosen.ContainsKey(d.Register)) continue;
                 if (!hint.TryGetValue(d.Register, out var name)) continue;
-                if (name == "$Globals" || UnityCbuffers.RowCount(name) <= 0) continue;
+                if (BlobTool.IsGlobalsName(name) || UnityCbuffers.RowCount(name) <= 0) continue;
                 if (used[d.Register].Any(r => UnityCbuffers.Find(name, r) == null)) continue;
 
                 chosen[d.Register] = name;
@@ -636,7 +638,7 @@ namespace ShaderRipper.Resolve
         private int GlobalsRowCount()
         {
             int size = 0;
-            var g = ParamCbs?.FirstOrDefault(c => c.Name == "$Globals");
+            var g = ParamCbs?.FirstOrDefault(c => BlobTool.IsGlobalsName(c.Name));
             if (g != null) size = g.Size;
             if (AssetGlobals != null) size = Math.Max(size, AssetGlobals.Size);
             return size > 0 ? (size + 15) / 16 : -1;
@@ -650,7 +652,7 @@ namespace ShaderRipper.Resolve
         /// </summary>
         private int GlobalsSize()
         {
-            var g = ParamCbs?.FirstOrDefault(c => c.Name == "$Globals");
+            var g = ParamCbs?.FirstOrDefault(c => BlobTool.IsGlobalsName(c.Name));
             if (g != null && g.Size > 0) return g.Size;
             return AssetGlobals?.Size ?? -1;
         }
@@ -658,7 +660,7 @@ namespace ShaderRipper.Resolve
         /// <summary>Confirmed-row count, or -1 when the candidate cannot explain the reads.</summary>
         private int Score(string cb, SortedSet<int> rows)
         {
-            if (cb == "$Globals")
+            if (BlobTool.IsGlobalsName(cb))
             {
                 int n = GlobalsRowCount();
                 if (n > 0 && rows.Count > 0 && rows.Max() >= n) return -100;
@@ -829,7 +831,7 @@ namespace ShaderRipper.Resolve
         private bool MapGlobalsFromParamBlob(Ast.Decl d, SortedSet<int> rows, IReadOnlyList<Property> props)
         {
             var source = AllParamCbs ?? ParamCbs;
-            var all = source?.Where(x => x.Name == "$Globals" && x.Members.Count > 0).ToList();
+            var all = source?.Where(x => BlobTool.IsGlobalsName(x.Name) && x.Members.Count > 0).ToList();
             if (all == null || all.Count == 0) return false;
 
             int need = d.Count > 0 ? d.Count * 16 : (rows.Count > 0 ? (rows.Max() + 1) * 16 : 0);
@@ -989,10 +991,10 @@ namespace ShaderRipper.Resolve
                 Console.Error.WriteLine("[mgr] enter cb" + d.Register);
             if (rows.Count == 0) return;
 
-            int blobGlobalsSize = ParamCbs?.FirstOrDefault(c => c.Name == "$Globals")?.Size ?? 0;
+            int blobGlobalsSize = ParamCbs?.FirstOrDefault(c => BlobTool.IsGlobalsName(c.Name))?.Size ?? 0;
             int blobSpan = 0;
             if (ParamCbs != null)
-                foreach (var c in ParamCbs.Where(x => x.Name == "$Globals"))
+                foreach (var c in ParamCbs.Where(x => BlobTool.IsGlobalsName(x.Name)))
                     foreach (var m in c.Members)
                         blobSpan = Math.Max(blobSpan, m.offset + Math.Max(1, m.dim) * 4);
             bool assetUsable = AssetGlobals != null && AssetGlobals.Members.Count > 0 &&
@@ -1064,7 +1066,7 @@ namespace ShaderRipper.Resolve
         {
             var a = new Dictionary<string, int>(StringComparer.Ordinal);
             if (ParamCbs != null)
-                foreach (var c in ParamCbs.Where(x => x.Name == "$Globals"))
+                foreach (var c in ParamCbs.Where(x => BlobTool.IsGlobalsName(x.Name)))
                     foreach (var (n, o, _, _) in c.Members)
                         if (!string.IsNullOrEmpty(n)) a[n] = o;
             if (AssetGlobals != null)
@@ -1247,15 +1249,23 @@ namespace ShaderRipper.Resolve
 
         /// <summary>Give sampler registers the property name they belong to.</summary>
         /// <remarks>
-        /// Priority: the asset's own <c>m_TextureParams</c> reflection (name + t#
-        /// register straight out of the serialized program parameters -- the same
-        /// table UnityPlayer's runtime consumes), falling back to property
-        /// declaration order only when the asset kept no texture list.  Property
+        /// Priority: the shader's own GLSL source (GL-family variants keep the
+        /// sampler names in <c>UNITY_LOCATION(n) uniform sampler2D</c> lines where
+        /// the DXBC payload strips them; GL locations and DXBC texture registers
+        /// follow the same property order, so location N names tN); then the
+        /// asset's own <c>m_TextureParams</c> reflection (name + t# register
+        /// straight out of the serialized program parameters); then, only when no
+        /// GLSL source exists, the main-texture convention (<c>[MainTexture]</c>
+        /// attribute, else the literal <c>_MainTex</c> -- the rule
+        /// <c>Material.mainTexture</c> documents, applied as an explicit guess,
+        /// never as an engine answer); then property declaration order.  Property
         /// order is NOT register order: one commercial title's FloorMesh declares _TileTex first but
         /// binds it to t2, which silently swapped three samplers and broke the look.
         /// </remarks>
         private void MapTextures(Ast.Module prog, IReadOnlyList<Property> props,
-                                 System.Collections.Generic.List<(string Name, int Index, int Sampler)> texParams)
+                                 System.Collections.Generic.List<(string Name, int Index, int Sampler)> texParams,
+                                 Dictionary<int, string> glslTexNames = null,
+                                 Dictionary<int, string> blobTexNames = null)
         {
             // A name is trustworthy when the shader itself declares it.  The
             // property table is authoritative for material textures; the name table
@@ -1263,11 +1273,78 @@ namespace ShaderRipper.Resolve
             var declared = new HashSet<string>(StringComparer.Ordinal);
             if (props != null) foreach (var p in props) declared.Add(p.Name);
 
+            var regs = prog.Decls.Where(d => d.Kind != null && d.Kind.StartsWith("texture"))
+                                 .Select(d => d.Register).Distinct().OrderBy(x => x).ToList();
+            if (regs.Count == 0) return;
+
+            // 0. The compiled program's own parameter blob -- the table the DX11
+            // runtime actually consumes.  Unity strips RDEF out of the DXBC
+            // container but keeps this beside it, so it is the strongest evidence
+            // available for a Windows-only asset: ADOFAI/Frames records _PlanetTex
+            // with m_Index = 0 and _AlphaTex with m_Index = 1, exactly the GL-family
+            // build's UNITY_LOCATION(0/1).  Unity omits a record it can derive by
+            // convention, so a partial table is normal and the layers below fill in.
+            if (blobTexNames != null && blobTexNames.Count > 0)
+            {
+                var named = new List<string>();
+                foreach (var kv in blobTexNames.OrderBy(x => x.Key))
+                {
+                    int reg = kv.Key;
+                    string nm = kv.Value;
+                    if (reg < 0 || reg >= 128) continue;
+                    // No property-table check here.  Unity records built-in samplers
+                    // too -- `_GrabTexture` and `_CameraDepthTexture` are engine-injected
+                    // and never appear in a Properties block, yet the blob names them
+                    // and the compiled program samples them.  Requiring the name to be
+                    // declared dropped exactly those.
+                    if (string.IsNullOrEmpty(nm)) continue;
+                    if (!System.Text.RegularExpressions.Regex.IsMatch(nm, @"^[A-Za-z_][A-Za-z0-9_]*$"))
+                        continue;
+                    TexName[reg] = nm;
+                    named.Add($"t{reg}={nm}");
+                }
+                if (named.Count > 0)
+                    FileNotes.Add("texture names from the program's parameter blob (Unity's own " +
+                                  "binding table, the RDEF Unity strips from DXBC): " +
+                                  string.Join(", ", named));
+            }
+
+            // 1. GL-family source names -- the strongest source when the asset ships
+            // a GL-family variant at all.  The GLSL text is Unity's own translation
+            // and keeps the property names the DXBC payload strips; locations and
+            // texture registers are assigned in the same property order, so they
+            // pair up positionally.  Registers the parameter blob already named stay
+            // put: that table is read per program, this one is per shader.
+            if (glslTexNames != null && glslTexNames.Count > 0)
+            {
+                var locs = glslTexNames.Keys.OrderBy(x => x).ToList();
+                int g = Math.Min(regs.Count, locs.Count);
+                if (g > 0)
+                {
+                    var named = new List<string>();
+                    for (int i = 0; i < g; i++)
+                    {
+                        if (TexName.ContainsKey(regs[i])) continue;
+                        TexName[regs[i]] = glslTexNames[locs[i]];
+                        named.Add($"t{regs[i]}={glslTexNames[locs[i]]}");
+                    }
+                    if (named.Count > 0)
+                        FileNotes.Add("texture names from the shader's own GLSL source: " +
+                                      string.Join(", ", named));
+                }
+            }
+
+            // 2. The asset's own reflection fills whatever the GLSL source did not
+            // cover (a Windows-only asset ships no GL-family variant to read).
             if (texParams != null && texParams.Count > 0)
             {
                 foreach (var (nm, idx, _) in texParams)
-                    if (idx >= 0 && idx < 128 && (declared.Contains(nm) || _nameTable.Contains(nm)))
+                    if (idx >= 0 && idx < 128 && !TexName.ContainsKey(idx) &&
+                        (declared.Contains(nm) || _nameTable.Contains(nm)))
                         TexName[idx] = nm;
+                if (Environment.GetEnvironmentVariable("SHADERRIP_TEXDBG") == "1")
+                    Console.Error.WriteLine($"[texparams] {texParams.Count} record(s): " +
+                        string.Join(", ", texParams.Select(x => $"t{x.Index}={x.Name}")));
                 // Do NOT stop here.  The asset records only the textures its material
                 // inspector exposes, so a partial list is the normal case: `_AlphaTex`
                 // is `[PerRendererData]` and never appears, and returning early left
@@ -1275,7 +1352,11 @@ namespace ShaderRipper.Resolve
                 // The property-order pass below fills the remainder.
             }
 
-            // The declaration order is the only signal left.  Weak, but measured:
+            var open = regs.Where(r => !TexName.ContainsKey(r)).ToList();
+            if (open.Count == 0) return;
+
+            // The declaration order is the only signal left for everything past the
+            // main texture.  Weak, but measured:
             // over every pass of the reference corpus whose reflection names t0, the
             // property table lists that texture FIRST -- 849 of 849, whatever the
             // property flags say.  `[PerRendererData]` is no exception: `_MainTex`
@@ -1286,39 +1367,117 @@ namespace ShaderRipper.Resolve
             if (props != null)
                 foreach (var p in props.Where(p => TextureTypes.Contains(p.Type)))
                     texProps.Add(p.Name);
-            bool guessed = texParams == null || texParams.Count == 0;
 
-            var regs = prog.Decls.Where(d => d.Kind != null && d.Kind.StartsWith("texture"))
-                                 .Select(d => d.Register).Distinct().OrderBy(x => x).ToList();
-            if (regs.Count == 0) return;
-            // Registers the reflection already named are settled; the property-order
-            // pass only fills the rest, in order, so a name from the asset is never
-            // overwritten by a guess.
-            var open = regs.Where(r => !TexName.ContainsKey(r)).ToList();
-            if (open.Count == 0) return;
             // A property the reflection already bound must not be handed out again:
             // two registers with one name do not compile (`redefinition of
             // '_MainTex'`), and the second binding is a leftover sampler anyway.
             var used = new HashSet<string>(TexName.Values, StringComparer.Ordinal);
             var spare = texProps.Where(p => !used.Contains(p)).ToList();
+
+            // 3. Last resort: fill the leftovers from declaration order, but pair by
+            // texture *dimension* first.
+            //
             // The two lists rarely line up.  A texture property the shader never
             // samples in this variant (a `multi_compile` branch that is compiled out)
             // leaves more properties than registers; a built-in sampler Unity injects
             // (camera depth, a grab texture) leaves more registers than properties.
-            // In both cases the declaration order still starts where the register
-            // numbering starts, so naming the leading registers gets the material's
-            // own textures right and the leftovers stay `tN`.
-            int n = Math.Min(spare.Count, open.Count);
-            for (int i = 0; i < n; i++) TexName[open[i]] = spare[i];
-            if (n == 0)
-                FileNotes.Add($"{open.Count} texture register(s) the asset did not name -- left as tN");
-            else if (guessed)
-                // The names above are an inference, not a reading: this pass kept no
-                // reflection, so nothing in the asset proves the slot holds that
-                // property rather than one the pass never uses.  Say so in the file
-                // instead of letting the result look authoritative.
-                FileNotes.Add("texture names inferred from property order: " +
-                          string.Join(", ", Enumerable.Range(0, n).Select(i => $"t{open[i]}={spare[i]}")));
+            // Plain position matching is what the corpus measures at 849/849 for t0,
+            // but it is blind to type: TMP's Distance Field declares
+            // _Cube (Cube) after four 2D maps and the compiler put it on t4, which
+            // happens to be last, so position alone got it right by luck.
+            //
+            // The declaration a DXBC program carries does record the dimension
+            // (`dcl_resource_texture2d` vs `dcl_resource_texturecube`), and the shader
+            // declares it too (the property type), so the two can be paired
+            // dimension-first and only then by order.  That removes the luck: a
+            // cubemap can only take a cubemap register no matter where it is declared.
+            //
+            // Unity itself never infers a name from declaration order: the DX11
+            // runtime binds by property NAME into a hash table
+            // (`ShaderPropertySheet::AddNewPropertyUninitialized` binary-searches the
+            // FastPropertyName id) and never consults t#.  So this stays a guess, and
+            // the note says which registers it covers -- but it runs only after the
+            // two authoritative sources (parameter blob, GLSL slots) and the asset's
+            // own reflection have had their say.
+            var regDim = new Dictionary<int, char>();
+            foreach (var d in prog.Decls)
+            {
+                if (d.Kind == null) continue;
+                char dim = d.Kind.IndexOf("cube", StringComparison.OrdinalIgnoreCase) >= 0 ? 'c'
+                         : d.Kind.IndexOf("3d", StringComparison.OrdinalIgnoreCase) >= 0 ? '3'
+                         : d.Kind.IndexOf("array", StringComparison.OrdinalIgnoreCase) >= 0 ? 'a'
+                         : '2';
+                if (!regDim.ContainsKey(d.Register)) regDim[d.Register] = dim;
+            }
+            char DimOfProperty(string nm)
+            {
+                var p = props?.FirstOrDefault(x => x.Name == nm);
+                if (p == null) return '2';
+                // UnityEngine.Rendering.TextureDimension as serialized in
+                // m_DefTexture.m_TexDim: None=0, Any=1, Tex2D=2, Tex3D=3, Cube=4,
+                // Tex2DArray=5, CubeArray=6.
+                return p.DefTextureDim switch
+                {
+                    3 => '3',
+                    4 => 'c',
+                    5 => 'a',
+                    6 => 'a',
+                    _ => '2',
+                };
+            }
+
+            var openByDim = open.GroupBy(r => regDim.TryGetValue(r, out var cd) ? cd : '2')
+                                .ToDictionary(g => g.Key, g => g.ToList());
+            var spareLeft = new List<string>(spare);
+            var assigned = new List<string>();
+            foreach (var dim in new[] { 'c', '3', 'a', '2' })
+            {
+                if (!openByDim.TryGetValue(dim, out var dimRegs)) continue;
+                var pool = spareLeft.Where(p => DimOfProperty(p) == dim).ToList();
+                int k = 0;
+                foreach (int reg in dimRegs)
+                {
+                    if (k >= pool.Count) break;
+                    TexName[reg] = pool[k];
+                    assigned.Add($"t{reg}={pool[k]}");
+                    spareLeft.Remove(pool[k]);
+                    k++;
+                }
+            }
+
+            // Anything the dimension pass could not pair falls back to plain order,
+            // which is the historical behaviour and still the best available signal.
+            var stillOpen = regs.Where(r => !TexName.ContainsKey(r)).ToList();
+            int n = Math.Min(spareLeft.Count, stillOpen.Count);
+            for (int i = 0; i < n; i++)
+            {
+                TexName[stillOpen[i]] = spareLeft[i];
+                assigned.Add($"t{stillOpen[i]}={spareLeft[i]}");
+            }
+
+            if (assigned.Count > 0)
+            {
+                if (Environment.GetEnvironmentVariable("SHADERRIP_TEXDBG") == "1")
+                    Console.Error.WriteLine($"[ord] filled {assigned.Count}: " + string.Join(", ", assigned));
+                // The names above are an inference, not a reading: nothing in the
+                // asset proves the slot holds that property rather than one the pass
+                // never uses.  Say so in the file instead of letting the result look
+                // authoritative.  (Notes merge per PASS, and the programs of one pass
+                // can be covered differently -- the blob records a register for one
+                // variant and omits it for another -- so the wording must stay true
+                // whether or not a blob record exists for this particular program.)
+                FileNotes.Add("texture names filled from property order where no recorded " +
+                              "binding covered the register (unverified guess): " +
+                              string.Join(", ", assigned));
+            }
+
+            var unnamed = regs.Where(r => !TexName.ContainsKey(r)).ToList();
+            if (unnamed.Count > 0)
+                FileNotes.Add($"{unnamed.Count} texture register(s) the asset did not name -- left as tN" +
+                              (spareLeft.Count > 0
+                                  ? " (candidate texture properties, declaration order: " +
+                                    string.Join(", ", spareLeft) + ")"
+                                  : ""));
         }
     }
 }
