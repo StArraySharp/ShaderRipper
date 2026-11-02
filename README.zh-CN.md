@@ -6,7 +6,7 @@
 
 > 💡 **本项目代码 100% 由 AI 生成**（DeepSeek / GLM 协作完成），人工负责需求、验收与发布。
 
-**支持的载荷**：dxbc —— d3d11、Xbox / GameCore 槽位（DXBC 汇编逐条直译 HLSL），以及 dxbc 容器里的 DXIL chunk（经 dxcompiler 反汇编，回译未验证）；glsl —— GLES3 / GLES2 / OpenGLCore / OpenGL（GLSL 回译 HLSL）；d3d9 —— SM2/SM3（仅反汇编）。其余后端（Metal、Vulkan、主机平台、WebGPU）没有翻译器，会被跳过。计算着色器（`ComputeShader` 资源）同样会导出，产物是 `.compute`，每个 kernel 一个入口点。
+**支持的载荷**：dxbc —— d3d11、Xbox / GameCore 槽位（DXBC 汇编逐条直译 HLSL），以及 dxbc 容器里的 DXIL chunk（经 dxcompiler 反汇编，回译未验证）；glsl —— GLES3 / GLES2 / OpenGLCore / OpenGL（GLSL 回译 HLSL）；d3d9 —— SM2/SM3（仅反汇编）。其余后端（Metal、Vulkan、主机平台、WebGPU）没有翻译器，会被跳过——Vulkan 由附带的 [SPIR-V 插件](#插件) 覆盖。计算着色器（`ComputeShader` 资源）同样会导出，产物是 `.compute`，每个 kernel 一个入口点。
 
 ## 编译
 
@@ -98,6 +98,20 @@ py -3 scripts/gen_api_docs.py     # 读 bin/Release/net10.0/ShaderRipper.xml，�
 >
 > [`examples/ShaderRipper.Plugin.Example`](examples/ShaderRipper.Plugin.Example/ExamplePlugin.cs)
 > 是三个扩展点的完整示例。它不在解决方案内，按路径单独构建。
+>
+> [`examples/ShaderRipper.Plugin.SpirV`](examples/ShaderRipper.Plugin.SpirV/SpirVPlugin.cs)
+> 是一个真实后端的示例：认领 Vulkan，把 Unity 打包的 SMOL-V 压缩 SPIR-V 用
+> SPIRV-Cross 翻成 HLSL。同样按路径构建：
+>
+> ```bash
+> dotnet build examples/ShaderRipper.Plugin.SpirV -c Release
+> ShaderRipper.exe --game "Game_Data" --shaderlab out --platform vulkan \
+>                  --plugin-dir examples/ShaderRipper.Plugin.SpirV/bin/Release/net10.0
+> ```
+>
+> 模块里没有调试名，所以纹理与采样器名从同一载荷的参数槽回填；cbuffer 保留
+> SPIRV-Cross 自己的名字并加 `vs_`/`ps_` 前缀，因为 SPIR-V id 只在单个模块内唯一。
+> 顶点属性按 `POSITION` 加 `TEXCOORDn` 命名——一个 location 编号也只能说明这些。
 
 ## 渲染器支持
 
@@ -110,12 +124,12 @@ py -3 scripts/gen_api_docs.py     # 读 bin/Release/net10.0/ShaderRipper.xml，�
 | glsl：gles20 / gles3 / openglcore / opengl      | ✅       | ✅     | ⚠️ 未验证   | ShaderLab + HLSLPROGRAM（GLSL 回译） |
 | d3d9：SM2/SM3 token 流                             | ✅       | ✅     | ✅        | 仅反汇编（`.orig.asm`），无翻译器            |
 | 计算着色器（`cs_5_0` kernel 程序）                  | ✅       | ✅     | ⚠️ 未验证  | `.compute`（每个 kernel 一个 `[numthreads]` 入口） |
-| metal / vulkan / 主机平台 / webgpu                 | —       | —     | —        | 跳过（没有对应翻译器）                     |
+| metal / vulkan / 主机平台 / webgpu                 | —       | —     | —        | 跳过（没有对应翻译器）；Vulkan 由 [SPIR-V 插件](#插件) 覆盖 |
 
 > macOS 未实测：托管路径理论上可用（自行 `dotnet publish -r osx-arm64` 打包），DXIL 反汇编因无官方 macOS 版 DXC 而不可用。
-> 一个 shader 通常带多个后端槽位，工具会逐个处理；只带 metal / vulkan 的游戏不会有任何产出。
+> 一个 shader 通常带多个后端槽位，工具会逐个处理；只带 metal / vulkan 的游戏不会有任何产出（Vulkan 装了 SPIR-V 插件则例外）。
 >
-> `--platform <名字|id>` 只读一个槽位。同时带 d3d11 与 gles3 的构建永远优先 d3d11，所以这是单独看 GLSL 路线产物的唯一方式。指定一个**完全不会有产出**的后端（vulkan、metal）是错误——`--only` 曾踩过"空导出却 exit 0"的坑；`d3d9` 会被接受，因为它的程序仍会作为反汇编落盘。
+> `--platform <名字|id>` 只读一个槽位。同时带 d3d11 与 gles3 的构建永远优先 d3d11，所以这是单独看 GLSL 路线产物的唯一方式。指定一个**完全不会有产出**的后端（没装插件时的 vulkan、metal）是错误——`--only` 曾踩过"空导出却 exit 0"的坑；`d3d9` 会被接受，因为它的程序仍会作为反汇编落盘。
 >
 > d3d9 **刻意不做回译**：SM2/SM3 与 DXBC 是不同方言（`texld` / `mova`、绝对寄存器号，而不是 `dcl_` 前缀加相对 `r#` 编号），DXBC 发射器读不了它，为它再写一套翻译器不划算。该 Pass 会保留渲染状态，并附带一条说明：程序已读出但未翻译——这才是构建数据实际能支撑的结论。
 
@@ -252,7 +266,7 @@ Windows / Linux 构建格式一致，APK 从 zip 内读取。
 | `--orig-asm` | 额外把原始反汇编（`.orig.asm`）或原 GLSL（`.orig.glsl`）写进 `<名字>/` 子目录；与 `--programs` 互不隐含 |
 | `--jobs <N>` | 并发线程数，默认逻辑核数；`--jobs 1` 为串行 |
 | `--only <文本>` | 只处理名字含该文本的 shader |
-| `--platform <名\|id>` | 只读这一个后端的槽（d3d11 / gles3 / gles20 / openglcore / opengl / d3d9 …）；同时有 d3d11 和 gles3 的构建永远先取 d3d11，只有指定它才能单独看 GLSL 路线的产物。指定完全没有产出的后端（vulkan / metal）会直接报错，而不是导出 0 个；d3d9 可指定，其程序会作为反汇编落盘 |
+| `--platform <名\|id>` | 只读这一个后端的槽（d3d11 / gles3 / gles20 / openglcore / opengl / d3d9 …）；同时有 d3d11 和 gles3 的构建永远先取 d3d11，只有指定它才能单独看 GLSL 路线的产物。指定完全没有产出的后端（没装 SPIR-V 插件时的 vulkan、metal）会直接报错，而不是导出 0 个；d3d9 可指定，其程序会作为反汇编落盘 |
 | `--no-dedup` | 保留每个副本（默认同一路径只留一份：优先有固定容器路径的，并列取 path id 最小者） |
 | `--builtin` | 连 Unity 自带 shader 一起导出（默认跳过，只统计跳过了多少） |
 | `--no-incremental` | 即使产物已是最新也重新翻译（默认保留产物和 `.shaderripper-cache.json` 里的记录） |
@@ -316,7 +330,7 @@ usc_check       89/89            NUnit 单测      170/170
 
 ## 限制
 
-- Metal / Vulkan / WebGPU 载荷没有翻译器：这些槽位直接跳过，不做猜测
+- Metal / Vulkan / WebGPU 载荷没有内置翻译器：这些槽位直接跳过，不做猜测（Vulkan 由 SPIR-V 插件覆盖，需要自行构建并用 `--plugin-dir` 传入）
 - d3d9 有反汇编器但没有翻译器：写出 `.orig.asm`，不生成 Pass 主体
 - 纯 console 平台（PS/Switch）无可读产物
 - d3d12 在数据里表现为 dxbc 槽位中的一个 DXIL chunk：反汇编可用，HLSL 回译未验证

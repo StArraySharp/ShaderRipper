@@ -1076,8 +1076,7 @@ namespace ShaderRipper.Emit
 
             foreach (var (stage, own) in perStage)
             {
-                string fn = Function(stage);
-                // A buffer renumbered during the merge (`b1` becoming `b4` because a
+                string fn = Function(stage);                // A buffer renumbered during the merge (`b1` becoming `b4` because a
                 // pass drew from more of them) is still `cb1[...]` in every body that
                 // addressed it as an array.  The declaration sits under the new slot,
                 // so the references have to move with it.
@@ -1278,7 +1277,7 @@ namespace ShaderRipper.Emit
                 string name = m.Groups[2].Value;
                 int rows_ = m.Groups[3].Success ? int.Parse(m.Groups[3].Value, CultureInfo.InvariantCulture) : 1;
                 int row = int.Parse(m.Groups[4].Value, CultureInfo.InvariantCulture);
-                char lane = m.Groups[5].Value[0];
+                char lane = m.Groups[5].Success ? m.Groups[5].Value[0] : 'x';
                 // A `float4x4` member is four rows, spelled as a type instead of as
                 // an array; the row accounting has to see the same span either way.
                 bool matrix = type == "float4x4";
@@ -1293,9 +1292,17 @@ namespace ShaderRipper.Emit
             return rows;
         }
 
-        /// <summary>`float4 _Color : packoffset(c2.x);` / `float4 _M[4] : packoffset(c0.x);`</summary>
+        /// <summary>
+        /// `float4 _Color : packoffset(c2.x);` / `float4 _M[4] : packoffset(c0.x);`
+        /// / `float4 _Color : packoffset(c2);`
+        ///
+        /// The lane is optional in HLSL and means `x` when omitted: an emitter that
+        /// only lays members out by row writes the short form, and refusing it here
+        /// dropped every such member -- the whole block then looked empty and was
+        /// not declared at all.
+        /// </summary>
         private static readonly Regex MemberLine = new(
-            @"^(\w+)\s+([A-Za-z_]\w*)\s*(?:\[\s*(\d+)\s*\])?\s*:\s*packoffset\s*\(\s*c(\d+)\s*\.\s*([xyzw])\s*\)\s*;$",
+            @"^(\w+)\s+([A-Za-z_]\w*)\s*(?:\[\s*(\d+)\s*\])?\s*:\s*packoffset\s*\(\s*c(\d+)\s*(?:\.\s*([xyzw]))?\s*\)\s*;$",
             RegexOptions.CultureInvariant);
 
         /// <summary>

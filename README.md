@@ -6,7 +6,7 @@ Extract shaders from Unity game data and rebuild them as readable **ShaderLab + 
 
 > 💡 **This project's code is 100% AI-generated** (DeepSeek / GLM collaboration), with human work limited to requirements, acceptance testing and release.
 
-**Supported payloads**: dxbc — d3d11, Xbox / GameCore slots (instruction-by-instruction DXBC → HLSL translation), and DXIL chunks inside a dxbc container via dxcompiler (disassembly, back-translation unverified); glsl — GLES3 / GLES2 / OpenGLCore / OpenGL (GLSL back-translation to HLSL); d3d9 — SM2/SM3 (disassembly only). Other backends (Metal, Vulkan, console, WebGPU) have no translator and are skipped. Compute shaders (`ComputeShader` assets) are exported too, as `.compute` files with one entry point per kernel.
+**Supported payloads**: dxbc — d3d11, Xbox / GameCore slots (instruction-by-instruction DXBC → HLSL translation), and DXIL chunks inside a dxbc container via dxcompiler (disassembly, back-translation unverified); glsl — GLES3 / GLES2 / OpenGLCore / OpenGL (GLSL back-translation to HLSL); d3d9 — SM2/SM3 (disassembly only). Other backends (Metal, Vulkan, console, WebGPU) have no translator and are skipped — Vulkan is covered by the bundled [SPIR-V plugin](#plugins). Compute shaders (`ComputeShader` assets) are exported too, as `.compute` files with one entry point per kernel.
 
 ## Build
 
@@ -109,6 +109,22 @@ py -3 scripts/gen_api_docs.py     # docs/api.md, from bin/Release/net10.0/Shader
 > [`examples/ShaderRipper.Plugin.Example`](examples/ShaderRipper.Plugin.Example/ExamplePlugin.cs)
 > is a worked example of all three extension points. It is not part of the solution —
 > build it by path.
+>
+> [`examples/ShaderRipper.Plugin.SpirV`](examples/ShaderRipper.Plugin.SpirV/SpirVPlugin.cs)
+> is the worked example of a real backend: it claims Vulkan and translates the SMOL-V
+> compressed SPIR-V Unity ships into HLSL with SPIRV-Cross. Also built by path:
+>
+> ```bash
+> dotnet build examples/ShaderRipper.Plugin.SpirV -c Release
+> ShaderRipper.exe --game "Game_Data" --shaderlab out --platform vulkan \
+>                  --plugin-dir examples/ShaderRipper.Plugin.SpirV/bin/Release/net10.0
+> ```
+>
+> The module carries no debug names, so texture and sampler names are recovered from
+> the parameter slots of the same payload; constant buffers keep SPIRV-Cross's own
+> names, tagged `vs_`/`ps_` because a SPIR-V id is unique only within one module.
+> Vertex attributes are named `POSITION` then `TEXCOORDn`, which is all a location
+> number can say.
 
 ## Renderer support
 
@@ -122,12 +138,12 @@ have a translator, and one more has a disassembler:
 | glsl: gles20 / gles3 / openglcore / opengl | ✅ | ✅ | ⚠️ untested | ShaderLab + HLSLPROGRAM (GLSL back-translation) |
 | d3d9: SM2/SM3 token stream | ✅ | ✅ | ✅ | Disassembly only (`.orig.asm`); no translator |
 | ComputeShader (`cs_5_0` kernel programs) | ✅ | ✅ | ⚠️ untested | `.compute` (one `[numthreads]` entry point per kernel) |
-| metal / vulkan / console platforms / webgpu | — | — | — | skipped (no translator) |
+| metal / vulkan / console platforms / webgpu | — | — | — | skipped (no translator); Vulkan via the [SPIR-V plugin](#plugins) |
 
 > macOS is untested: the managed paths should work (publish yourself with `-r osx-arm64`), but DXIL disassembly is unavailable since Microsoft ships no macOS DXC build.
 > One shader usually carries several backend slots and each is processed; a game that only ships metal / vulkan produces nothing.
 >
-> `--platform <name|id>` reads a single slot. A build that ships both d3d11 and gles3 always takes d3d11, so this is the only way to see what the GLSL route produces on its own. Naming a backend that would produce nothing at all (vulkan, metal) is an error — an empty export that exits 0 is the trap `--only` had; `d3d9` is accepted because its programs still land on disk as disassembly.
+> `--platform <name|id>` reads a single slot. A build that ships both d3d11 and gles3 always takes d3d11, so this is the only way to see what the GLSL route produces on its own. Naming a backend that would produce nothing at all (vulkan without the SPIR-V plugin, metal) is an error — an empty export that exits 0 is the trap `--only` had; `d3d9` is accepted because its programs still land on disk as disassembly.
 >
 > d3d9 has no back-translation on purpose. SM2/SM3 is a different dialect from DXBC (`texld` / `mova`, absolute register numbers instead of a `dcl_` prefix plus relative `r#`), so the DXBC emitter cannot read it and a second translator would not pay for itself. The pass keeps its render state and carries a note saying its program was read but not translated, which is what the build's data actually supports.
 
@@ -341,7 +357,7 @@ rewrite, and the readability passes it guards are described in
 
 ## Limitations
 
-- Metal / Vulkan / WebGPU payloads have no translator: those slots are skipped, not guessed
+- Metal / Vulkan / WebGPU payloads have no built-in translator: those slots are skipped, not guessed (Vulkan is covered by the SPIR-V plugin, which has to be built and passed with `--plugin-dir`)
 - d3d9 has a disassembler but no translator: the `.orig.asm` is written, the pass body is not
 - Pure console platforms (PS/Switch) have no readable output
 - d3d12 shows up as a DXIL chunk in a dxbc slot: disassembly works, HLSL back-translation is unverified

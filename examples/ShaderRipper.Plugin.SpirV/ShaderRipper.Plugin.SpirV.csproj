@@ -1,0 +1,46 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <!-- A real backend, not a template: it gives the tool SPIR-V support by
+         registering the Vulkan slot reader and an HLSL translator.  Kept outside the
+         solution like the example, so a plain build of the tool is unaffected. -->
+    <TargetFramework>net10.0</TargetFramework>
+    <Nullable>disable</Nullable>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <AssemblyName>ShaderRipper.Plugin.SpirV</AssemblyName>
+    <RootNamespace>ShaderRipper.Plugin.SpirV</RootNamespace>
+    <IsPackable>false</IsPackable>
+    <AllowUnsafeBlocks>true</AllowUnsafeBlocks>
+    <PlatformTarget>x64</PlatformTarget>
+    <Version>1.0.0</Version>
+    <!-- The plugin is a library loaded by the host, so nothing copies its own
+         dependencies next to it by default.  It needs SPIRV-Cross and its managed
+         binding at load time, and the native library has to sit beside them for the
+         default probing rules to find it. -->
+    <CopyLocalLockFileAssemblies>true</CopyLocalLockFileAssemblies>
+    <!-- SPIRV-Cross is reached through its C API, whose entry points are unmanaged
+         function pointers; the binding types are pointer-shaped and must not be
+         trimmed or AOT-compiled away. -->
+    <EnableTrimAnalyzer>false</EnableTrimAnalyzer>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <!-- Same rule as the example: the host already has these types loaded, so the
+         library must NOT be copied next to the plugin or IShaderRipperPlugin would
+         mean two different things and registration would be silently ignored. -->
+    <ProjectReference Include="..\..\src\ShaderRipper\ShaderRipper.csproj">
+      <Private>false</Private>
+      <ExcludeAssets>runtime</ExcludeAssets>
+    </ProjectReference>
+  </ItemGroup>
+
+  <ItemGroup>
+    <!-- SMOL-V: Unity ships the Vulkan payload compressed with this scheme, and the
+         slot cannot be read at all without decoding it first. -->
+    <PackageReference Include="Tesearis.SmolVDecoder" Version="1.0.0" />
+    <!-- SPIRV-Cross, consumed through the C API rather than its C++ interface: the
+         C API has a stable ABI, so the same call sequence works against whatever
+         build of the native library is on the machine. -->
+    <PackageReference Include="Silk.NET.SPIRV.Cross" Version="2.23.0" />
+    <PackageReference Include="Silk.NET.SPIRV.Cross.Native" Version="2.23.0" />
+  </ItemGroup>
+</Project>

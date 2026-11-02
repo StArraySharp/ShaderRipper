@@ -125,6 +125,15 @@ namespace ShaderRipper.Game
             public readonly Dictionary<string, (List<string> kw, string hlsl)> Glsl = new();
 
             /// <summary>
+            /// What the bodies were translated from, when the route knows better than
+            /// the defaults -- a plugin backend reports its own format ("SPIR-V"), and
+            /// the wrapper writes it above <c>HLSLPROGRAM</c>.  Empty means "infer from
+            /// which dictionary is populated", which is what the two built-in routes
+            /// rely on.
+            /// </summary>
+            public string Source;
+
+            /// <summary>
             /// Highest shader model any program of this pass was compiled for, as
             /// <c>40</c> or <c>50</c>.  The translated HLSL is register level -- it
             /// declares <c>Texture2D</c> + <c>SamplerState</c>, samples with
@@ -1925,6 +1934,10 @@ namespace ShaderRipper.Game
                 }
                 if (result.Unsupported || string.IsNullOrWhiteSpace(result.Hlsl))
                 {
+                    // A plugin that refuses a payload explains why in its notes; the
+                    // count alone would leave the user with "skipped" and no reason.
+                    foreach (string note in result.Notes ?? Array.Empty<string>())
+                        s.Notes.Add($"{name}/{info.Name}: {note}");
                     s.Skipped++;
                     continue;
                 }
@@ -1958,6 +1971,10 @@ namespace ShaderRipper.Game
                 foreach (var owner in owners)
                 {
                     if (!perPass.TryGetValue(owner, out var build)) perPass[owner] = build = new PassBuild();
+                    // A plugin backend knows its own format, and the built-in inference
+                    // ("DXBC unless the GLSL route filled the bodies") would label a
+                    // SPIR-V translation as DXBC.
+                    build.Source ??= PluginSource(info);
                     foreach (string note in result.Notes ?? Array.Empty<string>())
                         if (!build.Notes.Contains(note)) build.Notes.Add(note);
                     if (result.Target > 0) build.Target = Math.Max(build.Target, result.Target);
@@ -1970,6 +1987,18 @@ namespace ShaderRipper.Game
         // ------------------------------------------------------------------
         // ShaderLab assembly
         // ------------------------------------------------------------------
+
+        /// <summary>
+        /// The language a plugin backend's bodies were translated from, for the
+        /// provenance comment the wrapper writes above <c>HLSLPROGRAM</c>.  The format
+        /// is UpperCased because it is a name, not a token: <c>spirv</c> would read as
+        /// a typo of the product.
+        /// </summary>
+        private static string PluginSource(PlatformInfo info)
+        {
+            if (string.IsNullOrEmpty(info?.Format)) return null;
+            return info.Format == "spirv" ? "SPIR-V" : info.Format.ToUpperInvariant();
+        }
 
         /// <summary>
         /// The shader's own structure, translated into what the wrapper needs:
@@ -2372,7 +2401,8 @@ namespace ShaderRipper.Game
 
             bool dxbc = pb.Vs.Count > 0 || pb.Ps.Count > 0;
             bool glsl = !dxbc && pb.Glsl.Count > 0;
-            pt.Source = glsl ? "GLSL" : "DXBC";
+            pt.Source = !string.IsNullOrEmpty(pb.Source) ? pb.Source
+                      : glsl ? "GLSL" : "DXBC";
 
             // Prefer DXBC when both backends exist; never mix their slot namespaces.
             if (glsl)
