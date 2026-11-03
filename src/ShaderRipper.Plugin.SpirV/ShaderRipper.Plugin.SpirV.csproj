@@ -1,8 +1,9 @@
 <Project Sdk="Microsoft.NET.Sdk">
   <PropertyGroup>
     <!-- A real backend, not a template: it gives the tool SPIR-V support by
-         registering the Vulkan slot reader and an HLSL translator.  Kept outside the
-         solution like the example, so a plain build of the tool is unaffected. -->
+         registering the Vulkan slot reader and an HLSL translator.  It lives in src/
+         but is still a plugin, so nothing references it: the host only sees it
+         through the plugin directory given on the command line. -->
     <TargetFramework>net10.0</TargetFramework>
     <Nullable>disable</Nullable>
     <ImplicitUsings>enable</ImplicitUsings>
@@ -27,7 +28,7 @@
     <!-- Same rule as the example: the host already has these types loaded, so the
          library must NOT be copied next to the plugin or IShaderRipperPlugin would
          mean two different things and registration would be silently ignored. -->
-    <ProjectReference Include="..\..\src\ShaderRipper\ShaderRipper.csproj">
+    <ProjectReference Include="..\ShaderRipper\ShaderRipper.csproj">
       <Private>false</Private>
       <ExcludeAssets>runtime</ExcludeAssets>
     </ProjectReference>

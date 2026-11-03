@@ -99,14 +99,15 @@ py -3 scripts/gen_api_docs.py     # 读 bin/Release/net10.0/ShaderRipper.xml，�
 > [`examples/ShaderRipper.Plugin.Example`](examples/ShaderRipper.Plugin.Example/ExamplePlugin.cs)
 > 是三个扩展点的完整示例。它不在解决方案内，按路径单独构建。
 >
-> [`examples/ShaderRipper.Plugin.SpirV`](examples/ShaderRipper.Plugin.SpirV/SpirVPlugin.cs)
+> [`src/ShaderRipper.Plugin.SpirV`](src/ShaderRipper.Plugin.SpirV/SpirVPlugin.cs)
 > 是一个真实后端的示例：认领 Vulkan，把 Unity 打包的 SMOL-V 压缩 SPIR-V 用
-> SPIRV-Cross 翻成 HLSL。同样按路径构建：
+> SPIRV-Cross 翻成 HLSL。它在解决方案里，但没有任何项目引用它——宿主仍需要被指到
+> 它的输出目录：
 >
 > ```bash
-> dotnet build examples/ShaderRipper.Plugin.SpirV -c Release
+> dotnet build src/ShaderRipper.Plugin.SpirV -c Release
 > ShaderRipper.exe --game "Game_Data" --shaderlab out --platform vulkan \
->                  --plugin-dir examples/ShaderRipper.Plugin.SpirV/bin/Release/net10.0
+>                  --plugin-dir src/ShaderRipper.Plugin.SpirV/bin/Release/net10.0
 > ```
 >
 > 模块里没有调试名，所以纹理与采样器名从同一载荷的参数槽回填；cbuffer 保留

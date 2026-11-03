@@ -8,5 +8,9 @@
     <Project Path="src/ShaderRipper.Application/ShaderRipper.Application.csproj" />
     <Project Path="src/ShaderRipper.Gui/ShaderRipper.Gui.csproj" />
     <Project Path="src/ShaderRipper.Tests/ShaderRipper.Tests.csproj" />
+    <!-- A plugin, so nothing references it; being in the solution only means a
+         solution build keeps it compiling.  The host still loads it from a
+         directory given on the command line. -->
+    <Project Path="src/ShaderRipper.Plugin.SpirV/ShaderRipper.Plugin.SpirV.csproj" />
   </Folder>
 </Solution>

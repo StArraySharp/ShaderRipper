@@ -110,14 +110,15 @@ py -3 scripts/gen_api_docs.py     # docs/api.md, from bin/Release/net10.0/Shader
 > is a worked example of all three extension points. It is not part of the solution —
 > build it by path.
 >
-> [`examples/ShaderRipper.Plugin.SpirV`](examples/ShaderRipper.Plugin.SpirV/SpirVPlugin.cs)
+> [`src/ShaderRipper.Plugin.SpirV`](src/ShaderRipper.Plugin.SpirV/SpirVPlugin.cs)
 > is the worked example of a real backend: it claims Vulkan and translates the SMOL-V
-> compressed SPIR-V Unity ships into HLSL with SPIRV-Cross. Also built by path:
+> compressed SPIR-V Unity ships into HLSL with SPIRV-Cross. It is in the solution, but
+> nothing references it — the host still has to be pointed at its output:
 >
 > ```bash
-> dotnet build examples/ShaderRipper.Plugin.SpirV -c Release
+> dotnet build src/ShaderRipper.Plugin.SpirV -c Release
 > ShaderRipper.exe --game "Game_Data" --shaderlab out --platform vulkan \
->                  --plugin-dir examples/ShaderRipper.Plugin.SpirV/bin/Release/net10.0
+>                  --plugin-dir src/ShaderRipper.Plugin.SpirV/bin/Release/net10.0
 > ```
 >
 > The module carries no debug names, so texture and sampler names are recovered from
