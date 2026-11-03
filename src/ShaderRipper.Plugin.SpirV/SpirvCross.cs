@@ -397,50 +397,79 @@ namespace ShaderRipper.Plugin.SpirV
 
                 map[$"_{block.Struct}_{block.Variable}"] = record.Name;
 
+                // Unity records some engine buffers with their size but no member
+                // table -- `UnityPerDraw` is the common one -- so the members come
+                // from the engine layout the host already carries, keyed by the row
+                // each one starts at.  Only names the engine table actually has are
+                // used; a row it does not describe keeps its positional name.
                 foreach (var kv in block.MemberOffsets)
                 {
                     CBufferMember member = record.Members.Find(m => m.Offset == kv.Value);
-                    if (member == null) continue;
-                    map[$"_{block.Variable}_m{kv.Key}"] = member.Name;
+                    if (member != null)
+                    {
+                        map[$"_{block.Variable}_m{kv.Key}"] = member.Name;
+                        continue;
+                    }
+
+                    var engine = Plugins.Platforms.EngineBuffers.At(record.Name, kv.Value / 16);
+                    if (engine == null) continue;
+                    map[$"_{block.Variable}_m{kv.Key}"] = engine.Value.Name;
                 }
             }
             return map;
         }
 
         /// <summary>
-        /// The recorded buffer that best explains this block: same descriptor, and every
-        /// one of the module's member offsets present in the record.
+        /// The recorded buffer that best explains this block.
         ///
         /// A descriptor alone is not enough to choose -- one payload carries a parameter
         /// slot per keyword variant and the variants disagree, so the record has to be
-        /// the one whose layout the module actually has.  Requiring a full match of the
-        /// offsets does that without inventing a similarity threshold: a record that
-        /// misses one of the module's members is a different layout, and naming through
-        /// it would point at the wrong bytes.  Ties (a shorter layout that happens to be
-        /// a prefix of a longer one) go to the record closest in size to the block.
+        /// the one whose layout the module actually has.  The test is a subset one: every
+        /// member the record names must sit at an offset the module also has.  A record
+        /// from a variant that shifted by a prefix fails it, because the offsets it names
+        /// do not exist in this module at all, while the record that belongs to the
+        /// module passes with every member it knows.
         ///
-        /// Null when no record matches, so the members keep their positional names.
+        /// The subset direction also lets a partly-recorded buffer contribute: Unity
+        /// lists only <c>unity_MatrixVP</c> for <c>UnityPerFrame</c>, and naming that one
+        /// member is right even though the other ten stay positional.  Requiring the
+        /// module's offsets to all be covered instead threw the whole table away.
+        ///
+        /// Among the records that pass, the one naming the most members wins; ties go to
+        /// the closer member count.  A record with NO members still names its block --
+        /// Unity records <c>UnityPerDraw</c> as a size and nothing else -- so it ranks
+        /// last rather than being skipped, and decides the name only when no record
+        /// describes any member.  Null when nothing carries the descriptor.
         /// </summary>
         private static CBufferRecord BestRecord(List<CBufferRecord> records, SpirvBlock block)
         {
             if (block.MemberOffsets.Count == 0) return null;
 
             CBufferRecord best = null;
+            int bestNamed = -1;
             int bestDistance = int.MaxValue;
+
             foreach (CBufferRecord record in records)
             {
                 if (!record.HasBinding || record.Set != block.Set || record.Binding != block.Binding)
                     continue;
 
-                int matched = 0;
-                foreach (var kv in block.MemberOffsets)
-                    if (record.Members.Exists(m => m.Offset == kv.Value)) matched++;
-                if (matched != block.MemberOffsets.Count) continue;
+                bool fits = true;
+                foreach (CBufferMember member in record.Members)
+                {
+                    if (block.MemberOffsets.ContainsValue(member.Offset)) continue;
+                    fits = false;
+                    break;
+                }
+                if (!fits) continue;
 
+                int named = record.Members.Count;
                 int distance = Math.Abs(record.Members.Count - block.MemberCount);
-                if (best == null || distance < bestDistance)
+                if (best == null || named > bestNamed ||
+                    (named == bestNamed && distance < bestDistance))
                 {
                     best = record;
+                    bestNamed = named;
                     bestDistance = distance;
                 }
             }

@@ -142,6 +142,13 @@ namespace ShaderRipper.Plugin.SpirV
         /// </summary>
         private void ReadParamSlot(ReadOnlySpan<byte> slot)
         {
+            // Records of THIS slot only.  The register map at the end names buffers
+            // the slot itself declared, and looking the name up across the whole
+            // payload would find a same-named buffer from an earlier slot -- already
+            // bound, so this slot's copy would never get its descriptor and the
+            // record after it would be read as a texture instead.
+            var local = new List<CBufferRecord>();
+
             int at = 0;
             while (at + 8 <= slot.Length)
             {
@@ -149,6 +156,7 @@ namespace ShaderRipper.Plugin.SpirV
 
                 if (TryReadCBuffer(slot, name, next, out CBufferRecord cb, out int after))
                 {
+                    local.Add(cb);
                     Buffers.Add(cb);
                     at = after;
                     continue;
@@ -165,8 +173,8 @@ namespace ShaderRipper.Plugin.SpirV
                 if (next + 8 <= slot.Length &&
                     BitConverter.ToInt32(slot.Slice(next, 4)) == 1)
                 {
-                    CBufferRecord known = Buffers.Find(b => b.Name == name);
-                    if (known != null && !known.HasBinding)
+                    CBufferRecord known = local.Find(b => b.Name == name);
+                    if (known != null)
                     {
                         int packed = BitConverter.ToInt32(slot.Slice(next + 4, 4));
                         known.Set = (packed >> 16) & 0xFF;
