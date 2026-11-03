@@ -153,7 +153,7 @@ namespace ShaderRipper.Plugin.SpirV
                 }
 
                 string text = new string((sbyte*)source);
-                text = Rename(text, names, vertex);
+                text = Rename(text, names, vertex, spirv);
                 text = Flatten(text, vertex);
 
                 string debugDir = Environment.GetEnvironmentVariable("SHADERRIP_SPIRVDBG");
@@ -296,29 +296,24 @@ namespace ShaderRipper.Plugin.SpirV
         /// declaration was given is the one to look the name up by, because it is the
         /// same <c>t#</c> the parameter table is keyed by.
         ///
-        /// Constant buffers are deliberately left alone.  The parameter table lists them
-        /// by register, but a register is a per-stage number: one pass's vertex module
-        /// puts its material block at <c>b1</c> while the fragment module puts a
-        /// different block at <c>b0</c>.  Renaming by register therefore gives two
-        /// unrelated buffers the same name, and the merge then collapses them into one
-        /// declaration that half the program's references do not resolve against.
-        /// Keeping SPIRV-Cross's own block names costs readability and keeps the
-        /// program correct, which is the right trade here: the buffer members are
-        /// unnamed there too, so the block name is all that changes.
+        /// Constant buffers are named through the module rather than by register.  The
+        /// parameter slot records each buffer with the descriptor set and binding the
+        /// runtime uses, and the SPIR-V module decorates its block variable with the
+        /// same pair, so the two can be joined without guessing: a <c>b#</c> is a
+        /// per-stage number and says nothing, but a <c>(set, binding)</c> is global.
+        /// The members are then matched by byte offset, which the module records as
+        /// <c>OpMemberDecorate MemberOffset</c> and the slot records per member.
         ///
-        /// Every identifier SPIRV-Cross generated is then tagged with its stage.  Those
-        /// names are derived from SPIR-V ids, and an id is unique only WITHIN one
-        /// module -- both stages of a pass come out of the same glslang run and number
-        /// their blocks alike, so the vertex module's <c>_26_m0</c> (a <c>float4[4]</c>)
-        /// and the fragment module's <c>_26_m0</c> (a <c>float</c>) are two unrelated
-        /// members that happen to share a spelling.  Merging the stages then folds them
-        /// into one declaration at one offset and rewrites half the references to read
-        /// through the other stage's member, which is not even the same type.  A
-        /// <c>vs_</c>/<c>ps_</c> tag keeps them apart without inventing any fact about
-        /// them: the tag says which module the id came from, which is all the name ever
-        /// meant.
+        /// Every identifier SPIRV-Cross generated that was NOT named this way is tagged
+        /// with its stage.  Those names are derived from SPIR-V ids, and an id is unique
+        /// only WITHIN one module -- both stages of a pass come out of the same glslang
+        /// run and number their blocks alike, so an unnamed vertex <c>_26_m0</c> and an
+        /// unnamed fragment <c>_26_m0</c> would merge into one declaration even when
+        /// they are unrelated.  A <c>vs_</c>/<c>ps_</c> tag keeps them apart without
+        /// inventing any fact about them: the tag says which module the id came from,
+        /// which is all the name ever meant.
         /// </summary>
-        private static string Rename(string text, SpirvPayload names, bool vertex)
+        private static string Rename(string text, SpirvPayload names, bool vertex, byte[] spirv)
         {
             var map = new Dictionary<string, string>(StringComparer.Ordinal);
 
@@ -346,6 +341,8 @@ namespace ShaderRipper.Plugin.SpirV
                 }
             }
 
+            foreach (var kv in CBufferNames(spirv, names)) map[kv.Key] = kv.Value;
+
             var sb = new StringBuilder(text.Length);
             string tag = vertex ? "vs_" : "ps_";
             int i = 0;
@@ -363,6 +360,91 @@ namespace ShaderRipper.Plugin.SpirV
                 else sb.Append(word);
             }
             return sb.ToString();
+        }
+
+        /// <summary>
+        /// The constant-buffer names the payload recorded, keyed by the identifier
+        /// SPIRV-Cross gave them.
+        ///
+        /// The module declares a block variable that points at a struct, and SPIRV-Cross
+        /// spells the block <c>_&lt;structId&gt;_&lt;variableId&gt;</c> and each of its
+        /// members <c>_&lt;variableId&gt;_m&lt;index&gt;</c>.  That is how the two tables
+        /// are joined: the variable carries the descriptor the slot's register map names,
+        /// and the member's <c>OpMemberDecorate</c> offset is the one the slot records
+        /// for its name.
+        ///
+        /// A descriptor is not unique within a payload -- one shader has a parameter slot
+        /// per keyword variant, and the variants do NOT agree: a shader that samples
+        /// <c>_ScreenParams</c> in one branch and not another puts its first member at 0
+        /// in one slot and at 16 in the next, so every name after it shifts.  Picking the
+        /// first record with a matching descriptor therefore names the members from a
+        /// different variant's layout, which is worse than leaving them unnamed: the
+        /// names would point at the wrong bytes.  The record whose offsets actually line
+        /// up with the module's is the one that belongs to it, so the candidates are
+        /// scored and the best kept.
+        /// </summary>
+        private static Dictionary<string, string> CBufferNames(byte[] spirv, SpirvPayload names)
+        {
+            var map = new Dictionary<string, string>(StringComparer.Ordinal);
+            if (names == null || names.Buffers.Count == 0) return map;
+
+            foreach (var block in SpirvBlocks.Read(spirv).Values)
+            {
+                if (block.Set < 0 || block.Binding < 0) continue;
+
+                CBufferRecord record = BestRecord(names.Buffers, block);
+                if (record == null) continue;
+
+                map[$"_{block.Struct}_{block.Variable}"] = record.Name;
+
+                foreach (var kv in block.MemberOffsets)
+                {
+                    CBufferMember member = record.Members.Find(m => m.Offset == kv.Value);
+                    if (member == null) continue;
+                    map[$"_{block.Variable}_m{kv.Key}"] = member.Name;
+                }
+            }
+            return map;
+        }
+
+        /// <summary>
+        /// The recorded buffer that best explains this block: same descriptor, and every
+        /// one of the module's member offsets present in the record.
+        ///
+        /// A descriptor alone is not enough to choose -- one payload carries a parameter
+        /// slot per keyword variant and the variants disagree, so the record has to be
+        /// the one whose layout the module actually has.  Requiring a full match of the
+        /// offsets does that without inventing a similarity threshold: a record that
+        /// misses one of the module's members is a different layout, and naming through
+        /// it would point at the wrong bytes.  Ties (a shorter layout that happens to be
+        /// a prefix of a longer one) go to the record closest in size to the block.
+        ///
+        /// Null when no record matches, so the members keep their positional names.
+        /// </summary>
+        private static CBufferRecord BestRecord(List<CBufferRecord> records, SpirvBlock block)
+        {
+            if (block.MemberOffsets.Count == 0) return null;
+
+            CBufferRecord best = null;
+            int bestDistance = int.MaxValue;
+            foreach (CBufferRecord record in records)
+            {
+                if (!record.HasBinding || record.Set != block.Set || record.Binding != block.Binding)
+                    continue;
+
+                int matched = 0;
+                foreach (var kv in block.MemberOffsets)
+                    if (record.Members.Exists(m => m.Offset == kv.Value)) matched++;
+                if (matched != block.MemberOffsets.Count) continue;
+
+                int distance = Math.Abs(record.Members.Count - block.MemberCount);
+                if (best == null || distance < bestDistance)
+                {
+                    best = record;
+                    bestDistance = distance;
+                }
+            }
+            return best;
         }
 
         /// <summary>

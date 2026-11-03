@@ -6,6 +6,42 @@ using Tesearis.SmolVDecoder;
 namespace ShaderRipper.Plugin.SpirV
 {
     /// <summary>
+    /// One constant buffer as the payload's parameter slot records it.
+    ///
+    /// Unity keeps this table for its own binding, and it is the only surviving copy
+    /// of the names: the SPIR-V module is compiled with its debug information stripped,
+    /// so nothing else in the payload says a block was called <c>UnityPerMaterial</c>
+    /// or that its first member was <c>_Color</c>.
+    /// </summary>
+    internal sealed class CBufferRecord
+    {
+        public string Name;
+
+        /// <summary>Declared size in bytes.</summary>
+        public int Size;
+
+        public List<CBufferMember> Members = new();
+
+        /// <summary>Descriptor set the runtime binds this buffer to.</summary>
+        public int Set = -1;
+
+        /// <summary>Binding within <see cref="Set"/>.</summary>
+        public int Binding = -1;
+
+        /// <summary>True once the slot's register map named this buffer.</summary>
+        public bool HasBinding;
+    }
+
+    /// <summary>One member of a <see cref="CBufferRecord"/>.</summary>
+    internal sealed class CBufferMember
+    {
+        public string Name;
+
+        /// <summary>Byte offset from the start of the buffer.</summary>
+        public int Offset;
+    }
+
+    /// <summary>
     /// Everything one decoded Vulkan payload says about a shader: the SPIR-V modules of
     /// each program, plus the names Unity kept in the sibling parameter slots.
     ///
@@ -38,6 +74,14 @@ namespace ShaderRipper.Plugin.SpirV
         /// <summary>Texture register (<c>t#</c>) to property name.</summary>
         public readonly Dictionary<int, string> Textures = new();
 
+        /// <summary>
+        /// The constant buffers the payload records, with their member names and byte
+        /// offsets.  This is the only place those names survive: the SPIR-V module is
+        /// compiled with its debug information stripped, so a translated program names
+        /// a block <c>_16_18</c> and its members <c>_18_m0</c> where the original said
+        /// <c>VGlobals...</c> and <c>unity_ObjectToWorld</c>.
+        /// </summary>
+        public readonly List<CBufferRecord> Buffers = new();
         /// <summary>Diagnostics worth writing into the generated file.</summary>
         public readonly List<string> Notes = new();
 
@@ -61,7 +105,7 @@ namespace ShaderRipper.Plugin.SpirV
             // derives by convention.
             foreach (var (off, size) in slots)
                 if (!Payloads.IsSpirVSlot(span, off))
-                    result.ReadTextureSlot(span.Slice(off, size));
+                    result.ReadParamSlot(span.Slice(off, size));
 
             if (blobIndex < 0 || blobIndex >= slots.Count) return null;
             var (moduleOff, moduleSize) = slots[blobIndex];
@@ -85,43 +129,105 @@ namespace ShaderRipper.Plugin.SpirV
         // ------------------------------------------------------------------
 
         /// <summary>
-        /// Harvest the texture bindings out of one parameter slot.
+        /// Harvest one parameter slot: the texture bindings, and the constant buffers
+        /// with the member names and byte offsets the SPIR-V module no longer carries.
         ///
-        /// The slot is a flat run of records with no index.  A record is a
-        /// length-prefixed name followed by four ints; for a texture they are
-        /// <c>[nameIndex, register, samplerIndex, 4]</c>, where the register is
-        /// <c>0x08000000 | binding</c> because Vulkan packs the descriptor set into the
-        /// high byte.  Everything else in the slot is a cbuffer or a scalar whose
-        /// name the emitted HLSL derives from the SPIR-V itself, so only texture
-        /// records are of interest here.
+        /// The slot is a flat run of records with no index.  A texture record is a
+        /// length-prefixed name followed by four ints -- <c>[nameIndex, register,
+        /// samplerIndex, 4]</c>, where the register is <c>0x08000000 | binding</c>
+        /// because Vulkan packs the descriptor set into the high byte.  A buffer record
+        /// is a name, a byte size and a member count, followed by that many member
+        /// records.  A trailing <c>[name, 1, set&lt;&lt;24 | binding]</c> list then maps
+        /// the buffers it names to the descriptor each is bound to.
         /// </summary>
-        private void ReadTextureSlot(ReadOnlySpan<byte> slot)
+        private void ReadParamSlot(ReadOnlySpan<byte> slot)
         {
             int at = 0;
             while (at + 8 <= slot.Length)
             {
                 if (!TryReadName(slot, at, out string name, out int next)) { at += 4; continue; }
-                if (next + 16 > slot.Length) break;
 
-                int nameIndex = BitConverter.ToInt32(slot.Slice(next, 4));
-                int packed = BitConverter.ToInt32(slot.Slice(next + 4, 4));
+                if (TryReadCBuffer(slot, name, next, out CBufferRecord cb, out int after))
+                {
+                    Buffers.Add(cb);
+                    at = after;
+                    continue;
+                }
+
+                // The trailing register map.  It only names buffers the record scan
+                // above already found, which is what tells it apart from a texture
+                // record whose name table index happens to be 1.
+                //
+                // The word packs `tag << 24 | set << 16 | binding`: the high byte
+                // distinguishes the record's role (4 for a vertex-stage buffer, 8 for a
+                // fragment-stage one or a texture), and the two below it are exactly the
+                // DescriptorSet and Binding the module decorates its variable with.
+                if (next + 8 <= slot.Length &&
+                    BitConverter.ToInt32(slot.Slice(next, 4)) == 1)
+                {
+                    CBufferRecord known = Buffers.Find(b => b.Name == name);
+                    if (known != null && !known.HasBinding)
+                    {
+                        int packed = BitConverter.ToInt32(slot.Slice(next + 4, 4));
+                        known.Set = (packed >> 16) & 0xFF;
+                        known.Binding = packed & 0xFF;
+                        known.HasBinding = true;
+                        at = next + 8;
+                        continue;
+                    }
+                }
+
+                if (next + 16 > slot.Length) break;
+                int reg = BitConverter.ToInt32(slot.Slice(next + 4, 4));
                 int kind = BitConverter.ToInt32(slot.Slice(next + 12, 4));
 
                 // A texture binding: kind 4, descriptor set 8 in the high byte, the
-                // register in the low one.  The cbuffer records that share this slot
-                // are skipped: a b# is a per-stage number, so a name read from here
-                // cannot be attached to a buffer without collapsing two unrelated
-                // blocks that happen to share the register across stages.
+                // register in the low one.
                 if (kind == Payloads.TextureRecordKind &&
-                    (packed & unchecked((int)0xFF000000)) == 0x08000000)
+                    (reg & unchecked((int)0xFF000000)) == 0x08000000)
                 {
-                    int binding = packed & 0xFF;
+                    int binding = reg & 0xFF;
                     if (binding < 128 && !Textures.ContainsKey(binding)) Textures[binding] = name;
                 }
 
                 at = next + 16;
-                _ = nameIndex;
             }
+        }
+
+        /// <summary>
+        /// Read one constant-buffer record: <c>name, byteSize, memberCount</c> then that
+        /// many <c>name, [0, type, dim, 0, 0, offset]</c> members.
+        ///
+        /// Every field is validated before the record is accepted, because the scan
+        /// walks the slot word by word and a false positive would consume the records
+        /// that follow it.
+        /// </summary>
+        private static bool TryReadCBuffer(ReadOnlySpan<byte> slot, string name, int next,
+                                           out CBufferRecord cb, out int after)
+        {
+            cb = null;
+            after = next;
+            if (next + 8 > slot.Length) return false;
+
+            int size = BitConverter.ToInt32(slot.Slice(next, 4));
+            int count = BitConverter.ToInt32(slot.Slice(next + 4, 4));
+            if (size < 0 || size > 1 << 20 || count < 0 || count > 4096) return false;
+
+            var members = new List<CBufferMember>(count);
+            int at = next + 8;
+            for (int i = 0; i < count; i++)
+            {
+                if (!TryReadName(slot, at, out string member, out int mn)) return false;
+                if (mn + 24 > slot.Length) return false;
+                int offset = BitConverter.ToInt32(slot.Slice(mn + 20, 4));
+                if (offset < 0 || offset >= size) return false;
+                members.Add(new CBufferMember { Name = member, Offset = offset });
+                at = mn + 24;
+            }
+
+            cb = new CBufferRecord { Name = name, Size = size, Members = members };
+            after = at;
+            return true;
         }
 
         /// <summary>Read a length-prefixed, 4-byte-aligned identifier.</summary>
