@@ -588,11 +588,25 @@ namespace ShaderRipper.Emit
                     foreach (var l in bodyLines[vi]) AppendBodyLine(sb, l);
                 }
                 // Combinations the build never shipped: compile the base variant.
-                sb.Append("            #else\n");
-                if (synth != null)
-                    foreach (var l in synth.Replace("\r\n", "\n").Split('\n'))
-                        AppendBodyLine(sb, l);
-                foreach (var l in bodyLines[0]) AppendBodyLine(sb, l);
+                // The fallback is only needed when a preprocessor state can miss
+                // every guard; the guards are exact over the keyword set, so that
+                // happens exactly when some guard is not the strict complement of
+                // the ones before it.  Testing the last guard is enough: guards are
+                // mutually exclusive by construction (each names one keyword state),
+                // so if the last one already covers every remaining state, the whole
+                // chain does.  Dropping a redundant `#else` also removes the only
+                // source of a duplicated cbuffer: branch 0's copy is otherwise
+                // written twice, and two declarations of one cbuffer name in a
+                // single program is a compile error.
+                string lastGuard = chain.Guards.Count > 0 ? chain.Guards[chain.Guards.Count - 1] : "";
+                if (!CoversAllStates(lastGuard, chain.Guards))
+                {
+                    sb.Append("            #else\n");
+                    if (synth != null)
+                        foreach (var l in synth.Replace("\r\n", "\n").Split('\n'))
+                            AppendBodyLine(sb, l);
+                    foreach (var l in bodyLines[0]) AppendBodyLine(sb, l);
+                }
                 sb.Append("            #endif\n");
             }
         }
@@ -600,6 +614,39 @@ namespace ShaderRipper.Emit
         /// <summary>Does this program text define the given entry point?</summary>
         private static bool DefinesEntry(string body, string name) =>
             body != null && Regex.IsMatch(body, @"\b" + name + @"\s*\(");
+
+        /// <summary>
+        /// Does this guard already cover every preprocessor state the chain leaves?
+        ///
+        /// The guards come from <c>VariantPlan.Guard</c>, one term per keyword group:
+        /// either <c>defined(X)</c> for the alternative the branch was built with, or
+        /// <c>!defined(X) && !defined(Y)...</c> for a branch with the group off.  A
+        /// guard carries a term for a group only when the branch fixed that group, so
+        /// a guard that mentions every keyword of the chain -- positively or negatively
+        /// -- is true for exactly one state and false for all the others: the branches
+        /// together partition the whole space, and the `#else` fallback behind them
+        /// would never compile.  Dropping it also removes the only source of a
+        /// duplicated cbuffer: branch 0's copy would otherwise be written a second
+        /// time, and two declarations of one cbuffer name in a single program is a
+        /// compile error.
+        ///
+        /// The keyword set is read off the guards themselves: an atom appearing
+        /// anywhere in the chain names a group member, and every guard spells a term
+        /// for the groups its branch fixed.  A guard that mentions all of those atoms
+        /// therefore partitions the space regardless of how many groups are silent.
+        /// </summary>
+        private static bool CoversAllStates(string guard, IEnumerable<string> allGuards)
+        {
+            if (string.IsNullOrEmpty(guard)) return false;
+            var atoms = new HashSet<string>(StringComparer.Ordinal);
+            foreach (Match m in Regex.Matches(string.Join("\n", allGuards), @"(!?)\s*defined\((\w+)\)"))
+                atoms.Add(m.Groups[2].Value);
+
+            var mine = new HashSet<string>(StringComparer.Ordinal);
+            foreach (Match m in Regex.Matches(guard, @"(!?)\s*defined\((\w+)\)"))
+                mine.Add(m.Groups[2].Value);
+            return mine.Count >= atoms.Count && !atoms.Except(mine).Any();
+        }
 
         /// <summary>
         /// Keys ShaderLab spells in mixed case, no matter how the serialized data

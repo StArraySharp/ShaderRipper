@@ -2603,14 +2603,16 @@ namespace ShaderRipper.Game
                 var glslSets = glslKeys.Select(k => new HashSet<string>(pb.Glsl[k].kw, StringComparer.Ordinal)).ToList();
                 var groups = VariantPlan.Groups(glslKeys.Select(k => pb.Glsl[k].kw));
                 pt.Pragmas.AddRange(groups.Select(g => KeywordPragma(g, form, pt)));
-                pt.Notes.AddRange(VariantPlan.Analyze(groups, glslSets)
+                var glslAnalysis = VariantPlan.Analyze(groups, glslSets);
+                pt.Notes.AddRange(glslAnalysis
                     .Notes.Select(n => $"{glslKeys.Count} GLSL keyword variant(s), {groups.Count} pragma line(s): " + n));
+                var glslAlwaysOn = AlwaysOnMembers(groups, glslSets);
                 pt.GlslIncludes = true;
                 pt.Chains = new List<Emit.ShaderLab.VariantChain>
                 {
                     new()
                     {
-                        Guards = glslKeys.Select(k => VariantPlan.Guard(groups, pb.Glsl[k].kw)).ToList(),
+                        Guards = glslKeys.Select(k => VariantPlan.Guard(groups, pb.Glsl[k].kw, glslAlwaysOn)).ToList(),
                         Bodies = glslKeys.Select(k => pb.Glsl[k].hlsl).ToList(),
                         Keywords = glslKeys.Select(k =>
                             new HashSet<string>(pb.Glsl[k].kw, StringComparer.Ordinal)).ToList(),
@@ -2648,6 +2650,7 @@ namespace ShaderRipper.Game
             int total = kwSets.Count();
             pt.Notes.Add($"{total} keyword variant(s), {groups2.Count} pragma line(s)");
             pt.Notes.AddRange(VariantPlan.Analyze(groups2, sets2).Notes);
+            var alwaysOn = AlwaysOnMembers(groups2, sets2);
 
             // One chain, one branch per keyword combination: the branch body is
             // the vs+ps pair of that combination cross-merged by Merge, so the
@@ -2675,11 +2678,38 @@ namespace ShaderRipper.Game
                     v.hlsl != null ? new Emit.ShaderLab.Stage { Hlsl = v.hlsl, Entry = "vert" } : null,
                     pv.hlsl != null ? new Emit.ShaderLab.Stage { Hlsl = pv.hlsl, Entry = "frag" } : null);
                 if (merged == null) continue;
-                chain.Guards.Add(VariantPlan.Guard(groups2, hadVs ? v.kw : pv.kw));
+                // A one-branch chain has no other variant to distinguish from, so
+                // its guard would wrap the only body in a condition a material can
+                // switch off -- and USC's preprocess, which runs with no keywords
+                // set, then strips the body and reports "did not find shader kernel".
+                // The pragma stays (Unity needs it to set up the keyword), the guard
+                // goes.
+                string guard = chain.Bodies.Count == 0
+                    ? ""
+                    : VariantPlan.Guard(groups2, hadVs ? v.kw : pv.kw, alwaysOn);
+                chain.Guards.Add(guard);
                 chain.Bodies.Add(string.Join("\n", merged));
                 chain.Keywords.Add(new HashSet<string>(hadVs ? v.kw : pv.kw, StringComparer.Ordinal));
             }
             pt.Chains = chain.Bodies.Count > 0 ? new List<Emit.ShaderLab.VariantChain> { chain } : null;
+        }
+
+        /// <summary>
+        /// The keyword members of the groups that are on in every compiled variant.
+        /// <see cref="VariantPlan.Guard"/> drops those groups' terms: a group with no
+        /// off state has nothing to guard, and keeping the term would make the `#if`
+        /// reject the very states the pragma still allows at runtime.
+        /// </summary>
+        private static HashSet<string> AlwaysOnMembers(List<VariantPlan.Group> groups,
+                                                       List<HashSet<string>> sets)
+        {
+            var result = new HashSet<string>(StringComparer.Ordinal);
+            foreach (var g in groups)
+            {
+                if (sets.Any(s => !VariantPlan.Members(g).Any(s.Contains))) continue;
+                foreach (var m in VariantPlan.Members(g)) result.Add(m);
+            }
+            return result;
         }
 
         private static readonly Dictionary<float, string> ZTestNames = new()

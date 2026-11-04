@@ -615,7 +615,17 @@ namespace ShaderRipper.Plugin.SpirV
 
             int wrapper = lines.FindIndex(l => l.TrimStart().StartsWith("SPIRV_Cross_Output_" + tag + " main(",
                                                                 StringComparison.Ordinal));
-            if (wrapper < 0) return string.Join("\n", lines);
+            if (wrapper < 0)
+            {
+                // The backend inlines everything into one function for simple
+                // programs: the entry point IS the body, `main(` never appears, and
+                // there is no epilogue to splice.  A bare `return;` inside is still
+                // illegal in a function that returns a struct, so redirect each one
+                // to a locally built output -- declared, filled from the statics the
+                // body wrote, returned.  Without this fxc rejects the whole program
+                // with "function must return a value".
+                return RedirectEarlyReturns(string.Join("\n", lines), tag, entry, null);
+            }
 
             int open = lines.FindIndex(wrapper, l => l.Trim() == "{");
             int close = open < 0 ? -1 : MatchBrace(lines, open);
@@ -705,6 +715,12 @@ namespace ShaderRipper.Plugin.SpirV
         /// them where the body returned says exactly what the original meant, and each
         /// copy declares its own local so nothing has to be in scope across branches.
         ///
+        /// <paramref name="epilogue"/> is null when the backend emitted a single
+        /// function with no wrapper -- there is no wrapper epilogue to repeat, so each
+        /// redirect builds the output from the statics right there.  The member list
+        /// comes from the output struct declared in this same text, which is why the
+        /// rewrite works on lines rather than on the flattened string.
+        ///
         /// A jump would be shorter, but neither spelling is usable here: <c>goto</c> is
         /// not in the HLSL grammar this project parses with -- the whole program would
         /// stop being readable as a parse tree, and the merge that follows depends on
@@ -724,6 +740,10 @@ namespace ShaderRipper.Plugin.SpirV
             int close = open < 0 ? -1 : MatchBrace(lines, open);
             if (close < 0) return text;
 
+            if (epilogue == null)
+                epilogue = BuildEpilogue(lines, tag, lines[start], open);
+            if (epilogue == null) return text;
+
             var result = new List<string>(lines.Count + 8);
             for (int i = 0; i <= close; i++)
             {
@@ -736,6 +756,44 @@ namespace ShaderRipper.Plugin.SpirV
             }
             result.AddRange(lines.GetRange(close + 1, lines.Count - close - 1));
             return string.Join("\n", result);
+        }
+
+        /// <summary>
+        /// The epilogue for a wrapper-less program: declare the output struct, fill
+        /// each member from the static the body wrote, return it.
+        ///
+        /// Members are read off the <c>struct SPIRV_Cross_Output_&lt;tag&gt;</c>
+        /// declaration in this same text, so the rewrite follows whatever SPIRV-Cross
+        /// named and typed them.  Returns null when no output struct exists, in which
+        /// case there is nothing sensible to build and the text is left alone.
+        /// </summary>
+        private static List<string> BuildEpilogue(List<string> lines, string tag,
+                                                  string entryLine, int entryOpen)
+        {
+            string decl = "struct SPIRV_Cross_Output_" + tag;
+            int head = lines.FindIndex(l => l.TrimStart().StartsWith(decl, StringComparison.Ordinal));
+            if (head < 0) return null;
+
+            int open = lines.FindIndex(head, l => l.Trim() == "{");
+            int close = open < 0 ? -1 : MatchBrace(lines, open);
+            if (close < 0) return null;
+
+            string indent = new string(' ', entryLine.Length - entryLine.TrimStart().Length + 4);
+            string local = "stage_output";
+            var epilogue = new List<string>();
+            epilogue.Add(indent + $"SPIRV_Cross_Output_{tag} {local};");
+            for (int i = open + 1; i < close; i++)
+            {
+                // `float4 ps_105 : SV_Target0;` -- the type and name live before the
+                // colon, and the semantic after it is not part of the copy.
+                var m = System.Text.RegularExpressions.Regex.Match(lines[i].Trim(),
+                    @"^(\w+)\s+(\w+)\s*(?:\[[^\]]*\])?\s*:");
+                if (!m.Success) continue;
+                string type = m.Groups[1].Value, name = m.Groups[2].Value;
+                epilogue.Add(indent + $"{local}.{name} = {name};");
+            }
+            epilogue.Add(indent + $"return {local};");
+            return epilogue;
         }
 
         /// <summary>

@@ -81,7 +81,8 @@ namespace ShaderRipper.Emit
             return groups;
         }
 
-        private static IEnumerable<string> Members(Group g)
+        /// <summary>The group's name and every alternative it can switch to.</summary>
+        public static IEnumerable<string> Members(Group g)
         {
             yield return g.Name;
             foreach (var a in g.Alternatives) yield return a;
@@ -123,14 +124,38 @@ namespace ShaderRipper.Emit
         /// with.  A <c>multi_compile</c> line only ever defines a single value,
         /// so the on-branch names that value instead of OR-ing the whole group.
         /// </summary>
-        public static string Guard(List<Group> groups, ICollection<string> keywords)
+        /// <summary>
+        /// Exact guard for one variant: every group either off (none of its
+        /// alternatives defined) or on with the one alternative it was built with.
+        /// A <c>multi_compile</c> line only ever defines a single value, so the
+        /// on-branch names that value instead of OR-ing the whole group.
+        ///
+        /// A group that is on in every compiled variant has no off state to guard
+        /// against -- its term would be true for every preprocessor state the build
+        /// can reach, and spelling it out makes the chain's `#if` reject the very
+        /// states the pragma still allows (a material can force the keyword off at
+        /// runtime).  Those terms are dropped, which is also what lets
+        /// <c>ShaderLab.CoversAllStates</c> see that the remaining guards already
+        /// partition the space and the `#else` fallback can go.
+        /// </summary>
+        public static string Guard(List<Group> groups, ICollection<string> keywords,
+                                   ISet<string> alwaysOn = null)
         {
             var terms = new List<string>();
             foreach (var g in groups)
             {
                 var on = Members(g).Where(keywords.Contains).Select(k => $"defined({k})").ToList();
                 if (on.Count == 0)
+                {
+                    // The group is on in this variant but no member matched -- that
+                    // is the always-on case, not an off branch: the keyword is set
+                    // under a name this group's member list spells differently
+                    // (case-insensitive match), so guarding on its absence would
+                    // reject the state this very variant was built for.
+                    if (alwaysOn != null && Members(g).Any(alwaysOn.Contains))
+                        continue;
                     terms.Add(string.Join(" && ", Members(g).Select(k => $"!defined({k})")));
+                }
                 else if (on.Count == 1) terms.Add(on[0]);
                 else terms.Add("(" + string.Join(" || ", on) + ")");
             }
