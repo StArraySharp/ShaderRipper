@@ -105,7 +105,8 @@ namespace ShaderRipper.Plugin.SpirV
         /// <paramref name="blobTag"/>.  See the other overload for the contract.
         /// </summary>
         public static string Compile(byte[] spirv, SpirvPayload names, bool vertex,
-                                     string blobTag, out string error)
+                                     string blobTag, out string error,
+                                     IReadOnlyDictionary<int, string> vertexSemantics = null)
         {
             error = null;
             Cross api = Api;
@@ -143,7 +144,7 @@ namespace ShaderRipper.Plugin.SpirV
                 }
 
                 ApplyOptions(api, compiler);
-                if (vertex) ApplyVertexAttributes(api, compiler, spirv);
+                if (vertex) ApplyVertexAttributes(api, compiler, spirv, vertexSemantics);
 
                 byte* source;
                 if (api.CompilerCompile(compiler, &source) != Result.Success)
@@ -155,6 +156,7 @@ namespace ShaderRipper.Plugin.SpirV
                 string text = new string((sbyte*)source);
                 text = Rename(text, names, vertex, spirv);
                 text = Flatten(text, vertex);
+                text = FoldMatrixMul(text);
 
                 string debugDir = Environment.GetEnvironmentVariable("SHADERRIP_SPIRVDBG");
                 if (!string.IsNullOrEmpty(debugDir))
@@ -217,14 +219,17 @@ namespace ShaderRipper.Plugin.SpirV
         /// <c>TEXCOORDn</c> to everything it was not told about, and naming only the
         /// first input offsets every later one by the number of names supplied.
         ///
-        /// Location 0 is <c>POSITION</c> because every vertex program Unity compiles
-        /// has one there.  The rest are <c>TEXCOORD(n-1)</c> rather than
-        /// <c>NORMAL</c>/<c>TANGENT</c>: the engine's <c>VertexChannel</c> order
-        /// suggests that mapping, but the GLSL build of the same shaders shows the
-        /// declaration order is per-shader, so a positional table silently binds the
-        /// wrong mesh stream.  A numbered channel is what the payload actually says.
+        /// A sibling platform's table wins when there is one.  The GLSL build of the
+        /// same shader spells every input's semantic in its own source
+        /// (<c>in vec4 in_COLOR0;</c>), and both backends number locations in the same
+        /// order, so that table is evidence and the positional guess below is not:
+        /// binding location 1 to <c>TEXCOORD0</c> when the mesh streams a vertex
+        /// color there is what turned every translation from a color-carrying slot
+        /// into a blank render -- the fragment read a UV as its tint and multiplied
+        /// by whatever lay in that stream.
         /// </summary>
-        private static void ApplyVertexAttributes(Cross api, Compiler* compiler, byte[] spirv)
+        private static void ApplyVertexAttributes(Cross api, Compiler* compiler, byte[] spirv,
+                                                  IReadOnlyDictionary<int, string> vertexSemantics)
         {
             SortedSet<int> locations = InputLocations(spirv);
             if (locations.Count == 0) return;
@@ -236,7 +241,12 @@ namespace ShaderRipper.Plugin.SpirV
                 int i = 0;
                 foreach (int location in locations)
                 {
-                    string semantic = location == 0 ? "POSITION" : "TEXCOORD" + (location - 1);
+                    // The sibling table first; the positional fallback only for a
+                    // location it does not mention.
+                    string semantic = vertexSemantics != null &&
+                                      vertexSemantics.TryGetValue(location, out string known)
+                        ? known
+                        : location == 0 ? "POSITION" : "TEXCOORD" + (location - 1);
                     pinned.Add(GCHandle.Alloc(Encoding.ASCII.GetBytes(semantic + "\0"), GCHandleType.Pinned));
                     entries[i++] = new HlslVertexAttributeRemap
                     {
@@ -316,6 +326,25 @@ namespace ShaderRipper.Plugin.SpirV
         private static string Rename(string text, SpirvPayload names, bool vertex, byte[] spirv)
         {
             var map = new Dictionary<string, string>(StringComparer.Ordinal);
+            string tag = vertex ? "vs_" : "ps_";
+            // One property can be bound to two registers in a single program -- Unity
+            // keeps a second binding for the same texture, for instance when one
+            // sampler state reads it with a different filter.  Renaming both to the
+            // property name declares it twice ("redefinition of '_MainTex'"), so the
+            // first declaration of each final name wins and any further one gets a
+            // numbered suffix: the name stays recognisable and unique, which is what
+            // fxc needs from a declaration.
+            var taken = new HashSet<string>(StringComparer.Ordinal);
+
+            string Unique(string wanted)
+            {
+                if (taken.Add(wanted)) return wanted;
+                for (int n = 2; ; n++)
+                {
+                    string candidate = wanted + "_" + n.ToString(CultureInfo.InvariantCulture);
+                    if (taken.Add(candidate)) return candidate;
+                }
+            }
 
             foreach (string line in text.Replace("\r\n", "\n").Split('\n'))
             {
@@ -326,25 +355,44 @@ namespace ShaderRipper.Plugin.SpirV
                 if (textureRegister >= 0 && names.Textures.TryGetValue(textureRegister, out string texture))
                 {
                     string declared = DeclaredName(trimmed);
-                    if (declared != null) map[declared] = texture;
+                    if (declared != null) map[declared] = Unique(texture);
                     continue;
                 }
 
                 // A sampler SPIRV-Cross synthesised next to a texture is named
-                // `__<id>_sampler`; the texture's own name decides the sampler's.
+                // `__<id>_sampler`; the texture's own name decides the sampler's.  It
+                // takes the same suffix its texture did, so the pair stays together.
                 int samplerRegister = RegisterOf(trimmed, "register(s");
                 if (samplerRegister >= 0)
                 {
                     string declared = DeclaredName(trimmed);
-                    if (declared != null && names.Textures.TryGetValue(samplerRegister, out string owned))
-                        map[declared] = "sampler" + owned;
+                    if (declared == null) continue;
+                    if (names.Textures.TryGetValue(samplerRegister, out string owned))
+                    {
+                        map[declared] = Unique("sampler" + owned);
+                        continue;
+                    }
+
+                    // The payload does not name this one -- a texture type it does not
+                    // record, or a sampler bound without a matching table entry.  fxc
+                    // requires a sampler's name to identify its texture, so it follows
+                    // the texture SPIRV-Cross paired it with: `__<id>_sampler` belongs
+                    // to `_<id>`, which this class renames to `<tag>_<id>`.
+                    int at = declared.StartsWith("__", StringComparison.Ordinal) ? 2 : 0;
+                    int cut = declared.IndexOf('_', at);
+                    if (cut <= at) continue;
+                    string id = declared.Substring(at, cut - at);
+                    if (id.Length == 0) continue;
+                    foreach (char ch in id)
+                        if (!char.IsDigit(ch)) { id = null; break; }
+                    if (id == null) continue;
+                    map[declared] = Unique("sampler_" + tag + id);
                 }
             }
 
             foreach (var kv in CBufferNames(spirv, names)) map[kv.Key] = kv.Value;
 
             var sb = new StringBuilder(text.Length);
-            string tag = vertex ? "vs_" : "ps_";
             int i = 0;
             while (i < text.Length)
             {
@@ -356,7 +404,13 @@ namespace ShaderRipper.Plugin.SpirV
                 string word = text.Substring(start, i - start);
 
                 if (map.TryGetValue(word, out string replacement)) sb.Append(replacement);
-                else if (Generated(word)) sb.Append(tag).Append(word, 1, word.Length - 1);
+                else if (Generated(word))
+                {
+                    // `_12` loses its underscore before the tag so the result reads
+                    // `vs_12` rather than `vs__12`; a name that already has a letter
+                    // (`u_xlat2`) keeps all of it.
+                    sb.Append(tag).Append(word[0] == '_' ? word.AsSpan(1) : word.AsSpan());
+                }
                 else sb.Append(word);
             }
             return sb.ToString();
@@ -483,10 +537,26 @@ namespace ShaderRipper.Plugin.SpirV
         /// <c>_24_26</c> (a block) and <c>_26_m0</c> (a member).  A name Unity kept --
         /// <c>vs_TEXCOORD0</c> -- never has that shape, and neither does anything this
         /// class invents, so the test only has to recognise the leading number.
+        ///
+        /// <c>u_xlatN</c>, <c>in_*</c> and <c>SV_TargetN</c> come from the same place
+        /// and need the same treatment: SPIRV-Cross names its temporaries after the
+        /// HLSLcc convention, and those names are only unique within one module.  A
+        /// pass whose vertex stage uses <c>u_xlat2</c> as a <c>float4</c> and whose
+        /// fragment stage uses it as a <c>float</c> would otherwise declare it twice
+        /// and be rejected.
         /// </summary>
         private static bool Generated(string word)
         {
-            if (word.Length < 2 || word[0] != '_' || !char.IsDigit(word[1])) return false;
+            if (word.Length < 2) return false;
+
+            // `u_xlatN`, `u_xlatbN`, `in_*`, `out_*` -- HLSLcc's names for the module's
+            // own temporaries and interface copies.
+            if (word.StartsWith("u_xlat", StringComparison.Ordinal) ||
+                word.StartsWith("in_", StringComparison.Ordinal) ||
+                word.StartsWith("out_", StringComparison.Ordinal))
+                return true;
+
+            if (word[0] != '_' || !char.IsDigit(word[1])) return false;
             for (int i = 1; i < word.Length; i++)
             {
                 char c = word[i];
@@ -526,6 +596,23 @@ namespace ShaderRipper.Plugin.SpirV
                 lines[i] = Replace(lines[i], "SPIRV_Cross_Output", "SPIRV_Cross_Output_" + tag);
             }
 
+            // A fragment program with no inputs gets no SPIRV_Cross_Input from
+            // SPIRV-Cross, but the entry point it writes still takes one.  Declaring an
+            // empty struct is what the module actually says -- nothing is passed in --
+            // and without it the parameter type is simply undefined.
+            string inputStruct = "struct SPIRV_Cross_Input_" + tag;
+            if (!lines.Any(l => l.TrimStart().StartsWith(inputStruct, StringComparison.Ordinal)))
+            {
+                // One line per statement, so the brace walk below can find the body of
+                // a struct this pass had to synthesise as readily as one the backend
+                // wrote.
+                lines.Insert(0, "};");
+                lines.Insert(0, "{");
+                lines.Insert(0, inputStruct);
+            }
+
+            EnsurePositionInput(lines, tag, vertex);
+
             int wrapper = lines.FindIndex(l => l.TrimStart().StartsWith("SPIRV_Cross_Output_" + tag + " main(",
                                                                 StringComparison.Ordinal));
             if (wrapper < 0) return string.Join("\n", lines);
@@ -551,16 +638,269 @@ namespace ShaderRipper.Plugin.SpirV
             int bodyClose = bodyOpen < 0 ? -1 : MatchBrace(lines, bodyOpen);
             if (bodyClose < 0) return string.Join("\n", lines);
 
-            var result = new List<string>(lines.Count + 4);
+            var result = new List<string>(lines.Count + 8);
             result.AddRange(lines.GetRange(0, head));
             result.Add($"SPIRV_Cross_Output_{tag} {entry}(SPIRV_Cross_Input_{tag} stage_input)");
             result.Add("{");
             result.AddRange(lines.GetRange(open + 1, call - open - 1));
             result.AddRange(lines.GetRange(bodyOpen + 1, bodyClose - bodyOpen - 1));
-            result.AddRange(lines.GetRange(call + 1, close - call - 1));
+            // Everything from here on is what the wrapper did after the call; a bare
+            // `return` in the body has to do the same thing.
+            var epilogue = lines.GetRange(call + 1, close - call - 1);
+            result.AddRange(epilogue);
             result.Add("}");
             result.AddRange(lines.GetRange(close + 1, lines.Count - close - 1));
+            return RedirectEarlyReturns(string.Join("\n", result), tag, entry, epilogue);
+        }
+
+        /// <summary>
+        /// Give the fragment stage's input struct an <c>SV_Position</c> member.
+        ///
+        /// D3D requires the pixel stage to receive the position even when the fragment
+        /// program never reads it: a pixel input struct without <c>SV_Position</c> does
+        /// not link against a vertex output struct that has one, and Unity reacts to
+        /// the failed link by dropping every draw of the material -- no compile error,
+        /// no warning, just a sprite that renders fully transparent.
+        ///
+        /// SPIRV-Cross only emits the member when the module reads <c>gl_FragCoord</c>,
+        /// so the overwhelmingly common case arrives without it and has to be supplied
+        /// here.  A struct that already carries the semantic is left alone; rewriting
+        /// it would declare the member twice.
+        /// </summary>
+        private static void EnsurePositionInput(List<string> lines, string tag, bool vertex)
+        {
+            if (vertex) return;
+
+            string decl = "struct SPIRV_Cross_Input_" + tag;
+            int head = lines.FindIndex(l => l.TrimStart().StartsWith(decl, StringComparison.Ordinal));
+            if (head < 0) return;
+
+            int open = lines.FindIndex(head, l => l.Trim() == "{");
+            int close = open < 0 ? -1 : MatchBrace(lines, open);
+            if (close < 0) return;
+
+            bool taken = false;
+            for (int i = open + 1; i < close; i++)
+                if (lines[i].Contains("SV_Position", StringComparison.Ordinal)) return;
+                else if (System.Text.RegularExpressions.Regex.IsMatch(lines[i], @"\bpos\b")) taken = true;
+
+            // `pos` is what the GLSL route names the member, so the two routes read the
+            // same; an interpolator that already claimed the identifier gets a suffixed
+            // spelling rather than a duplicate declaration.
+            string indent = new string(' ', lines[open].Length - lines[open].TrimStart().Length + 4);
+            lines.Insert(open + 1, indent + "float4 " + (taken ? "pos0" : "pos") + " : SV_Position;");
+        }
+
+        /// <summary>
+        /// Replace the body function's bare <c>return;</c> with the entry point's
+        /// epilogue.
+        ///
+        /// The body function SPIRV-Cross emits is <c>void</c>, so a branch that leaves
+        /// early says <c>return;</c>.  Inlining the wrapper moves those statements into
+        /// a function that has to return the output struct, and fxc rejects the result
+        /// outright -- "function must return a value".
+        ///
+        /// The epilogue is the handful of lines the wrapper writes after the call:
+        /// declare the output struct, copy the statics into it, return it.  Repeating
+        /// them where the body returned says exactly what the original meant, and each
+        /// copy declares its own local so nothing has to be in scope across branches.
+        ///
+        /// A jump would be shorter, but neither spelling is usable here: <c>goto</c> is
+        /// not in the HLSL grammar this project parses with -- the whole program would
+        /// stop being readable as a parse tree, and the merge that follows depends on
+        /// that tree for every cbuffer it names -- while a <c>do { } while (false)</c>
+        /// makes fxc warn "loop only executes for 1 iteration(s)" on every program that
+        /// has an early return.
+        /// </summary>
+        private static string RedirectEarlyReturns(string text, string tag, string entry,
+                                                   List<string> epilogue)
+        {
+            var lines = new List<string>(text.Replace("\r\n", "\n").Split('\n'));
+            string head = $"SPIRV_Cross_Output_{tag} {entry}(";
+            int start = lines.FindIndex(l => l.TrimStart().StartsWith(head, StringComparison.Ordinal));
+            if (start < 0) return text;
+
+            int open = lines.FindIndex(start, l => l.Trim() == "{");
+            int close = open < 0 ? -1 : MatchBrace(lines, open);
+            if (close < 0) return text;
+
+            var result = new List<string>(lines.Count + 8);
+            for (int i = 0; i <= close; i++)
+            {
+                if (i > open && i < close && lines[i].Trim() == "return;")
+                {
+                    result.AddRange(epilogue);
+                    continue;
+                }
+                result.Add(lines[i]);
+            }
+            result.AddRange(lines.GetRange(close + 1, lines.Count - close - 1));
             return string.Join("\n", result);
+        }
+
+        /// <summary>
+        /// Collapse the four instructions of a matrix-vector product into one
+        /// <c>mul(matrix, vector)</c> call.
+        ///
+        /// SPIR-V has no matrix type for Unity's row-major engine matrices -- the
+        /// module stores each row as a plain float4 vector -- so SPIRV-Cross spells
+        /// the product out instruction by instruction:
+        ///
+        /// <code>
+        /// t = v.yyyy * M[1];
+        /// t = (M[0] * v.xxxx) + t;
+        /// t = (M[2] * v.zzzz) + t;    // or the accumulator lives in v itself
+        /// t += M[3];
+        /// </code>
+        ///
+        /// That is mathematically the same as <c>mul(M, v)</c> -- and spelling it as
+        /// the product is what the original source did, because Unity's own include
+        /// files define the helper in those terms.  Folding the four lines back also
+        /// removes the extra accumulator every such product carried, which is most of
+        /// the statics a vertex shader declares.
+        ///
+        /// The fold only fires when all four lines are consecutive and read exactly
+        /// this shape; anything else is left for the reader to see as SPIRV-Cross
+        /// wrote it.
+        /// </summary>
+        private static string FoldMatrixMul(string text)
+        {
+            // A matrix declared as `float4 M[4]` cannot feed mul() -- the intrinsic
+            // wants a float4x4 -- so a product over such a matrix keeps its spelled-out
+            // rows.  SPIRV-Cross spells engine matrices both ways depending on how the
+            // module typed them, and the declaration is in this same text, so the
+            // check is a scan away.
+            //
+            // The engine's own matrices (`unity_ObjectToWorld` and friends) are the
+            // exception: the module stores them as vector arrays, but the merge hands
+            // their declarations to Unity's include files, which spell them
+            // `float4x4` -- exactly what mul() wants.  A module-level array declaration
+            // for one of those is an artifact of the SPIR-V typing, not of the final
+            // program, so the fold applies.
+            var arrays = new HashSet<string>(StringComparer.Ordinal);
+            foreach (System.Text.RegularExpressions.Match m in System.Text.RegularExpressions.Regex
+                         .Matches(text, @"float4\s+(\w+)\s*\[\s*4\s*\]"))
+            {
+                string name = m.Groups[1].Value;
+                if (!name.StartsWith("unity_", StringComparison.Ordinal))
+                    arrays.Add(name);
+            }
+
+            var lines = text.Replace("\r\n", "\n").Split('\n').ToList();
+            for (int i = 0; i + 4 <= lines.Count; i++)
+            {
+                var m0 = AccLine(lines[i]);
+                if (m0 == null) continue;
+
+                // The accumulator the first line writes is the one the next three
+                // read; its name is what the whole product collapses into.
+                string acc = m0.Groups[1].Value;
+                string vec = m0.Groups[2].Value;
+                string mat = m0.Groups[3].Value;
+                if (arrays.Contains(mat)) continue;
+
+                var m1 = AddLine(lines[i + 1], acc, vec, mat, 0, "xxxx");
+                if (m1 == null) continue;
+                var m2 = AddLine(lines[i + 2], m1.Groups[1].Value, vec, mat, 2, "zzzz");
+                if (m2 == null) continue;
+                // The last row is either `acc += M[3]` (when the accumulator keeps
+                // living) or `result = (M[3] * vec.wwww) + acc` (when this product's
+                // value is written straight into its destination -- the gl_Position
+                // store a vertex shader ends on).
+                var m3 = PlusLine(lines[i + 3], m2.Groups[1].Value, mat)
+                      ?? LastLine(lines[i + 3], m2.Groups[1].Value, vec, mat);
+                if (m3 == null) continue;
+
+                string result = m3.Groups[1].Value;
+                // Keep the line's own indentation: the folded statement replaces the
+                // first of four lines that already sit inside the function, and
+                // dropping the leading whitespace left it flush against the body while
+                // everything around it stayed indented.
+                string indent = lines[i][..(lines[i].Length - lines[i].TrimStart().Length)];
+                lines[i] = $"{indent}{result} = mul({mat}, {vec});";
+                lines[i + 1] = null;
+                lines[i + 2] = null;
+                lines[i + 3] = null;
+                i += 3;
+            }
+
+            // The object-to-clip pair: `mul(unity_ObjectToWorld, v)` whose result is
+            // immediately consumed by `mul(unity_MatrixVP, ...)` assigned to
+            // gl_Position is what Unity's own source spells as one call --
+            // `UnityObjectToClipPos(v)` -- because that helper also carries the
+            // stereo-eye selection a stereo build needs.  Folding the two products
+            // back restores the call the original source wrote instead of the two
+            // halves its compiler happened to emit.
+            var kept = lines.Where(l => l != null).ToList();
+            for (int i = 0; i + 1 < kept.Count; i++)
+            {
+                var first = System.Text.RegularExpressions.Regex.Match(kept[i],
+                    @"^(\s*)([\w]+)\s*=\s*mul\(unity_ObjectToWorld,\s*([\w]+)\)\s*;\s*$");
+                if (!first.Success) continue;
+                var second = System.Text.RegularExpressions.Regex.Match(kept[i + 1],
+                    @"^(\s*)gl_Position\s*=\s*mul\(unity_MatrixVP,\s*" + first.Groups[2].Value + @"\)\s*;\s*$");
+                if (!second.Success) continue;
+
+                kept[i] = $"{first.Groups[1].Value}gl_Position = UnityObjectToClipPos({first.Groups[3].Value});";
+                kept[i + 1] = null;
+                i++;
+            }
+
+            // SPIRV-Cross flips clip-space Y when it emits HLSL, because a Vulkan
+            // module addresses clip space with Y pointing down while D3D points it
+            // up -- `gl_Position.y = -gl_Position.y;` right before the store.  Unity
+            // is not that consumer: it renders ShaderLab through its own clip-space
+            // convention, which the GLSL build of the same shader reaches without any
+            // flip.  Leaving the line in turned every vertex inside out, so the whole
+            // mesh fell outside the viewport and the material drew nothing.
+            //
+            // Only the store into gl_Position is affected; a shader that negates Y
+            // for its own reasons writes some other target and is untouched.
+            kept.RemoveAll(l => l != null && System.Text.RegularExpressions.Regex.IsMatch(
+                l, @"^\s*gl_Position\s*\.\s*y\s*=\s*-\s*gl_Position\s*\.\s*y\s*;\s*$"));
+
+            return string.Join("\n", kept.Where(l => l != null));
+        }
+
+        /// <summary><c>acc = vec.yyyy * matrix[1];</code> -- the seed of the product.</summary>
+        private static System.Text.RegularExpressions.Match AccLine(string line)
+        {
+            return System.Text.RegularExpressions.Regex.Match(line.Trim(),
+                @"^([\w]+)\s*=\s*([\w]+)\.yyyy\s*\*\s*([\w]+)\[1\]\s*;\s*$");
+        }
+
+        /// <summary>
+        /// <c>acc2 = (matrix[row] * vec.swizzle) + acc;</c> -- a middle term, where the
+        /// swizzle is the lane that row of the product reads (<c>xxxx</c> for row 0,
+        /// <c>zzzz</c> for row 2).
+        /// </summary>
+        private static System.Text.RegularExpressions.Match AddLine(string line, string acc, string vec,
+                                                                    string matrix, int row, string swizzle)
+        {
+            var m = System.Text.RegularExpressions.Regex.Match(line.Trim(),
+                @"^([\w]+)\s*=\s*\(" + matrix + @"\[" + row + @"\]\s*\*\s*" + vec +
+                @"\." + swizzle + @"\)\s*\+\s*" + acc + @"\s*;\s*$");
+            return m.Success ? m : null;
+        }
+
+        /// <summary><c>acc += matrix[3];</c> -- the final row, accumulator kept.</summary>
+        private static System.Text.RegularExpressions.Match PlusLine(string line, string acc, string matrix)
+        {
+            var m = System.Text.RegularExpressions.Regex.Match(line.Trim(),
+                @"^([\w]+)\s*\+=\s*" + matrix + @"\[3\]\s*;\s*$");
+            return m.Success ? m : null;
+        }
+
+        /// <summary>
+        /// <c>result = (matrix[3] * vec.wwww) + acc;</c> -- the final row written
+        /// straight into its destination, which is how the gl_Position store ends.
+        /// </summary>
+        private static System.Text.RegularExpressions.Match LastLine(string line, string acc, string vec, string matrix)
+        {
+            var m = System.Text.RegularExpressions.Regex.Match(line.Trim(),
+                @"^([\w]+)\s*=\s*\(" + matrix + @"\[3\]\s*\*\s*" + vec +
+                @"\.wwww\)\s*\+\s*" + acc + @"\s*;\s*$");
+            return m.Success ? m : null;
         }
 
         /// <summary>The identifier in a bare <c>name();</c> statement, or null.</summary>

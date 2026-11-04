@@ -144,6 +144,20 @@ namespace ShaderRipper.Plugins.Platforms
         /// say.  Counted as skipped rather than failed, because the input was valid.
         /// </summary>
         public bool Unsupported { get; init; }
+
+        /// <summary>
+        /// The original program text, when the backend can spell it -- a GLSL source,
+        /// a SPIR-V disassembly, a byte dump.  Written into the <c>.shader</c> as a
+        /// comment block when the user asks for it, so the recovered source and the
+        /// bytes it came from sit in the same file instead of two directories.
+        ///
+        /// Null when the backend has no readable form of its own (the built-in DXBC
+        /// route supplies the disassembly directly, not through this field).
+        /// </summary>
+        public string Original { get; init; }
+
+        /// <summary>What <see cref="Original"/> is, for the comment's heading.</summary>
+        public string OriginalKind { get; init; }
     }
 
     /// <summary>Turns one compiled program into HLSL.</summary>

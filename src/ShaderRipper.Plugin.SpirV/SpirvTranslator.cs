@@ -44,6 +44,13 @@ namespace ShaderRipper.Plugin.SpirV
                 // and structs it needs and never calls into UnityCG.
                 WantsMacros = false,
                 Notes = blob.Notes,
+                // The module Unity actually shipped.  SMOL-V is a byte-level
+                // re-encoding of SPIR-V, so what the plugin read is not what a
+                // disassembler wants; the text below is the decoded module rendered
+                // the way `spirv-dis` prints it, which is the form a reader can check
+                // the translation against.
+                Original = SpirvDisassemble.Describe(module),
+                OriginalKind = "SPIR-V",
             };
         }
 

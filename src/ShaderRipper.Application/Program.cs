@@ -52,7 +52,8 @@ namespace ShaderRipper
             // for a standalone d3dcompiler check, at the cost of a file Unity
             // will reject on import).
             if (opt.Has("--self-contained")) Emit.UnityIncludes.Enabled = false;
-            Emit.ShaderLab.StripDxbcRegisters = opt.Has("--strip-dxbc-registers");
+            Emit.ShaderLab.StripRegisters = opt.Has("--strip-registers");
+            Emit.ShaderLab.EmbedOriginal = opt.Has("--embed-original");
 
             // Resolve the command BEFORE the "too few arguments" test, so a
             // mistyped option reports itself instead of printing the usage text and

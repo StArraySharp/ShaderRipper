@@ -265,6 +265,7 @@ Windows / Linux 构建格式一致，APK 从 zip 内读取。
 | `--shaderlab` | 写出 `<名字>.shader`（交付物）；不加就只统计、不落 `.shader` |
 | `--programs` | 额外把每个程序的 HLSL 写进 `<名字>/` 子目录 |
 | `--orig-asm` | 额外把原始反汇编（`.orig.asm`）或原 GLSL（`.orig.glsl`）写进 `<名字>/` 子目录；与 `--programs` 互不隐含 |
+| `--embed-original` | 把原始程序文本作为 `// ==== BEGIN ORIGINAL …` 注释块写进 `.shader` 内部，恢复出的正文和它的来源留在同一个文件里 |
 | `--jobs <N>` | 并发线程数，默认逻辑核数；`--jobs 1` 为串行 |
 | `--only <文本>` | 只处理名字含该文本的 shader |
 | `--platform <名\|id>` | 只读这一个后端的槽（d3d11 / gles3 / gles20 / openglcore / opengl / d3d9 …）；同时有 d3d11 和 gles3 的构建永远先取 d3d11，只有指定它才能单独看 GLSL 路线的产物。指定完全没有产出的后端（没装 SPIR-V 插件时的 vulkan、metal）会直接报错，而不是导出 0 个；d3d9 可指定，其程序会作为反汇编落盘 |
@@ -273,7 +274,7 @@ Windows / Linux 构建格式一致，APK 从 zip 内读取。
 | `--no-incremental` | 即使产物已是最新也重新翻译（默认保留产物和 `.shaderripper-cache.json` 里的记录） |
 | `--overwrite`（别名 `--clean`） | 写前清空输出目录，只清本工具自己产出的内容 |
 | `--self-contained` | 引擎声明直接内联，不用 `#include`（可独立编译，但 Unity 导入时会拒绝） |
-| `--strip-dxbc-registers` | 移除 DXBC 来源 ShaderLab 的 `: register(bN/tN/sN)` 绑定，让 Unity 自己分配槽位（保留 `packoffset`；GLSL 通道与独立程序不受影响） |
+| `--strip-registers` | 移除翻译所得 ShaderLab 的 `: register(bN/tN/sN)` 绑定，让 Unity 自己分配槽位（保留 `packoffset`；GLSL 通道与独立程序不受影响） |
 | `--quiet` / `--verbose` | 只输出最后的总账 / 额外输出每个文件的标题、结构与耗时 |
 | `--lang <en\|zh>` | 界面语言，默认跟随系统 UI 语言 |
 | `--tmp-layouts <文件\|目录>` / `--no-tmp-layout` / `--builtin-index <文件>` | 名称表覆盖项（默认用内嵌的那份） |

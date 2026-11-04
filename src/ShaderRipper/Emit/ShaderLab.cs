@@ -24,8 +24,35 @@ namespace ShaderRipper.Emit
     /// </summary>
     internal static class ShaderLab
     {
-        public static bool StripDxbcRegisters;
+        /// <summary>
+        /// Drop the explicit <c>: register(bN/tN/sN)</c> bindings so Unity assigns
+        /// slots itself.
+        ///
+        /// A translated program carries the registers its backend happened to give
+        /// each resource, which is rarely the numbering the original source used and
+        /// never the numbering Unity's own property table expects.  Removing them lets
+        /// the engine lay the program out from the declared names instead, which is
+        /// what makes the file re-importable.  <c>packoffset</c> is kept either way:
+        /// that is the member layout, not the binding.
+        ///
+        /// GLSL passes keep their registers.  That route derives both the buffer
+        /// names and the register numbers from the same sequential walk, so the
+        /// numbers are the only thing tying a block to the slots the original
+        /// program used.
+        /// </summary>
+        public static bool StripRegisters;
         private static readonly Regex RegisterBinding = new(@"\s*:\s*register\s*\([^)]*\)", RegexOptions.CultureInvariant);
+
+        /// <summary>
+        /// Write each pass's original program text into the <c>.shader</c> as a
+        /// comment block, right after <c>ENDHLSL</c>.
+        ///
+        /// The recovered body and the bytes it came from then travel together: a
+        /// reader can compare the two without a second directory, a second file naming
+        /// scheme or a second tool.  Nothing in the block is compiled -- ShaderLab
+        /// ignores comments outside the program -- so the file stays importable.
+        /// </summary>
+        public static bool EmbedOriginal;
 
         public sealed class Stage
         {
@@ -47,6 +74,14 @@ namespace ShaderRipper.Emit
         {
             public List<string> Guards = new();
             public List<string> Bodies = new();
+            /// <summary>
+            /// Keywords each body was compiled with, index-aligned with
+            /// <see cref="Bodies"/>.  The guard strings carry the same information,
+            /// but a compressed chain has to reason about which variants a subset of
+            /// branches covers, and that is a set operation rather than a string one.
+            /// Empty when the producer does not supply it, which turns compression off.
+            /// </summary>
+            public List<HashSet<string>> Keywords = new();
         }
 
         public sealed class PassText
@@ -60,6 +95,13 @@ namespace ShaderRipper.Emit
             public List<VariantChain> Chains;
             public List<string> Pragmas = new();
             public List<string> Notes = new();
+            /// <summary>
+            /// The original program text this pass was translated from, one entry per
+            /// stage, written as a comment block when
+            /// <see cref="ShaderLab.EmbedOriginal"/> is on.  Empty for a pass whose
+            /// backend has no readable form of its own.
+            /// </summary>
+            public List<(string label, string text)> Originals = new();
             /// <summary>
             /// Which route produced the bodies -- <c>DXBC</c>, <c>GLSL</c>, or both.
             /// Written above <c>HLSLPROGRAM</c> so a reader knows what the block was
@@ -117,12 +159,19 @@ namespace ShaderRipper.Emit
             }
             else
             {
+                // A program can be shared by several passes -- one vertex program
+                // feeding three quality levels is the common case -- and each pass
+                // would otherwise copy the same listing into the file.  The block is
+                // keyed by its label, which names the stage and the blob, so a second
+                // pass that translated the same blob writes only a pointer to the
+                // first copy.
+                var seenOriginals = new Dictionary<string, int>(StringComparer.Ordinal);
                 foreach (var ss in subShaders)
                 {
                     sb.Append("    SubShader\n    {\n");
                     if (ss.Tags.Count > 0) sb.Append("        Tags { ").Append(Tags(ss.Tags)).Append(" }\n");
                     if (ss.LOD != 0) sb.Append("        LOD ").Append(ss.LOD).Append('\n');
-                    foreach (var p in ss.Passes) AppendPass(sb, p);
+                    foreach (var p in ss.Passes) AppendPass(sb, p, seenOriginals);
                     foreach (string use in ss.UsePasses)
                         sb.Append("        UsePass \"").Append(use.Replace('"', '_')).Append("\"\n");
                     sb.Append("    }\n");
@@ -278,19 +327,21 @@ namespace ShaderRipper.Emit
             };
         }
 
-        private static void AppendPass(StringBuilder sb, PassText p)
+        private static void AppendPass(StringBuilder sb, PassText p,
+                                       Dictionary<string, int> seenOriginals = null)
         {
-            if (!StripDxbcRegisters || p.Source != "DXBC")
+            if (!StripRegisters || p.Source == "GLSL")
             {
-                AppendPassCore(sb, p);
+                AppendPassCore(sb, p, seenOriginals);
                 return;
             }
             var pass = new StringBuilder();
-            AppendPassCore(pass, p);
+            AppendPassCore(pass, p, seenOriginals);
             sb.Append(RegisterBinding.Replace(pass.ToString(), ""));
         }
 
-        private static void AppendPassCore(StringBuilder sb, PassText p)
+        private static void AppendPassCore(StringBuilder sb, PassText p,
+                                           Dictionary<string, int> seenOriginals = null)
         {
             sb.Append("        Pass\n        {\n");
             if (!string.IsNullOrEmpty(p.Name)) sb.Append("            Name \"").Append(p.Name).Append("\"\n");
@@ -309,6 +360,7 @@ namespace ShaderRipper.Emit
             {
                 WriteVariantProgram(sb, p);
                 sb.Append("            ENDHLSL\n");
+                AppendOriginals(sb, p);
                 sb.Append("        }\n\n");
                 return;
             }
@@ -349,7 +401,69 @@ namespace ShaderRipper.Emit
             foreach (var note in p.Notes) sb.Append("            // ").Append(note).Append('\n');
             foreach (var line in merged) AppendBodyLine(sb, line);
             sb.Append("            ENDHLSL\n");
+            AppendOriginals(sb, p, seenOriginals);
             sb.Append("        }\n\n");
+        }
+
+        /// <summary>
+        /// The pass's original program text, as a comment block after the program.
+        ///
+        /// Written only when <see cref="EmbedOriginal"/> is on.  The block is fenced
+        /// with <c>BEGIN</c>/<c>END</c> markers and every line is commented out, so
+        /// ShaderLab ignores it entirely and a reader (or a script) can lift it back
+        /// out by those markers.
+        ///
+        /// A line that is already a comment keeps its own marker instead of gaining a
+        /// second one.  A DXBC disassembly is written entirely in <c>//</c> comments,
+        /// and prefixing those produced <c>// // POSITION  0  xyzw ...</c> -- the
+        /// signature table then read as doubled punctuation rather than as a table.
+        /// The original text is also reproduced verbatim, indentation included: it is
+        /// a copy of another file, not code this writer owns.
+        /// </summary>
+        private static void AppendOriginals(StringBuilder sb, PassText p,
+                                            Dictionary<string, int> seenOriginals = null)
+        {
+            if (!EmbedOriginal || p.Originals.Count == 0) return;
+            foreach (var (label, text) in p.Originals)
+            {
+                if (string.IsNullOrEmpty(text)) continue;
+
+                // A blob shared by several passes is written once.  The label names
+                // the stage and the blob, so an earlier copy is the same text -- and
+                // repeating a 700-line listing three times per file is most of the
+                // file's size for no added information.
+                if (seenOriginals != null)
+                {
+                    if (seenOriginals.TryGetValue(label, out int first))
+                    {
+                        sb.Append("            // ==== ORIGINAL ").Append(label)
+                          .Append(" -- written above (pass ").Append(first).Append(") ====\n");
+                        continue;
+                    }
+                    seenOriginals[label] = seenOriginals.Count;
+                }
+
+                sb.Append("            // ==== BEGIN ORIGINAL ").Append(label).Append(" ====\n");
+                foreach (string line in text.Replace("\r\n", "\n").Split('\n'))
+                {
+                    string body = line.TrimEnd('\r');
+                    if (body.Trim().Length == 0) { sb.Append('\n'); continue; }
+
+                    // The line already carries a `//` comment marker (a DXBC
+                    // disassembly is written entirely in them).  Repeating it gives
+                    // `// // POSITION 0 xyzw ...`, which reads as doubled punctuation
+                    // instead of a signature table, so the existing marker is kept and
+                    // only the ShaderLab fence is added.
+                    //
+                    // Only `//` qualifies: ShaderLab treats `;` as a real token, so a
+                    // SPIR-V listing's `;` prefix must be commented out, not trusted.
+                    string trimmed = body.TrimStart();
+                    bool commented = trimmed.StartsWith("//", StringComparison.Ordinal);
+                    sb.Append("            ");
+                    sb.Append(commented ? body : "// " + body).Append('\n');
+                }
+                sb.Append("            // ==== END ORIGINAL ").Append(label).Append(" ====\n");
+            }
         }
 
         /// <summary>
@@ -435,9 +549,31 @@ namespace ShaderRipper.Emit
             foreach (var chain in p.Chains)
             {
                 if (chain.Bodies.Count == 0) continue;
+
+                // A chain with many branches repeats every shared declaration and
+                // function once per branch.  Folding those into one guarded cascade
+                // keeps the file readable without changing what any variant compiles
+                // to; the shrinker declines (and the chain is emitted as-is) whenever
+                // it cannot prove the rewrite equivalent.
+                bool shrunk = VariantShrink.Apply(chain);
+                if (Environment.GetEnvironmentVariable("SHADERRIP_SHRINKDBG") == "1")
+                    Console.Error.WriteLine($"chain: bodies={chain.Bodies.Count} shrunk={shrunk}");
+
                 var bodyLines = chain.Bodies
                     .Select(b => (b ?? "").Replace("\r\n", "\n").Split('\n'))
                     .ToList();
+
+                // One body with no guard is unconditional -- either the chain had a
+                // single variant to begin with or the shrinker collapsed it -- so the
+                // `#if 1` / `#else` wrapper would only repeat it.
+                if (bodyLines.Count == 1 && (chain.Guards.Count == 0 || chain.Guards[0].Length == 0))
+                {
+                    if (synth != null)
+                        foreach (var l in synth.Replace("\r\n", "\n").Split('\n'))
+                            AppendBodyLine(sb, l);
+                    foreach (var l in bodyLines[0]) AppendBodyLine(sb, l);
+                    continue;
+                }
 
                 for (int vi = 0; vi < bodyLines.Count; vi++)
                 {
@@ -700,7 +836,8 @@ namespace ShaderRipper.Emit
         private static string DeclaredName(string line)
         {
             var m = Regex.Match(line ?? "",
-                @"^\s*(?:Texture\w*|SamplerState|sampler\w*|Buffer|struct\s+\w+|" +
+                @"^\s*(?:Texture\w*(?:<[^>]*>)?|SamplerState|sampler\w*|Buffer(?:<[^>]*>)?|" +
+                @"RWTexture\w*(?:<[^>]*>)?|RWBuffer(?:<[^>]*>)?|struct\s+\w+|" +
                 @"(?:static\s+|uniform\s+|extern\s+|const\s+|row_major\s+|column_major\s+)*" +
                 @"(?:fixed|half|float|int|uint|bool|double|real|[A-Za-z_]\w*)" +
                 @"(?:[1-4](?:x[1-4])?)?)\s+([A-Za-z_]\w*)");
@@ -896,12 +1033,19 @@ namespace ShaderRipper.Emit
                     slotOwner[slot] = name;
                 }
 
+            // Every identifier the program is about to declare, so a demoted member
+            // can be given a suffix that is actually free.
+            var taken = new HashSet<string>(structNames, StringComparer.Ordinal);
+            foreach (var kv in buffers)
+                foreach (var row in kv.Value.Rows.Values) taken.Add(row.Name);
+            if (_properties != null) taken.UnionWith(_properties);
+
             // One name can appear in two registers: a stage that could not identify
             // b0 names its rows from the property table and arrives at
             // `_RendererColor`, which the other stage places in `UnityPerDrawSprite`
             // where it belongs.  A member may only be declared once, so the name
             // stays in the buffer that is one Unity defines, and the other
-            // occurrence falls back to its row number.
+            // occurrence falls back to a suffixed name.
             var owner = new Dictionary<string, string>(StringComparer.Ordinal);
             foreach (var kv in buffers.OrderBy(k => k.Key))
                 foreach (var row in kv.Value.Rows.Values)
@@ -923,7 +1067,7 @@ namespace ShaderRipper.Emit
                 {
                     bool demote = !IsPositional(row.Name) &&
                                   owner.TryGetValue(row.Name, out string ownName) && ownName != kv.Key;
-                    fixedRows.Add(demote ? Positional(slotOf[kv.Key], row) : row);
+                    fixedRows.Add(demote ? Demoted(row, taken) : row);
                 }
                 kv.Value.Rows.Clear();
                 foreach (var r in fixedRows) kv.Value.Rows[(r.Row, r.Col)] = r;
@@ -932,7 +1076,7 @@ namespace ShaderRipper.Emit
                 // different offsets: each program keeps its own $Globals layout, and
                 // a variant whose vertex stage packed one matrix more shifts every
                 // property after it.  Only one declaration can carry the name, so
-                // the first keeps it and the others become positional members --
+                // the first keeps it and the others become suffixed members --
                 // each body then reads the bytes its own program actually named,
                 // instead of every body reading the same (possibly wrong) ones.
                 var claimed = new Dictionary<string, (int row, int col)>(StringComparer.Ordinal);
@@ -941,7 +1085,7 @@ namespace ShaderRipper.Emit
                     var row = kv.Value.Rows[key];
                     if (IsPositional(row.Name)) continue;
                     if (claimed.TryAdd(row.Name, key)) continue;
-                    kv.Value.Rows[key] = Positional(slotOf[kv.Key], row);
+                    kv.Value.Rows[key] = Demoted(row, taken);
                 }
             }
 
@@ -1128,6 +1272,19 @@ namespace ShaderRipper.Emit
                         string target = merged.IsArray && row.Value.Col == 0
                             ? $"{merged.Name}[{row.Key.Item1 - merged.Row}]"
                             : merged.Name;
+                        // The body may already index the row -- `_5_m0[2]` for the third
+                        // row of a matrix, which the emitter writes for a member it could
+                        // only describe row by row.  Appending our own `[k]` in front of
+                        // that produces `M[0][2]`, and a `float4[4]` declaration has no
+                        // second dimension to index ("invalid subscript").  Folding the
+                        // two indices into one keeps the declaration the flat array it is.
+                        if (merged.IsArray && row.Value.Col == 0)
+                        {
+                            int baseRow = row.Key.Item1 - merged.Row;
+                            fn = Regex.Replace(fn,
+                                @"\b" + Regex.Escape(row.Value.Name) + @"\s*\[\s*(\d+)\s*\]",
+                                m => $"{merged.Name}[{baseRow + int.Parse(m.Groups[1].Value)}]");
+                        }
                         fn = Regex.Replace(fn, @"\b" + Regex.Escape(row.Value.Name) + @"\b", target);
                     }
                 }
@@ -1166,15 +1323,29 @@ namespace ShaderRipper.Emit
             return at >= from && at < to;
         }
 
-        /// <summary>The row-numbered name a demoted member falls back to.</summary>
-        private static CbLayout.Member Positional(int slot, CbLayout.Member row) => new()
+        /// <summary>
+        /// A readable name for a member whose own name is already declared by
+        /// another buffer of the same program.
+        ///
+        /// HLSL rejects a second declaration of one member name anywhere in the
+        /// translation unit, not just within a block, so one of the two copies has to
+        /// be renamed.  The suffix keeps the name a reader can still recognise
+        /// (<c>_OutlineSoftness_2</c>) instead of falling back to the row number the
+        /// block happens to place it at.
+        ///
+        /// The member keeps its type and layout: only the identifier changes, and the
+        /// caller rewrites the stage bodies that spell the old one.
+        /// </summary>
+        private static CbLayout.Member Demoted(CbLayout.Member row, HashSet<string> taken)
         {
-            Type = row.Type, Rows = row.Rows, IsArray = row.IsArray,
-            Row = row.Row, Col = row.Col,
-            Name = row.Col > 0
-                ? $"_cb{slot}_row{row.Row}_{"xyzw"[row.Col]}"
-                : $"_cb{slot}_row{row.Row}",
-        };
+            string name = row.Name;
+            for (int n = 2; !taken.Add(name); n++) name = row.Name + "_" + n;
+            return new CbLayout.Member
+            {
+                Type = row.Type, Rows = row.Rows, IsArray = row.IsArray, Matrix = row.Matrix,
+                Row = row.Row, Col = row.Col, Name = name,
+            };
+        }
 
         private static int TypeComps(string type) => type switch
         {

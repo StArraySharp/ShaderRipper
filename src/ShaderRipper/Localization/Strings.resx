@@ -75,6 +75,8 @@ Export:
                      --shaderlab, --programs or --orig-asm -- otherwise nothing is written)
     --programs       also write per-program HLSL into &lt;Name&gt;/ folders
     --orig-asm       also write the original disassembly / GLSL into them
+    --embed-original put the original program text inside the .shader as a comment
+                     block, so the recovered body and its source travel together
     --out &lt;dir&gt;      output directory (default "&lt;input&gt;_Ripped")
     --jobs &lt;N&gt;       translate N shaders at once (default: logical cores)
     --overwrite      empty the output directory first (alias --clean), so one
@@ -88,7 +90,7 @@ Export:
     --platform &lt;name|id&gt; read only this platform's slot (d3d11 / d3d9 / gles3 /
                      gles20 / openglcore / opengl / metal / vulkan / webgpu);
                      by default every slot with a translator is read
-    --strip-dxbc-registers  drop the register bindings of DXBC-sourced ShaderLab
+    --strip-registers   drop the register bindings of translated ShaderLab
                      (packoffset is kept; GLSL passes and standalone
                      programs are untouched)
     --self-contained inline the engine declarations instead of #include

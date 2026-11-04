@@ -291,6 +291,7 @@ For more readable output, prefer game data that includes **GLES3 / OpenGLCore** 
 | `--shaderlab` | Write `<Name>.shader` (the deliverable); without it the run only counts, no `.shader` is written |
 | `--programs` | Also write every program's HLSL into a `<Name>/` folder |
 | `--orig-asm` | Also write the original disassembly (`.orig.asm`) or GLSL (`.orig.glsl`) into that folder; independent of `--programs` |
+| `--embed-original` | Put the original program text inside the `.shader` as a `// ==== BEGIN ORIGINAL …` comment block, so the recovered body and the bytes it came from stay in one file |
 | `--jobs <N>` | Translation threads, default logical cores; `--jobs 1` is the serial run |
 | `--only <text>` | Only shaders whose name contains the text |
 | `--no-dedup` | Keep every copy (default: one copy per path — a fixed container path wins, ties break on the lowest path id) |
@@ -298,7 +299,7 @@ For more readable output, prefer game data that includes **GLES3 / OpenGLCore** 
 | `--no-incremental` | Translate every shader even when its output file is already current (default: keep the file and its `.shaderripper-cache.json` entry) |
 | `--overwrite` (alias `--clean`) | Empty the output directory first; only content this tool produced is removed |
 | `--self-contained` | Inline the engine declarations instead of `#include` (compiles standalone; Unity rejects it on import) |
-| `--strip-dxbc-registers` | Drop the `: register(bN/tN/sN)` bindings from DXBC-sourced ShaderLab so Unity assigns slots itself (`packoffset` is kept; GLSL passes and standalone programs are untouched) |
+| `--strip-registers` | Drop the `: register(bN/tN/sN)` bindings from translated ShaderLab so Unity assigns slots itself (`packoffset` is kept; GLSL passes and standalone programs are untouched) |
 | `--quiet` / `--verbose` | Final tally only / per-file headings, structure and timings |
 | `--lang <en\|zh>` | UI language; follows the system UI language by default |
 | `--tmp-layouts <file\|dir>` / `--no-tmp-layout` / `--builtin-index <file>` | Name-table overrides (the embedded tables are used by default) |

@@ -235,10 +235,44 @@ namespace ShaderRipper.Emit
         private readonly Dictionary<string, string> _materialUnion;
 
         /// <summary>Semantic to bind an interpolator to, in the order they appear.</summary>
-        private static string VaryingSemantic(List<(string type, string name, string semantic)> list)
+        /// <summary>
+        /// The varying's interpolator semantic.
+        ///
+        /// The name usually carries the answer: HLSLcc names a varying after the D3D
+        /// semantic it was fed, and the translator keeps that stem -- `vs_COLOR0`
+        /// becomes `color0`, `vs_TEXCOORD1` becomes `texcoord1`.  Reading the stem
+        /// back puts the colour on `COLOR0`, where Unity's sprite mesh stream feeds
+        /// it; allocating `TEXCOORD0` for it instead bound the colour to the UV
+        /// stream, and a fragment that multiplied by its `color0` then read zeroes
+        /// where the mesh had no second UV -- fully transparent geometry.
+        ///
+        /// A name that says nothing (HLSLcc's `vs_1` style) falls back to positional
+        /// allocation: the next TEXCOORD index this stage has not used yet, which is
+        /// also what keeps two stages' lists aligned when both are positional.
+        /// </summary>
+        private static string VaryingSemantic(string name, List<(string type, string name, string semantic)> used)
         {
-            int n = list.Count;
-            return n == 0 ? "TEXCOORD0" : "TEXCOORD" + n;
+            var m = System.Text.RegularExpressions.Regex.Match(name,
+                @"^(?:vs_|ps_)?(?:in_)?([A-Za-z]+?)(\d*)$");
+            if (m.Success)
+            {
+                string stem = m.Groups[1].Value.ToLowerInvariant();
+                string idx = m.Groups[2].Value;
+                string semantic = stem switch
+                {
+                    "color" => "COLOR" + (idx.Length > 0 ? idx : "0"),
+                    "normal" => "NORMAL",
+                    "tangent" => "TANGENT",
+                    _ => null,
+                };
+                if (semantic != null) return semantic;
+            }
+            // Positional fallback: the lowest TEXCOORD index no previous varying
+            // took, whether by name or by allocation.
+            int n = 0;
+            bool taken(int i) => used.Any(v => v.semantic == "TEXCOORD" + i);
+            while (taken(n)) n++;
+            return "TEXCOORD" + n;
         }
 
         /// <summary>
@@ -444,12 +478,27 @@ namespace ShaderRipper.Emit
             // made every GLSL-route sprite fully transparent.  When the payload
             // declares the block itself, its members were folded in above and a
             // second block would be a redefinition.
+            // Properties are declared as plain globals, not as one
+            // `cbuffer UnityPerMaterial`.
+            //
+            // A cbuffer has to agree with the runtime on the container's name, its
+            // register and its member layout, and every one of those is a chance to
+            // be silently wrong: a block fxc placed in a slot the Material does not
+            // fill, a `packoffset` derived from declaration order that differs from
+            // the layout Unity recorded, and the whole thing reads zero while the
+            // shader still compiles.  That is exactly what a Material drawn fully
+            // transparent looks like, and it is what the cbuffer spelling of this
+            // file produced in testing.
+            //
+            // A plain global has none of those degrees of freedom: Unity uploads a
+            // ShaderLab property to a global of the same name, whatever container
+            // the compiler ends up placing it in.  That is the spelling the
+            // hand-written HLSL for this same shader uses, and the one that renders.
             if (materialUnion.Count > 0 && !payloadMaterial)
             {
-                sb.Append("cbuffer UnityPerMaterial\n{\n");
                 foreach (var (name, type) in materialUnion)
-                    sb.Append("    ").Append(type).Append(' ').Append(name).Append(";\n");
-                sb.Append("};\n\n");
+                    sb.Append(type).Append(' ').Append(name).Append(";\n");
+                sb.Append('\n');
             }
             // The synthesized _sri_* helpers go out ONCE per file, before any
             // payload code that calls them -- including the payload's own helper
@@ -979,9 +1028,9 @@ namespace ShaderRipper.Emit
                 if (storage == "uniform") _uniforms.Add((text, name + arr));
                 else if (storage == "in" && _vertex) _ins.Add((text, name + arr));
                 else if (storage == "out" && _vertex)
-                    _varyingOut.Add((text, name + arr, VaryingSemantic(_varyingOut)));
+                    _varyingOut.Add((text, name + arr, VaryingSemantic(name, _varyingOut)));
                 else if (storage == "in" && !_vertex)
-                    _varyingIn.Add((text, name + arr, VaryingSemantic(_varyingIn)));
+                    _varyingIn.Add((text, name + arr, VaryingSemantic(name, _varyingIn)));
                 else if (storage == "out" && !_vertex) _outs.Add((text, name + arr));
                 else _locals.Add(text + " " + name + arr);
             }
@@ -1194,14 +1243,22 @@ namespace ShaderRipper.Emit
                 }
                 else
                 {
-                    // The fragment's struct mirrors the vertex's: the vertex writes
-                    // fields in its own order and the fragment reads them in the
-                    // same order, so the semantics only have to agree between the
-                    // two stages.  `_varyingIn` is filled from this stage's own
-                    // `in` declarations, which the payload lists in the same order
-                    // the vertex declared its `out`s.
+                    // The fragment's struct mirrors the vertex's.  It has to carry
+                    // `SV_POSITION` even though the payload's fragment program never
+                    // reads it: D3D requires the pixel stage to receive the position,
+                    // and a fragment input struct lacking it does not link against a
+                    // vertex output struct that has one -- Unity drops every draw of
+                    // the material, so the sprite rendered fully transparent while the
+                    // shader still compiled without a warning.
+                    //
+                    // The rest follow the vertex's own order, and each name carries
+                    // the same stem, so `VaryingSemantic` lands on the same answer both
+                    // sides computed.  A literal TEXCOORD{i} here would disagree with
+                    // the vertex's COLOR0 the moment a name said COLOR, and the
+                    // interpolator link would break between the stages.
+                    fields.Add("    float4 pos : SV_POSITION;");
                     for (int i = 0; i < _varyingIn.Count; i++)
-                        fields.Add($"    {_varyingIn[i].type} {_varyingIn[i].name} : TEXCOORD{i};");
+                        fields.Add($"    {_varyingIn[i].type} {_varyingIn[i].name} : {_varyingIn[i].semantic};");
                 }
                 if (fields.Count > 0)
                 {

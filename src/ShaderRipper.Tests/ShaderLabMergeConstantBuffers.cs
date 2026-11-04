@@ -82,6 +82,51 @@ float4 frag() : SV_Target { return _9_m0; }
         Assert.That(CountOf(text, "float4 _9_m0"), Is.EqualTo(1));
     }
 
+    [Test]
+    public void AMemberNamedInTwoBlocksKeepsOnlyOneDeclaration()
+    {
+        // Unity records a shader's property in whichever block the program that reads
+        // it puts it in, and the two stages of a pass do not have to agree: the vertex
+        // module reads `_Color` from its globals while the fragment module reads a
+        // different `_Color` from the material block.  Both names survive the payload
+        // scan, but HLSL has one namespace, so declaring both is "redefinition of
+        // '_Color'" and the whole program is rejected.
+        //
+        // A name the Properties block lists stays a real member -- it is what Unity
+        // uploads the material's value into -- so the demoted one is the other stage's.
+        ShaderLab.SetPropertyNames(new[]
+        {
+            new Data.Property { Name = "_Color" },
+            new Data.Property { Name = "_Tint" },
+        });
+
+        const string vs = """
+cbuffer VGlobals : register(b0)
+{
+    float4 _Color : packoffset(c9);
+};
+
+float4 vert() : SV_Position { return _Color; }
+""";
+        const string ps = """
+cbuffer PGlobals : register(b1)
+{
+    float4 _Color : packoffset(c2);
+    float4 _Tint : packoffset(c3);
+};
+
+float4 frag() : SV_Target { return _Color + _Tint; }
+""";
+
+        string text = Merged(vs, ps);
+        Assert.That(CountOf(text, "float4 _Color "), Is.EqualTo(1));
+        Assert.That(text, Does.Contain("float4 _Tint : packoffset(c3.x);"));
+        // The loser keeps a name a reader can recognise rather than falling back to
+        // the row number it happens to sit at.
+        Assert.That(text, Does.Contain("float4 _Color_2 : packoffset(c9.x);"));
+        Assert.That(text, Does.Contain("return _Color_2;"));
+    }
+
     private static int CountOf(string text, string needle)
     {
         int n = 0, at = 0;

@@ -125,6 +125,30 @@ namespace ShaderRipper.Game
             public readonly Dictionary<string, (List<string> kw, string hlsl)> Glsl = new();
 
             /// <summary>
+            /// The original program text per stage, for <c>--embed-original</c>, keyed
+            /// by the route that produced it.
+            ///
+            /// A build ships several platform slots, and the exporter walks all of
+            /// them: the same pass is translated from its d3d11 slot, its GLES slot and
+            /// its Vulkan slot in turn, and only the first route that yields bodies is
+            /// the one the ShaderLab block is built from.  Keying the text by route lets
+            /// the wrapper keep the winner's and drop the rest -- an unkeyed list
+            /// emitted the GLSL source beside a body translated from SPIR-V, which is
+            /// two different programs in one pass.
+            /// </summary>
+            public readonly Dictionary<string, List<(string label, string text)>> Originals =
+                new(StringComparer.Ordinal);
+
+            /// <summary>
+            /// The format each body dictionary was filled from (<c>dxbc</c>,
+            /// <c>glsl</c>, <c>d3d9</c>, or a plugin's own).  The wrapper emits one
+            /// route's bodies -- <see cref="FillPass"/> prefers DXBC, then GLSL -- and
+            /// keeps only that route's original text, so a build with several platform
+            /// slots does not staple one platform's source to another's translation.
+            /// </summary>
+            public readonly Dictionary<string, string> FormatOf = new(StringComparer.Ordinal);
+
+            /// <summary>
             /// What the bodies were translated from, when the route knows better than
             /// the defaults -- a plugin backend reports its own format ("SPIR-V"), and
             /// the wrapper writes it above <c>HLSLPROGRAM</c>.  Empty means "infer from
@@ -144,7 +168,8 @@ namespace ShaderRipper.Game
             public int Target;
 
             public void Add(Dictionary<string, (List<string> kw, string hlsl)> into,
-                            List<string> keys, string key, List<string> kw, string hlsl)
+                            List<string> keys, string key, List<string> kw, string hlsl,
+                            string format = null, string slot = null)
             {
                 // `keys` is the pass's order, shared by both stages, so it is the
                 // list the duplicate check has to be against: testing `into` (which
@@ -152,6 +177,19 @@ namespace ShaderRipper.Game
                 // stage repeated a keyword combination the vertex stage already had,
                 // and the guard chain then emitted the same branch twice.
                 if (!keys.Contains(key)) keys.Add(key);
+
+                // One pass, several platform slots.  The exporter walks every slot the
+                // build shipped, so the d3d11 route and a plugin's SPIR-V route both
+                // write here -- and the second overwrote the first, leaving a body
+                // translated from one platform beside the original text of another.
+                // The first format to claim a slot keeps it; a later platform's bodies
+                // are dropped, because nothing would read them anyway (FillPass builds
+                // the block from one route's dictionaries).
+                if (slot != null && format != null)
+                {
+                    if (FormatOf.TryGetValue(slot, out string claimed) && claimed != format) return;
+                    FormatOf[slot] = format;
+                }
                 into[key] = (kw, hlsl);
             }
         }
@@ -1094,15 +1132,37 @@ namespace ShaderRipper.Game
                     if (pr.Format != BlobFormat.Glsl || string.IsNullOrEmpty(pr.Text)) continue;
                     // Stage split: a vertex program's texture table is not the
                     // fragment program's, and both compile from the same source.
-                    var target = pr.Text.Contains("SV_Target") ? glslFs
-                               : pr.Text.Contains("gl_Position") ? glslVs : null;
-                    if (target == null) continue;
-                    foreach (Match m in Regex.Matches(pr.Text,
-                        @"(?:UNITY_LOCATION\((\d+)\)|layout\(location\s*=\s*(\d+)\))\s*uniform\s+sampler2D\s+([A-Za-z_]\w*)"))
-                    {
-                        int loc = int.Parse(m.Groups[1].Success ? m.Groups[1].Value : m.Groups[2].Value);
-                        if (!target.TryGetValue(loc, out var nm)) target[loc] = m.Groups[3].Value;
-                    }
+                    // A blob is `#ifdef VERTEX` / `#ifdef FRAGMENT` over one text,
+                    // so the pair of stage markers is the honest splitter: a
+                    // fragment stage also mentions gl_Position (in its vertex
+                    // half's comments), which is what made "contains gl_Position"
+                    // call every blob a vertex program and starve the sampler
+                    // table.
+                    bool hasVertex = pr.Text.Contains("#ifdef VERTEX") || pr.Text.Contains("#ifdef VERTEX ");
+                    bool hasFragment = pr.Text.Contains("#ifdef FRAGMENT") || pr.Text.Contains("#ifdef FRAGMENT ");
+                    string vertexHalf = hasVertex
+                        ? SliceIfdef(pr.Text, "VERTEX")
+                        : pr.Text.Contains("gl_Position") && !hasFragment ? pr.Text : null;
+                    string fragmentHalf = hasFragment
+                        ? SliceIfdef(pr.Text, "FRAGMENT")
+                        : pr.Text.Contains("SV_Target") && !hasVertex ? pr.Text : null;
+
+                    var target = fragmentHalf != null && vertexHalf == null ? glslFs
+                               : vertexHalf != null ? glslVs : null;
+                    string table = target != null ? (fragmentHalf ?? vertexHalf) : null;
+                    if (table != null)
+                        foreach (Match m in Regex.Matches(table,
+                            @"(?:UNITY_LOCATION\((\d+)\)|layout\(location\s*=\s*(\d+)\))\s*uniform\s+sampler2D\s+([A-Za-z_]\w*)"))
+                        {
+                            int loc = int.Parse(m.Groups[1].Success ? m.Groups[1].Value : m.Groups[2].Value);
+                            if (!target.TryGetValue(loc, out var nm)) target[loc] = m.Groups[3].Value;
+                        }
+
+                    // A vertex program's `in` declarations are where the semantic
+                    // names live (`in_COLOR0`, `in_TEXCOORD1`) -- the only record of
+                    // them anywhere in the asset.  The GLSL route reads its own text,
+                    // and the plugin routes work from their payloads alone, so the
+                    // names are commentary here, not data anything consumes.
                 }
             }
 
@@ -1729,8 +1789,16 @@ namespace ShaderRipper.Game
                     build.Target = Math.Max(build.Target, ShaderModel(r.Profile));
                     var kw = VariantPlan.KeywordsOf(sub, kwIndex);
                     var key = VariantPlan.Key(kw);
-                    if (module.Stage is "ps") build.Add(build.Ps, build.Keys, key, kw, r.Hlsl);
-                    else if (module.Stage is "vs") build.Add(build.Vs, build.Keys, key, kw, r.Hlsl);
+                    if (module.Stage is "ps") build.Add(build.Ps, build.Keys, key, kw, r.Hlsl, "dxbc", "ps");
+                    else if (module.Stage is "vs") build.Add(build.Vs, build.Keys, key, kw, r.Hlsl, "dxbc", "vs");
+                    // The disassembly is the original this route translated, so it is
+                    // what `--embed-original` puts in the file.  One per stage: the
+                    // comment block names which.
+                    string label = $"DXBC {module.Stage} (blob {slot.BlobIndex})";
+                    if (!build.Originals.TryGetValue("dxbc", out var origs))
+                        build.Originals["dxbc"] = origs = new();
+                    if (!origs.Any(o => o.label == label))
+                        origs.Add((label, asm));
                 }
             }
         }
@@ -1788,7 +1856,12 @@ namespace ShaderRipper.Game
                 foreach (var owner in owners)
                 {
                     if (!perPass.TryGetValue(owner, out var build)) perPass[owner] = build = new PassBuild();
-                    build.Add(build.Glsl, build.GKeys, VariantPlan.Key(kw), kw, r.Hlsl);
+                    build.Add(build.Glsl, build.GKeys, VariantPlan.Key(kw), kw, r.Hlsl, "glsl", "glsl");
+                    string label = $"GLSL (blob {bi})";
+                    if (!build.Originals.TryGetValue("glsl", out var origs))
+                        build.Originals["glsl"] = origs = new();
+                    if (!origs.Any(o => o.label == label))
+                        origs.Add((label, pr.Text));
                 }
             }
         }
@@ -1843,6 +1916,11 @@ namespace ShaderRipper.Game
                         perPass[owner] = build = new PassBuild();
                     string note = Localization.Strings.F("NoteD3d9DisassemblyOnly", info.Name);
                     if (!build.Notes.Contains(note)) build.Notes.Add(note);
+                    string label = $"D3D9 {stage} (blob {pr.BlobIndex})";
+                    if (!build.Originals.TryGetValue("d3d9", out var origs))
+                        build.Originals["d3d9"] = origs = new();
+                    if (!origs.Any(o => o.label == label))
+                        origs.Add((label, asm));
                 }
             }
         }
@@ -1860,6 +1938,45 @@ namespace ShaderRipper.Game
         /// A slot with no translator still lands on disk as a disassembly-equivalent
         /// artefact when the plugin provides one, which is how d3d9 is handled.
         /// </summary>
+        /// <summary>
+        /// Vertex input semantics by location, read off a GLSL vertex program.
+        ///
+        /// A GLSL vertex program declares its inputs in location order and names each
+        /// one after the semantic Unity fed it: <c>in vec4 in_POSITION0;</c>,
+        /// <c>in vec4 in_COLOR0;</c>, <c>in vec2 in_TEXCOORD0;</c>.  The numeric
+        /// suffix is the channel index within that semantic, so <c>in_TEXCOORD1</c> is
+        /// <c>TEXCOORD1</c> and <c>in_COLOR0</c> is <c>COLOR0</c>.
+        ///
+        /// This is the only place the information exists: SPIR-V records a location
+        /// and nothing else, and the parameter slots carry buffer members rather than
+        /// vertex streams.
+        /// </summary>
+        /// <summary>
+        /// The body of one stage of a two-stage GLSL blob, as the text between its
+        /// <c>#ifdef STAGE</c> and the matching <c>#endif</c>.  HLSLcc wraps both
+        /// stages in one text this way, so a per-stage declaration lives only inside
+        /// its own half.  Null when the stage is absent.
+        /// </summary>
+        private static string SliceIfdef(string text, string stage)
+        {
+            Match m = Regex.Match(text, @"^[ \t]*#ifdef\s+" + stage + @"\s*$", RegexOptions.Multiline);
+            if (!m.Success) return null;
+            int from = m.Index + m.Length;
+            int depth = 1;
+            int i = from;
+            while (i < text.Length)
+            {
+                int lineEnd = text.IndexOf('\n', i);
+                if (lineEnd < 0) lineEnd = text.Length;
+                string line = text.Substring(i, lineEnd - i).Trim();
+                if (line.StartsWith("#if", StringComparison.Ordinal)) depth++;
+                else if (line.StartsWith("#endif", StringComparison.Ordinal) && --depth == 0)
+                    return text.Substring(from, i - from);
+                i = lineEnd + 1;
+            }
+            return null;
+        }
+
         private static void ExportPlugin(Shader sh, string name, PlatformInfo info, byte[] decoded,
             string dir, Dictionary<int, List<Pass>> passOf, Dictionary<int, SubProgram> spOf,
             Dictionary<int, string> kwIndex, List<Property> props,
@@ -1978,8 +2095,20 @@ namespace ShaderRipper.Game
                     foreach (string note in result.Notes ?? Array.Empty<string>())
                         if (!build.Notes.Contains(note)) build.Notes.Add(note);
                     if (result.Target > 0) build.Target = Math.Max(build.Target, result.Target);
-                    if (stage == "vs") build.Add(build.Vs, build.Keys, VariantPlan.Key(kw), kw, result.Hlsl);
-                    else if (stage == "ps") build.Add(build.Ps, build.Keys, VariantPlan.Key(kw), kw, result.Hlsl);
+                    if (stage == "vs") build.Add(build.Vs, build.Keys, VariantPlan.Key(kw), kw, result.Hlsl, info.Format, "vs");
+                    else if (stage == "ps") build.Add(build.Ps, build.Keys, VariantPlan.Key(kw), kw, result.Hlsl, info.Format, "ps");
+                    // A plugin that can spell its own input hands it over in the
+                    // result; one that cannot leaves the block out, which is why the
+                    // pass simply keeps whatever it already has.
+                    if (!string.IsNullOrEmpty(result.Original))
+                    {
+                        string format = info.Format ?? "plugin";
+                        string label = $"{result.OriginalKind ?? format} {stage} (blob {program.BlobIndex})";
+                        if (!build.Originals.TryGetValue(format, out var origs))
+                            build.Originals[format] = origs = new();
+                        if (!origs.Any(o => o.label == label))
+                            origs.Add((label, result.Original));
+                    }
                 }
             }
         }
@@ -2394,15 +2523,78 @@ namespace ShaderRipper.Game
             return "#pragma multi_compile" + (local ? "_local" : "") + " __ " + string.Join(" ", names);
         }
 
+        /// <summary>
+        /// The single format whose bodies <see cref="FillPass"/> will emit for this
+        /// pass, so its original text is the only one written into the block.
+        ///
+        /// <see cref="PassBuild.Add"/> keeps the first format to claim a slot, which
+        /// makes the emitted bodies all come from one route -- but the two stages can
+        /// be claimed by *different* platforms (a build with both a GLES slot and a
+        /// Vulkan slot has one stage translated from each).  Returning every claimed
+        /// format then wrote two unrelated programs into the same pass: the GLSL
+        /// source of one beside the SPIR-V listing of the other.  The winner is the
+        /// format that supplied the vertex stage, because that is the body the block
+        /// is built around; the fragment stage follows it or, when it came from
+        /// elsewhere, contributes no original text at all.
+        /// </summary>
+        private static string RouteFormat(PassBuild pb, bool glsl)
+        {
+            if (glsl) return "glsl";
+            if (pb.FormatOf.TryGetValue("vs", out string vs)) return vs;
+            if (pb.FormatOf.TryGetValue("ps", out string ps)) return ps;
+            return null;
+        }
+
+        /// <summary>
+        /// True when a body dictionary was filled by an actual d3d11 slot -- that is,
+        /// by DXBC rather than by a plugin's SPIR-V.  The two share the dictionaries,
+        /// so the format claim is the only record of the difference.
+        /// </summary>
+        private static bool HaveDxbc(PassBuild pb) =>
+            (pb.FormatOf.TryGetValue("vs", out string v) && v == "dxbc")
+            || (pb.FormatOf.TryGetValue("ps", out string p) && p == "dxbc");
+
         private static void FillPass(Emit.ShaderLab.PassText pt, PassBuild pb, ParsedForm form)
         {
             bool hasKeywords = pb.Keys.Any(k => k.Length > 0) || pb.GKeys.Any(k => k.Length > 0);
             pt.Target = pb.Target;
 
-            bool dxbc = pb.Vs.Count > 0 || pb.Ps.Count > 0;
-            bool glsl = !dxbc && pb.Glsl.Count > 0;
-            pt.Source = !string.IsNullOrEmpty(pb.Source) ? pb.Source
-                      : glsl ? "GLSL" : "DXBC";
+            // Route preference: DXBC, then GLSL, then a plugin's SPIR-V.  The GLSL
+            // translation is the better product over SPIR-V -- it needs no semantics
+            // table and its original text is the compiler's own source, not a
+            // disassembly -- so a build that ships both a GL-family slot and a Vulkan
+            // slot reads as GLSL, and Vulkan is the fallback for a shader the GL
+            // family never compiled.  DXBC still wins over both: it is the most
+            // faithful payload a Windows build carries.
+            //
+            // SPIR-V bodies land in the same dictionaries as DXBC (both fill Vs/Ps
+            // through Add), so the only record of which one filled them is FormatOf.
+            bool spirv = (pb.FormatOf.TryGetValue("vs", out string vfmt) && vfmt == "spirv")
+                      || (pb.FormatOf.TryGetValue("ps", out string pfmt) && pfmt == "spirv");
+            bool glsl = pb.Glsl.Count > 0 && (!spirv || !HaveDxbc(pb));
+            if (Environment.GetEnvironmentVariable("SHADERRIP_ROUTEDBG") == "1")
+                Console.Error.WriteLine($"[route] glsl={glsl} glslBodies={pb.Glsl.Count} " +
+                    $"vs={pb.Vs.Count} ps={pb.Ps.Count} " +
+                    $"fmtVs={(pb.FormatOf.TryGetValue("vs", out var fv) ? fv : "-")} " +
+                    $"fmtPs={(pb.FormatOf.TryGetValue("ps", out var fp) ? fp : "-")} spirv={spirv}");
+            // The provenance comment follows the route that actually supplied the
+            // bodies: a plugin wrote "SPIR-V" into pb.Source when it claimed the
+            // slot, but when this pass reads as GLSL the bodies are the GL
+            // translation's and the SPIR-V label would be a lie about the text
+            // below it.
+            pt.Source = glsl ? "GLSL"
+                      : !string.IsNullOrEmpty(pb.Source) ? pb.Source
+                      : "DXBC";
+
+            // Only the route that supplies the bodies contributes original text: a
+            // build that shipped a d3d11 slot and a Vulkan slot translated one of
+            // them, and the other's bytes describe a program this pass does not
+            // contain.
+            string routeFormat = RouteFormat(pb, glsl);
+            if (routeFormat != null && pb.Originals.TryGetValue(routeFormat, out var originals))
+                foreach (var (label, text) in originals)
+                    if (!pt.Originals.Any(o => o.label == label))
+                        pt.Originals.Add((label, text));
 
             // Prefer DXBC when both backends exist; never mix their slot namespaces.
             if (glsl)
@@ -2420,6 +2612,8 @@ namespace ShaderRipper.Game
                     {
                         Guards = glslKeys.Select(k => VariantPlan.Guard(groups, pb.Glsl[k].kw)).ToList(),
                         Bodies = glslKeys.Select(k => pb.Glsl[k].hlsl).ToList(),
+                        Keywords = glslKeys.Select(k =>
+                            new HashSet<string>(pb.Glsl[k].kw, StringComparer.Ordinal)).ToList(),
                     }
                 };
                 return;
@@ -2483,6 +2677,7 @@ namespace ShaderRipper.Game
                 if (merged == null) continue;
                 chain.Guards.Add(VariantPlan.Guard(groups2, hadVs ? v.kw : pv.kw));
                 chain.Bodies.Add(string.Join("\n", merged));
+                chain.Keywords.Add(new HashSet<string>(hadVs ? v.kw : pv.kw, StringComparer.Ordinal));
             }
             pt.Chains = chain.Bodies.Count > 0 ? new List<Emit.ShaderLab.VariantChain> { chain } : null;
         }
