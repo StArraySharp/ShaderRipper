@@ -61,6 +61,7 @@ namespace ShaderRipper.Plugin.AutomatedTesting
             // export without repeating it.  Useful while iterating on the harness: the
             // export is the expensive half.
             registry.AddCommand(new RegenerateCommand());
+            registry.AddCommand(new GenerateProjectCommand());
         }
     }
 
