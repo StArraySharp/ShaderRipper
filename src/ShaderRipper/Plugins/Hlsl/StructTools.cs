@@ -198,12 +198,15 @@ namespace ShaderRipper.Plugins.Hlsl
         /// The two programs also name their copies independently -- the vertex calls
         /// its colour <c>vs_134</c>, the fragment <c>ps_22</c> -- so the merge keeps
         /// the vertex's spelling and rewrites the fragment's
-        /// <c>parameter.&lt;name&gt;</c> accesses through a positional map.
+        /// <c>parameter.&lt;name&gt;</c> accesses.
         ///
-        /// Declines (returns <see cref="InterfaceMerge.Unchanged"/>) unless the two
-        /// member lists cover the same semantics in the same order: anything else is a
-        /// pair this pass does not understand, and a wrong merge would be worse than
-        /// no merge.
+        /// The fragment normally reads a subset of what the vertex writes (a vertex
+        /// program emits interpolators a keyword-off path never consumes), so the
+        /// merge keeps the vertex's full member list and matches each fragment member
+        /// to the vertex member with the same semantic.  It declines (returns
+        /// <see cref="InterfaceMerge.Unchanged"/>) when a fragment member has no vertex
+        /// counterpart: that reads an interpolator the vertex never writes, which no
+        /// spelling of the merged struct could fix.
         /// </summary>
         /// <param name="vertex">Vertex program text.</param>
         /// <param name="fragment">Fragment program text.</param>
@@ -232,14 +235,32 @@ namespace ShaderRipper.Plugins.Hlsl
                 if (m.Semantic == "SV_Position") continue;
                 psMembers.Add(m);
             }
-            if (vsMembers.Count == 0 || vsMembers.Count != psMembers.Count) return InterfaceMerge.Unchanged;
-            for (int i = 0; i < vsMembers.Count; i++)
-                if (vsMembers[i].Semantic != psMembers[i].Semantic) return InterfaceMerge.Unchanged;
+            if (vsMembers.Count == 0) return InterfaceMerge.Unchanged;
 
+            // The fragment reads a SUBSET of what the vertex writes: a vertex program
+            // routinely emits an interpolator the fragment never looks at (a second
+            // UV set used only for a keyword-off path, a colour the branch does not
+            // need).  Requiring the two lists to be equal refused exactly those
+            // programs, which left the stage pair unmerged -- and an unmerged pair does
+            // not link, so the material drew nothing.  Matching by semantic instead
+            // keeps the vertex's full output and points each fragment member at the
+            // vertex member carrying the same semantic.
+            var bySemantic = new Dictionary<string, StructMember>(StringComparer.Ordinal);
+            foreach (StructMember m in vsMembers)
+                if (!bySemantic.ContainsKey(m.Semantic)) bySemantic[m.Semantic] = m;
+
+            foreach (StructMember m in psMembers)
+                if (!bySemantic.ContainsKey(m.Semantic)) return InterfaceMerge.Unchanged;
+
+            // The fragment's member spelling differs from the vertex's -- each module
+            // names its own copies -- so every one of its accesses is redirected to the
+            // vertex's name for the same semantic.
             var rename = new Dictionary<string, string>(StringComparer.Ordinal);
-            for (int i = 0; i < vsMembers.Count; i++)
-                if (psMembers[i].Name != vsMembers[i].Name)
-                    rename[psMembers[i].Name] = vsMembers[i].Name;
+            foreach (StructMember m in psMembers)
+            {
+                string target = bySemantic[m.Semantic].Name;
+                if (m.Name != target) rename[m.Name] = target;
+            }
 
             var sb = new StringBuilder();
             sb.Append("struct ").Append(mergedName).Append("\n{\n");

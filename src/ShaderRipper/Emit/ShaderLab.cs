@@ -1503,12 +1503,14 @@ namespace ShaderRipper.Emit
             if (vsOut == null || psIn == null || psOut == null) return (vs, ps);
 
             // The interpolator set: the vertex output's members minus its position.
-            // The pixel input's members must cover the same set -- the two modules
-            // were compiled from one source, so their members match position for
-            // position even though the names differ (each module names its own
-            // copies: the vertex calls the colour `vs_134`, the fragment `ps_22`).
-            // The merge keeps the vertex's spelling and rewrites the fragment body's
-            // accesses through a positional name map.
+            // The fragment reads a SUBSET of them -- a vertex program routinely emits
+            // an interpolator a keyword-off path never consumes, and requiring the two
+            // lists to be equal refused exactly those programs and left them unmerged
+            // (an unmerged pair does not link, so the material drew nothing).
+            // Matching by semantic keeps the vertex's full output and points each
+            // fragment member at the vertex member carrying the same semantic; the two
+            // modules name their copies independently (the vertex calls the colour
+            // `vs_82`, the fragment `ps_105`).
             var members = new List<(string type, string name, string semantic)>();
             foreach (var m in StructMembers(vsOut))
             {
@@ -1516,15 +1518,24 @@ namespace ShaderRipper.Emit
                 members.Add(m);
             }
             var pixelSide = StructMembers(psIn).Where(m => m.semantic != "SV_Position").ToList();
-            if (members.Count != pixelSide.Count) return (vs, ps);
-            for (int i = 0; i < members.Count; i++)
-                if (members[i].semantic != pixelSide[i].semantic) return (vs, ps);
+            if (members.Count == 0) return (vs, ps);
 
-            // Fragment spelling -> vertex spelling, positional.
+            var bySemantic = new Dictionary<string, (string type, string name, string semantic)>(StringComparer.Ordinal);
+            foreach (var m in members)
+                if (!bySemantic.ContainsKey(m.semantic)) bySemantic[m.semantic] = m;
+
+            // A fragment member with no vertex counterpart reads an interpolator the
+            // vertex never writes: nothing a merged declaration could supply.
+            foreach (var m in pixelSide)
+                if (!bySemantic.ContainsKey(m.semantic)) return (vs, ps);
+
+            // Fragment spelling -> vertex spelling.
             var pixelNames = new Dictionary<string, string>(StringComparer.Ordinal);
-            for (int i = 0; i < members.Count; i++)
-                if (pixelSide[i].name != members[i].name)
-                    pixelNames[pixelSide[i].name] = members[i].name;
+            foreach (var m in pixelSide)
+            {
+                string target = bySemantic[m.semantic].name;
+                if (m.name != target) pixelNames[m.name] = target;
+            }
 
             // v2f: position first, then the interpolators in vertex order.
             var sb = new StringBuilder();

@@ -121,11 +121,21 @@ namespace ShaderRipper.Emit
             // Those items stay with their branches -- a per-branch tail keeps the
             // original internal order, so every body is still preceded by the items it
             // reads.
+            //
+            // A chain with any such group cannot be collapsed at all.  Hoisting the
+            // groups that ARE full moves them to the top of the cascade, while the
+            // per-branch items move to the tail behind it -- so an interface struct
+            // that differs per variant (a vertex output carrying different
+            // interpolators under different keywords) ends up declared AFTER the
+            // fragment that takes it, and the fragment references a type that is not
+            // in scope ("unrecognized identifier 'v2f'").  Leaving the chain as it was
+            // keeps every branch self-contained, which is the shape it had before the
+            // merge folded the stage pair.
             var full = new List<Group>();
             var consumed = new HashSet<(int branch, Item item)>();
             foreach (var g in groups)
             {
-                if (g.Items.Count != n) continue;
+                if (g.Items.Count != n) return false;
                 full.Add(g);
                 foreach (var kv in g.Items) consumed.Add((kv.Key, branches[kv.Key].First(it => it.Text == kv.Value)));
             }
