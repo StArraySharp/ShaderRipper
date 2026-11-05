@@ -317,68 +317,19 @@ namespace ShaderRipper.Plugin.SpirV
             // -- read the vertex's output list (`vs_*`), because that is what the
             // interpolator slots carry.  A stage missing its table keeps its
             // positional spelling rather than guessing.
-            IReadOnlyList<string> inputTable = vertexAttributes;
-            IReadOnlyList<string> interpTable = vertexInterpolators;
-            if (Environment.GetEnvironmentVariable("SHADERRIP_ATTRDBG") == "1")
-                Console.Error.WriteLine($"[patch] vertex={vertex} in={inputTable?.Count ?? -1} interp={interpTable?.Count ?? -1}");
-            if (vertex && (inputTable == null || inputTable.Count == 0)) return text;
-            if (!vertex && (interpTable == null || interpTable.Count == 0)) return text;
-
-            var lines = text.Replace("\r\n", "\n").Split('\n').ToList();
-            string currentStruct = null;
-            int location = -1;
-            for (int i = 0; i < lines.Count; i++)
+            //
+            // The struct names are still the backend's: the per-stage suffix is added
+            // by Flatten, which runs after this pass.
+            if (vertex)
             {
-                string trimmed = lines[i].Trim();
-                var head = System.Text.RegularExpressions.Regex.Match(trimmed, @"^struct\s+(\w+)");
-                if (head.Success)
-                {
-                    currentStruct = head.Groups[1].Value;
-                    if (Environment.GetEnvironmentVariable("SHADERRIP_ATTRDBG") == "1")
-                        Console.Error.WriteLine($"[dbgstruct] {currentStruct}");
-                    location = -1;
-                    continue;
-                }
-                if (currentStruct == null) continue;
-                if (trimmed == "};") { currentStruct = null; continue; }
-
-                // The vertex stage patches its INPUT struct from the mesh-stream
-                // table and its OUTPUT struct from the interpolator table; the
-                // fragment stage has no mesh-stream input, so everything it declares
-                // comes from the interpolator table.  Unrelated structs are left
-                // alone.
-                // The struct names are still the backend's -- the per-stage suffix
-                // is added by Flatten, which runs after this pass.  The vertex stage
-                // declares one Input (its mesh streams) and one Output (its
-                // interpolators); the fragment stage declares one Input whose
-                // members are the vertex's interpolators.
-                IReadOnlyList<string> table =
-                    vertex && currentStruct == "SPIRV_Cross_Input" ? inputTable
-                    : vertex && currentStruct == "SPIRV_Cross_Output" ? interpTable
-                    : !vertex && currentStruct == "SPIRV_Cross_Input" ? interpTable
-                    : null;
-                if (table == null || table.Count == 0) continue;
-
-                var m = System.Text.RegularExpressions.Regex.Match(trimmed,
-                    @"^(\w[\w<>, ]*?)\s+(\w+)\s*:\s*(\w+)\s*;$");
-                if (!m.Success) continue;
-                // SV_Position is not a mesh stream -- the vertex output's clip-space
-                // position and the pixel input's copy of it live outside the
-                // attribute numbering, so they keep their semantic and the counter
-                // does not advance for them.
-                if (m.Groups[3].Value == "SV_Position" || m.Groups[3].Value == "SV_Target0"
-                    || m.Groups[3].Value == "SV_Target") continue;
-                location++;
-                if (location >= table.Count) continue;
-                string semantic = SemanticOf(table[location]);
-                if (semantic == m.Groups[3].Value) continue;
-
-                string indent = lines[i][..(lines[i].Length - lines[i].TrimStart().Length)];
-                if (Environment.GetEnvironmentVariable("SHADERRIP_ATTRDBG") == "1")
-                    Console.Error.WriteLine($"[patchline] {currentStruct}: {m.Groups[2].Value} {m.Groups[3].Value} -> {semantic}");
-                lines[i] = $"{indent}{m.Groups[1].Value} {m.Groups[2].Value} : {semantic};";
+                text = Plugins.Hlsl.StructTools.PatchSemantics(text, "SPIRV_Cross_Input", vertexAttributes);
+                text = Plugins.Hlsl.StructTools.PatchSemantics(text, "SPIRV_Cross_Output", vertexInterpolators);
             }
-            return string.Join("\n", lines);
+            else
+            {
+                text = Plugins.Hlsl.StructTools.PatchSemantics(text, "SPIRV_Cross_Input", vertexInterpolators);
+            }
+            return text;
         }
 
         /// <summary>

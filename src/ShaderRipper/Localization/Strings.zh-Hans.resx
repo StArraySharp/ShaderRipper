@@ -120,6 +120,16 @@
     <comment>{0} = 无法识别的参数</comment>
   </data>
 
+  <data name="PluginCommandUsage">
+    <value>用法: {0} -- {1}</value>
+    <comment>{0} = 插件的命令字，{1} = 一行说明</comment>
+  </data>
+
+  <data name="PluginCommandFailed">
+    <value>{0} 失败: {1}</value>
+    <comment>{0} = 插件的命令字，{1} = 异常类型与消息</comment>
+  </data>
+
   <data name="ExportSummary">
     <value>文件={0} 着色器={1} 已写出={2} 程序={3} 反汇编={4} 已翻译={5} 跳过={6} 失败={7}</value>
     <comment>单行导出统计：读了多少文件、见到多少 shader、写出多少、翻译多少程序。</comment>

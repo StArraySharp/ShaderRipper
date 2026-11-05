@@ -121,10 +121,13 @@ float4 frag() : SV_Target { return _Color + _Tint; }
         string text = Merged(vs, ps);
         Assert.That(CountOf(text, "float4 _Color "), Is.EqualTo(1));
         Assert.That(text, Does.Contain("float4 _Tint : packoffset(c3.x);"));
-        // The loser keeps a name a reader can recognise rather than falling back to
-        // the row number it happens to sit at.
-        Assert.That(text, Does.Contain("float4 _Color_2 : packoffset(c9.x);"));
-        Assert.That(text, Does.Contain("return _Color_2;"));
+        // A MATERIAL PROPERTY has no suffixed fallback: Unity fills values by
+        // property name, so a copy renamed `_Color_2` would read zero forever (under
+        // premultiplied-alpha blending that is a fully transparent material, with no
+        // compile error).  The duplicate is dropped and the bodies that spelled it
+        // read the surviving declaration instead.
+        Assert.That(text, Does.Not.Contain("_Color_2"));
+        Assert.That(text, Does.Contain("return _Color;"));
     }
 
     private static int CountOf(string text, string needle)

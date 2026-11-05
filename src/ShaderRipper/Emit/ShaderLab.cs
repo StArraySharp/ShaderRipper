@@ -1579,25 +1579,12 @@ namespace ShaderRipper.Emit
         }
 
         /// <summary>The struct declaration's full text, or null when absent.</summary>
-        private static string ReadStruct(string hlsl, string name)
-        {
-            int head = hlsl.IndexOf("struct " + name, StringComparison.Ordinal);
-            if (head < 0) return null;
-            int open = hlsl.IndexOf('{', head);
-            int close = hlsl.IndexOf('}', open);
-            if (open < 0 || close < 0) return null;
-            int semi = hlsl.IndexOf(';', close);
-            return hlsl.Substring(head, semi - head + 1);
-        }
+        private static string ReadStruct(string hlsl, string name) =>
+            Plugins.Hlsl.StructTools.ReadStruct(hlsl, name);
 
         /// <summary>Remove one struct declaration from the text.</summary>
-        private static string ReplaceStruct(string hlsl, string name, string replacement)
-        {
-            string old = ReadStruct(hlsl, name);
-            if (old == null) return hlsl;
-            int at = hlsl.IndexOf(old, StringComparison.Ordinal);
-            return hlsl.Remove(at, old.Length).Insert(at, replacement);
-        }
+        private static string ReplaceStruct(string hlsl, string name, string replacement) =>
+            Plugins.Hlsl.StructTools.ReplaceStruct(hlsl, name, replacement);
 
         /// <summary>
         /// The members of a struct body: type, name, semantic.  Only the
@@ -1606,9 +1593,8 @@ namespace ShaderRipper.Emit
         private static List<(string type, string name, string semantic)> StructMembers(string structText)
         {
             var result = new List<(string, string, string)>();
-            foreach (Match m in Regex.Matches(structText,
-                @"^\s*(\w+)\s+(\w+)\s*:\s*(\w+)\s*;", RegexOptions.Multiline))
-                result.Add((m.Groups[1].Value, m.Groups[2].Value, m.Groups[3].Value));
+            foreach (Plugins.Hlsl.StructMember m in Plugins.Hlsl.StructTools.Members(structText))
+                result.Add((m.Type, m.Name, m.Semantic));
             return result;
         }
 

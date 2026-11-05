@@ -132,8 +132,52 @@ namespace ShaderRipper
                 case "--game": return ExportGame(opt);
                 case "--plugins": return ListPlugins();
                 default:
+                    // A plugin's command.  Looked up only after the host's own words
+                    // have been tested, so a plugin can never shadow one -- the
+                    // registry refuses to register those, but testing in this order
+                    // means a stale registration cannot redirect a host command either.
+                    Plugins.ICommandHandler custom = Plugins.PluginContext.Registry?.CommandFor(command);
+                    if (custom != null) return RunPluginCommand(custom, opt, args);
                     Console.Error.WriteLine(Strings.F("UnknownOption", command));
                     return 2;
+            }
+        }
+
+        /// <summary>
+        /// Run a command a plugin registered.
+        ///
+        /// The positional count is the handler's own declaration, checked here so every
+        /// handler gets the same "usage" answer instead of an index exception.  An
+        /// exception out of the handler is reported as one line and turned into a
+        /// failure exit code: a plugin bug must not take the tool down with a stack
+        /// trace the user cannot act on.
+        /// </summary>
+        private static int RunPluginCommand(Plugins.ICommandHandler handler, Argv opt, string[] raw)
+        {
+            if (opt.Bare.Count < handler.PositionalCount)
+            {
+                Console.Error.WriteLine(Strings.F("PluginCommandUsage",
+                    handler.Command, handler.Summary));
+                return 2;
+            }
+
+            var args = new Plugins.CommandArgs
+            {
+                Raw = raw,
+                Positionals = opt.Bare,
+                Value = opt.Value,
+                Has = opt.Has,
+            };
+
+            try
+            {
+                return handler.Run(args);
+            }
+            catch (Exception e)
+            {
+                Console.Error.WriteLine(Strings.F("PluginCommandFailed",
+                    handler.Command, e.GetType().Name + ": " + e.Message));
+                return 1;
             }
         }
 
@@ -157,6 +201,14 @@ namespace ShaderRipper
         {
             foreach (string c in Commands)
                 if (args.Contains(c, StringComparer.OrdinalIgnoreCase)) return c;
+
+            // A plugin's command word.  Checked after the built-ins so a plugin cannot
+            // shadow one even if it somehow registered the same spelling.
+            var plugins = Plugins.PluginContext.Registry?.Commands;
+            if (plugins != null)
+                foreach (Plugins.ICommandHandler h in plugins)
+                    if (args.Contains(h.Command, StringComparer.OrdinalIgnoreCase)) return h.Command;
+
             return args.Length > 0 ? args[0] : "";
         }
 

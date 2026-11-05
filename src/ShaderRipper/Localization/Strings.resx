@@ -124,6 +124,16 @@ Other:
     <comment>{0} = the unrecognised argument</comment>
   </data>
 
+  <data name="PluginCommandUsage">
+    <value>usage: {0} -- {1}</value>
+    <comment>{0} = the plugin's command word, {1} = its one-line summary</comment>
+  </data>
+
+  <data name="PluginCommandFailed">
+    <value>{0} failed: {1}</value>
+    <comment>{0} = the plugin's command word, {1} = exception type and message</comment>
+  </data>
+
   <data name="ExportSummary">
     <value>files={0} shaders={1} emitted={2} programs={3} disassembled={4} translated={5} skipped={6} failed={7}</value>
     <comment>One-line export tally. Files read, shaders seen, shaders written, programs translated.</comment>

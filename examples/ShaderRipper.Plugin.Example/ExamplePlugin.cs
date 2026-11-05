@@ -6,6 +6,7 @@ using System.Text;
 using ShaderRipper.Plugins;
 using ShaderRipper.Plugins.Containers;
 using ShaderRipper.Plugins.Emit;
+using ShaderRipper.Plugins.Hlsl;
 using ShaderRipper.Plugins.Platforms;
 
 namespace ShaderRipper.Plugin.Example
@@ -52,6 +53,99 @@ namespace ShaderRipper.Plugin.Example
                 HasTranslator = true,
             }, new ExampleSlotReader(), new ExampleTranslator());
             registry.AddEmitterPass(new ProvenancePass());
+
+            // A command of its own.  `ShaderRipper --example-structs <file.hlsl>`
+            // prints the interface structs of an emitted program and what
+            // StructTools makes of them -- the same two operations a backend needs
+            // when it has to fold a stage pair or repair semantics from a table.
+            registry.AddCommand(new StructReportCommand());
+        }
+    }
+
+    /// <summary>
+    /// <c>--example-structs &lt;file.hlsl&gt;</c>: describe the interface structs of one
+    /// program, then show what merging a vertex/pixel pair would produce.
+    ///
+    /// The point of the example is the API shape: read a struct, list its members,
+    /// patch its semantics from a name table, and fold a pair into one declaration.
+    /// All four are pure functions, so a plugin can call them from anywhere.
+    /// </summary>
+    internal sealed class StructReportCommand : ICommandHandler
+    {
+        public string Command => "--example-structs";
+
+        public string Summary => "<file.hlsl> -- list interface structs and their members";
+
+        public int PositionalCount => 1;
+
+        public int Run(CommandArgs args)
+        {
+            string path = args.Positionals[0];
+            if (!File.Exists(path))
+            {
+                Console.Error.WriteLine($"no such file: {path}");
+                return 2;
+            }
+
+            string text = File.ReadAllText(path);
+
+            // Every struct the program declares, in declaration order.
+            foreach (System.Text.RegularExpressions.Match head in
+                     System.Text.RegularExpressions.Regex.Matches(text, @"\bstruct\s+(\w+)"))
+            {
+                string name = head.Groups[1].Value;
+                string decl = StructTools.ReadStruct(text, name);
+                if (decl == null) continue;
+
+                Console.WriteLine($"struct {name}");
+                foreach (StructMember m in StructTools.Members(decl))
+                {
+                    bool system = StructTools.IsSystemSemantic(m.Semantic);
+                    Console.WriteLine($"    {m.Type,-10} {m.Name,-20} {m.Semantic}" +
+                                      (system ? "   (system)" : ""));
+                }
+            }
+
+            // Show the merge the SPIR-V route performs, when the pair is there.  A
+            // decline is a normal answer: the two sides do not describe the same
+            // interpolators, and a wrong merge would be worse than none.
+            var merged = StructTools.MergeInterface(
+                text, text, "SPIRV_Cross_Output_vs", "SPIRV_Cross_Input_ps");
+            Console.WriteLine(merged.Merged
+                ? $"\nvertex/pixel pair merges into '{merged.StructName}'"
+                : "\nvertex/pixel pair does not merge (absent, or the member lists disagree)");
+
+            // Splitting the text into top-level items needs the parse tree, not a line
+            // scan -- a `float4 _Color;` inside a body must not be mistaken for a
+            // global.  The splitter takes a bare program body, so a ShaderLab file has
+            // to be reduced to its `HLSLPROGRAM` block first; the grammar has no rule
+            // for the wrapper and would report errors for every line of it.
+            string program = ExtractProgram(text);
+            if (program == null)
+            {
+                Console.WriteLine("\nno HLSLPROGRAM block found");
+                return 0;
+            }
+            var items = HlslItems.Split(program, out int errors);
+            Console.WriteLine($"\n{items.Count} top-level item(s), {errors} parse error(s)");
+            foreach (HlslItem item in items)
+                Console.WriteLine($"    {item.Kind,-8} {item.Name}");
+            return 0;
+        }
+
+        /// <summary>The text between the first <c>HLSLPROGRAM</c>/<c>CGPROGRAM</c> and
+        /// its <c>ENDHLSL</c>/<c>ENDCG</c>, or null when the file has none.</summary>
+        private static string ExtractProgram(string text)
+        {
+            foreach (var (open, close) in new[] { ("HLSLPROGRAM", "ENDHLSL"), ("CGPROGRAM", "ENDCG") })
+            {
+                int a = text.IndexOf(open, StringComparison.Ordinal);
+                if (a < 0) continue;
+                int b = text.IndexOf(close, a, StringComparison.Ordinal);
+                if (b < 0) continue;
+                return text.Substring(a + open.Length, b - a - open.Length);
+            }
+            return null;
         }
     }
 

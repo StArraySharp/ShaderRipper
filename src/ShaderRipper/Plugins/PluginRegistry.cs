@@ -63,6 +63,7 @@ namespace ShaderRipper.Plugins
         private readonly List<RegisteredProvider> _providers = new();
         private readonly List<PlatformEntry> _platforms = new();
         private readonly List<RegisteredPass> _passes = new();
+        private readonly List<RegisteredCommand> _commands = new();
 
         private bool _closed;
 
@@ -80,6 +81,12 @@ namespace ShaderRipper.Plugins
         {
             public IEmitterPass Pass;
             public int Priority;
+            public string Owner;
+        }
+
+        private sealed class RegisteredCommand
+        {
+            public ICommandHandler Handler;
             public string Owner;
         }
 
@@ -174,6 +181,48 @@ namespace ShaderRipper.Plugins
             _passes.Add(new RegisteredPass { Pass = pass, Priority = priority, Owner = CurrentOwner });
         }
 
+        /// <summary>
+        /// Add a command word to the tool's command line.
+        ///
+        /// The host's own commands win: registering <c>--game</c> or any other built-in
+        /// word is refused rather than silently shadowing it, and so is a word another
+        /// plugin already claimed.  That keeps the command set independent of load
+        /// order, which is the same rule the platform slots follow.
+        /// </summary>
+        /// <param name="handler">The command.</param>
+        /// <exception cref="InvalidOperationException">Registration is closed, or the
+        /// word is taken.</exception>
+        public void AddCommand(ICommandHandler handler)
+        {
+            ThrowIfClosed();
+            if (handler == null) throw new ArgumentNullException(nameof(handler));
+            string word = handler.Command;
+            if (string.IsNullOrWhiteSpace(word))
+                throw new ArgumentException("a command handler must name its command word", nameof(handler));
+            if (ReservedCommands.Contains(word))
+                throw new InvalidOperationException(
+                    $"'{word}' is a built-in command and cannot be replaced");
+            if (_commands.Any(c => string.Equals(c.Handler.Command, word, StringComparison.OrdinalIgnoreCase)))
+                throw new InvalidOperationException(
+                    $"'{word}' is already registered by {OwnerOf(word)}");
+            _commands.Add(new RegisteredCommand { Handler = handler, Owner = CurrentOwner });
+            Notes.Add($"command {word} from {CurrentOwner}: {handler.Summary}");
+        }
+
+        /// <summary>
+        /// Words the host itself answers.  Kept here so the check is one list rather
+        /// than a copy of the dispatcher's switch.
+        /// </summary>
+        public static readonly IReadOnlyList<string> ReservedCommands = new[]
+        {
+            "--game", "--file", "--file-bare", "--asm", "--emit", "--glsl",
+            "--stats", "--list-shaders", "--dump", "--plugins",
+        };
+
+        private string OwnerOf(string word) =>
+            _commands.FirstOrDefault(c =>
+                string.Equals(c.Handler.Command, word, StringComparison.OrdinalIgnoreCase))?.Owner ?? "";
+
         /// <summary>Who is registering right now, so a note can name the plugin.</summary>
         internal string CurrentOwner { get; set; } = "builtin";
 
@@ -201,6 +250,16 @@ namespace ShaderRipper.Plugins
         public IReadOnlyList<IEmitterPass> EmitterPasses =>
             _passes.OrderBy(p => p.Priority).Select(p => p.Pass).ToList();
 
+        /// <summary>Commands plugins added, in registration order.</summary>
+        public IReadOnlyList<ICommandHandler> Commands =>
+            _commands.Select(c => c.Handler).ToList();
+
+        /// <summary>The plugin command registered for a word, or null.</summary>
+        public ICommandHandler CommandFor(string word) =>
+            word == null ? null : _commands
+                .FirstOrDefault(c => string.Equals(c.Handler.Command, word, StringComparison.OrdinalIgnoreCase))
+                ?.Handler;
+
         /// <summary>The backend registered for <paramref name="id"/>, or null.</summary>
         public PlatformEntry PlatformFor(int id) =>
             _platforms.FirstOrDefault(p => p.Descriptor.Id == id);
@@ -223,6 +282,8 @@ namespace ShaderRipper.Plugins
                              (p.Replaced ? $"  (replaces {p.ReplacedName})" : "");
             foreach (var p in _passes.OrderBy(p => p.Priority))
                 yield return $"emitter    priority {p.Priority,4}  {p.Pass.Name} ({p.Owner})";
+            foreach (var c in _commands)
+                yield return $"command                 {c.Handler.Command} ({c.Owner})";
         }
     }
 }

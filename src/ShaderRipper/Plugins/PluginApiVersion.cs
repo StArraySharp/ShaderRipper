@@ -38,7 +38,7 @@ namespace ShaderRipper.Plugins
         /// The contract this build implements.  A plugin should report this value
         /// unless it deliberately targets an older one.
         /// </summary>
-        public static PluginApiVersion Current { get; } = new(1, 0);
+        public static PluginApiVersion Current { get; } = new(1, 1);
 
         /// <summary>
         /// Same major version, so the interface a plugin was compiled against is still

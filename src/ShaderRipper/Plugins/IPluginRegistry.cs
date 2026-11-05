@@ -33,5 +33,15 @@ namespace ShaderRipper.Plugins
 
         /// <summary>Add a post-processing pass over the emitted HLSL.</summary>
         void AddEmitterPass(IEmitterPass pass, int priority = PluginRegistry.DefaultPriority);
+
+        /// <summary>
+        /// Add a command word to the tool's command line.
+        ///
+        /// The host answers its own words first and refuses a plugin that tries to
+        /// take one, so <c>--game</c> keeps meaning what the help text says.  A word
+        /// two plugins both claim is refused as well, which is what keeps the command
+        /// set independent of load order.
+        /// </summary>
+        void AddCommand(ICommandHandler handler);
     }
 }
