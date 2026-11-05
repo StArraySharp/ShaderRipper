@@ -232,6 +232,10 @@ namespace ShaderRipper.Game
             // Collect first, export second: `--dedup` has to see every copy of a
             // shader before picking the one worth emitting.
             var found = new List<(Shader sh, string name)>();
+            // The serialized files the walk opened, with the label each was read under.
+            // The material index needs them after the shader paths are known, and a
+            // material's shader reference is a path id inside the file it came from.
+            var opened = new List<(Data.SerializedFile file, string sourceName)>();
             foreach (var (inName, inBytes, inPath) in Inputs(dataDir, files))
             {
                 SerializedFile sf;
@@ -256,6 +260,10 @@ namespace ShaderRipper.Game
                     continue;
                 }
                 s.Files++;
+
+                // Kept for the material index: a material's `m_Shader` is a path id
+                // resolved against the file it was read from.
+                if (sf.Materials.Count > 0) opened.Add((sf, inName));
 
                 // A heading per input file: a 400-shader run gives no sense of
                 // progress without one, and it is the only place a file that
@@ -466,8 +474,57 @@ namespace ShaderRipper.Game
                 // as complete.
                 s.Notes.Add(Localization.Strings.Get("ExportCancelled"));
             else
+            {
                 ExportDir.Finish(outDir, s, programs ? s.Programs : 0);
+
+                // The material index: what a render test needs and a .shader file
+                // cannot carry -- which shader each material binds and every property
+                // value the game saved on it.  Written after the shader paths are
+                // final so `shaderFile` names a file that actually exists.
+                if (opened.Count > 0)
+                {
+                    var shaderPath = new Dictionary<(long pathId, string source), string>();
+                    foreach (var seat in seats)
+                        shaderPath[(seat.Sh.PathId, seat.Sh.SourceFile ?? "")] = seat.Rel;
+                    MaterialIndex.Write(outDir, MaterialIndex.Collect(
+                        opened, shaderPath,
+                        (fileId, pathId) => ResourcePath(resMap, opened, fileId, pathId)));
+                }
+                else MaterialIndex.Write(outDir, null);
+            }
             return s;
+        }
+
+        /// <summary>
+        /// Resolve a texture PPtr to the asset path a reimported project would use.
+        ///
+        /// The Resources map is keyed by the <c>.assets</c> file the object lives in
+        /// plus its path id, which is exactly what a PPtr names -- except that a PPtr
+        /// addresses the file by index into its own external table, so the file has to
+        /// be looked up first.  A reference this cannot resolve stays null and the
+        /// caller records the raw <c>fileId:pathId</c> instead: a harness can still
+        /// tell two textures apart, and inventing a path would be worse.
+        /// </summary>
+        private static string ResourcePath(Dictionary<(string file, long pathId), string> resMap,
+                                           List<(Data.SerializedFile file, string sourceName)> opened,
+                                           int fileId, long pathId)
+        {
+            if (resMap == null || pathId == 0) return null;
+
+            foreach (var (sf, sourceName) in opened)
+            {
+                // File 0 is the file the material itself was read from; anything else
+                // indexes that file's external table, whose entry is the name the
+                // Resources map is keyed by.
+                string file;
+                if (fileId == 0) file = sourceName;
+                else if (fileId - 1 >= 0 && fileId - 1 < sf.Externals.Count)
+                    file = sf.Externals[fileId - 1];
+                else continue;
+
+                if (resMap.TryGetValue((Path.GetFileName(file), pathId), out string path)) return path;
+            }
+            return null;
         }
 
         /// <summary>
