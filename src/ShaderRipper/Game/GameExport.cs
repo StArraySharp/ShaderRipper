@@ -486,9 +486,29 @@ namespace ShaderRipper.Game
                     var shaderPath = new Dictionary<(long pathId, string source), string>();
                     foreach (var seat in seats)
                         shaderPath[(seat.Sh.PathId, seat.Sh.SourceFile ?? "")] = seat.Rel;
-                    MaterialIndex.Write(outDir, MaterialIndex.Collect(
+                    var entries = MaterialIndex.Collect(
                         opened, shaderPath,
-                        (fileId, pathId) => ResourcePath(resMap, opened, fileId, pathId)));
+                        (fileId, pathId) => ResourcePath(resMap, opened, fileId, pathId));
+
+                    // A large family of shaders has no material asset at all -- an
+                    // effect pack whose script creates its material at runtime, a
+                    // post-processing stack the pipeline builds on demand.  Those
+                    // still have to be render-testable, so each one gets an entry
+                    // built from its own Properties block (the same source Unity
+                    // fills a new material from) and flagged synthetic.
+                    var covered = new HashSet<string>(StringComparer.Ordinal);
+                    foreach (var e in entries)
+                        if (e.ShaderFile != null) covered.Add(e.ShaderFile);
+
+                    foreach (var seat in seats)
+                    {
+                        if (covered.Contains(seat.Rel)) continue;
+                        var props = seat.Sh.ParsedForm?.Props;
+                        if (props == null || props.Count == 0) continue;
+                        entries.Add(MaterialIndex.Synthetic(seat.Name, seat.Rel, props));
+                    }
+
+                    MaterialIndex.Write(outDir, entries);
                 }
                 else MaterialIndex.Write(outDir, null);
             }

@@ -52,6 +52,17 @@ namespace ShaderRipper.Game
             /// <summary>The file the material object was read from.</summary>
             public string SourceFile { get; set; }
 
+            /// <summary>
+            /// True when the game shipped no material for this shader and the entry was
+            /// built from the shader's own Properties block.
+            ///
+            /// A test harness still has something to render with, but the values are
+            /// Unity's defaults rather than anything the game chose -- an effect shader
+            /// whose look depends on script-driven properties will not match the game.
+            /// The flag is what lets a harness weight or skip those results.
+            /// </summary>
+            public bool Synthetic { get; set; }
+
             /// <summary>Float and Range properties, name to value.</summary>
             public SortedDictionary<string, float> Floats { get; } = new(StringComparer.Ordinal);
 
@@ -127,6 +138,67 @@ namespace ShaderRipper.Game
                 }
             }
             return result;
+        }
+
+        /// <summary>
+        /// Build a default material for a shader the game shipped no material for.
+        ///
+        /// A large family of shaders -- an effect pack, a post-processing stack -- has
+        /// no material asset at all: a script creates one at runtime and sets its
+        /// properties, so the asset database never holds a copy.  Those shaders still
+        /// have to be render-testable, and the Properties block is exactly what Unity
+        /// itself uses to fill a newly created material, so it is the right source.
+        ///
+        /// The values are the declared defaults, not the game's choices, so the entry
+        /// is flagged <see cref="Entry.Synthetic"/>: a harness that compares against a
+        /// game screenshot has to know the difference.
+        /// </summary>
+        internal static Entry Synthetic(string shaderName, string shaderFile,
+                                        IReadOnlyList<Data.Property> properties)
+        {
+            var entry = new Entry
+            {
+                Name = shaderName,
+                Shader = shaderName,
+                ShaderFile = shaderFile,
+                SourceFile = "(synthetic)",
+                Synthetic = true,
+            };
+
+            string dir = shaderFile != null
+                ? Path.GetDirectoryName(shaderFile)?.Replace('\\', '/')
+                : "Assets/Materials";
+            entry.AssetPath = $"{dir}/{SafeName(shaderName)}.mat";
+
+            foreach (Data.Property p in properties ?? Array.Empty<Data.Property>())
+            {
+                if (string.IsNullOrEmpty(p.Name)) continue;
+                // Unity's property type ids: 0 = Color, 1 = Vector, 2 = Float,
+                // 3 = Range, 4 = Texture.  A texture's default is a built-in name
+                // ("white", "black"), which is what the Properties block carries.
+                switch (p.Type)
+                {
+                    case 0:
+                    case 1:
+                        entry.Colors[p.Name] = new[]
+                        {
+                            p.DefValue.Length > 0 ? p.DefValue[0] : 0f,
+                            p.DefValue.Length > 1 ? p.DefValue[1] : 0f,
+                            p.DefValue.Length > 2 ? p.DefValue[2] : 0f,
+                            p.DefValue.Length > 3 ? p.DefValue[3] : 0f,
+                        };
+                        break;
+                    case 2:
+                    case 3:
+                        entry.Floats[p.Name] = p.DefValue.Length > 0 ? p.DefValue[0] : 0f;
+                        break;
+                    case 4:
+                        if (!string.IsNullOrEmpty(p.DefTextureName))
+                            entry.Textures[p.Name] = p.DefTextureName;
+                        break;
+                }
+            }
+            return entry;
         }
 
         /// <summary>
