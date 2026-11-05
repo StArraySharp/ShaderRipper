@@ -986,21 +986,42 @@ namespace ShaderRipper.Plugin.SpirV
                 // The accumulator the first line writes is the one the next three
                 // read; its name is what the whole product collapses into.
                 string acc = m0.Groups[1].Value;
-                string vec = m0.Groups[2].Value;
+                string vec0 = m0.Groups[2].Value;
                 string mat = m0.Groups[3].Value;
                 if (arrays.Contains(mat)) continue;
 
-                var m1 = AddLine(lines[i + 1], acc, vec, mat, 0, "xxxx");
+                var m1 = AddLine(lines[i + 1], acc, vec0, mat, 0, "xxxx");
                 if (m1 == null) continue;
-                var m2 = AddLine(lines[i + 2], m1.Groups[1].Value, vec, mat, 2, "zzzz");
+                var m2 = AddLine(lines[i + 2], m1.Groups[1].Value, vec0, mat, 2, "zzzz");
                 if (m2 == null) continue;
                 // The last row is either `acc += M[3]` (when the accumulator keeps
                 // living) or `result = (M[3] * vec.wwww) + acc` (when this product's
                 // value is written straight into its destination -- the gl_Position
                 // store a vertex shader ends on).
                 var m3 = PlusLine(lines[i + 3], m2.Groups[1].Value, mat)
-                      ?? LastLine(lines[i + 3], m2.Groups[1].Value, vec, mat);
+                      ?? LastLine(lines[i + 3], m2.Groups[1].Value, vec0, mat);
                 if (m3 == null) continue;
+
+                // Each row reads its own swizzled operand, and the four do not have to
+                // name the same variable: SPIRV-Cross copies only the components it
+                // modified into a temporary and leaves the rest reading the original.
+                // A flip-by-multiply is the common shape -- `tmp.xy` on the first two
+                // rows, `original.zzzz` and `original.wwww` on the last two.  mul()
+                // takes one whole vector, so the per-lane sources are composed into a
+                // single expression that keeps every component's real origin.  When
+                // all four name the same variable the plain name is used, which is what
+                // keeps the common case readable.
+                string vecXY = m1.Groups[2].Value;
+                string vecZ = m2.Groups[2].Value;
+                // `acc += M[3]` carries no operand of its own -- the row is the whole
+                // translation column -- so the z lane's source stands in for w, which
+                // is what `acc += M[3]` already meant for the w component.
+                bool wFromLast = m3.Groups.Count > 4 && m3.Groups[4].Success;
+                string vecW = wFromLast ? m3.Groups[4].Value : vecZ;
+                string vec =
+                    vec0 == vecXY && vec0 == vecZ && vec0 == vecW
+                        ? vec0
+                        : $"float4({vecXY}.xy, {vecZ}.z, {vecW}.w)";
 
                 string result = m3.Groups[1].Value;
                 // Keep the line's own indentation: the folded statement replaces the
@@ -1065,12 +1086,25 @@ namespace ShaderRipper.Plugin.SpirV
         /// swizzle is the lane that row of the product reads (<c>xxxx</c> for row 0,
         /// <c>zzzz</c> for row 2).
         /// </summary>
+        /// <summary>
+        /// <c>acc2 = (matrix[row] * operand.swizzle) + acc;</c> -- a middle term, where
+        /// the swizzle is the lane that row of the product reads (<c>xxxx</c> for row 0,
+        /// <c>zzzz</c> for row 2).
+        ///
+        /// The operand is captured rather than required to be the vector the
+        /// accumulator started from: SPIRV-Cross copies only the components it modifies
+        /// into a temporary and leaves the rest reading the original, so a
+        /// flip-by-multiply produces <c>tmp.xy</c> followed by <c>original.zzzz</c> on
+        /// the z row.  Both are the same product, and the fold composes the operand's
+        /// per-row lanes into a single vector so the <c>mul</c> it emits keeps each
+        /// component's real source.
+        /// </summary>
         private static System.Text.RegularExpressions.Match AddLine(string line, string acc, string vec,
                                                                     string matrix, int row, string swizzle)
         {
             var m = System.Text.RegularExpressions.Regex.Match(line.Trim(),
-                @"^([\w]+)\s*=\s*\(" + matrix + @"\[" + row + @"\]\s*\*\s*" + vec +
-                @"\." + swizzle + @"\)\s*\+\s*" + acc + @"\s*;\s*$");
+                @"^([\w]+)\s*=\s*\(" + matrix + @"\[" + row + @"\]\s*\*\s*([\w]+)\." + swizzle +
+                @"\)\s*\+\s*" + acc + @"\s*;\s*$");
             return m.Success ? m : null;
         }
 
@@ -1086,11 +1120,17 @@ namespace ShaderRipper.Plugin.SpirV
         /// <c>result = (matrix[3] * vec.wwww) + acc;</c> -- the final row written
         /// straight into its destination, which is how the gl_Position store ends.
         /// </summary>
+        /// <summary>
+        /// <c>result = (matrix[3] * operand.wwww) + acc;</c> -- the final row written
+        /// straight into its destination.  The operand is captured for the same reason
+        /// as <see cref="AddLine"/>: the w lane can come from a different temporary
+        /// than the one the product started on.
+        /// </summary>
         private static System.Text.RegularExpressions.Match LastLine(string line, string acc, string vec, string matrix)
         {
             var m = System.Text.RegularExpressions.Regex.Match(line.Trim(),
-                @"^([\w]+)\s*=\s*\(" + matrix + @"\[3\]\s*\*\s*" + vec +
-                @"\.wwww\)\s*\+\s*" + acc + @"\s*;\s*$");
+                @"^([\w]+)\s*=\s*\(" + matrix + @"\[3\]\s*\*\s*([\w]+)\.wwww\)\s*\+\s*" +
+                acc + @"\s*;\s*$");
             return m.Success ? m : null;
         }
 

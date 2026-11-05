@@ -122,20 +122,26 @@ namespace ShaderRipper.Emit
             // original internal order, so every body is still preceded by the items it
             // reads.
             //
-            // A chain with any such group cannot be collapsed at all.  Hoisting the
-            // groups that ARE full moves them to the top of the cascade, while the
-            // per-branch items move to the tail behind it -- so an interface struct
-            // that differs per variant (a vertex output carrying different
-            // interpolators under different keywords) ends up declared AFTER the
-            // fragment that takes it, and the fragment references a type that is not
-            // in scope ("unrecognized identifier 'v2f'").  Leaving the chain as it was
-            // keeps every branch self-contained, which is the shape it had before the
-            // merge folded the stage pair.
+            // A partially-filled TYPE or DECLARATION is the exception that forbids the
+            // rewrite: hoisting moves the full groups to the top of the cascade, while
+            // the partial ones move to the tail behind it -- so an interface struct
+            // that exists only under some variants ends up declared AFTER the function
+            // that takes it, and the function references a type that is not in scope
+            // ("unrecognized identifier 'v2f'").  A partial preprocessor line is
+            // harmless: an `#include` differs per branch only in its trailing comment,
+            // and nothing hoisted depends on which spelling a branch got.  Functions
+            // are fine too, since a partial one cannot be referenced by anything that
+            // was hoisted.
             var full = new List<Group>();
             var consumed = new HashSet<(int branch, Item item)>();
             foreach (var g in groups)
             {
-                if (g.Items.Count != n) return false;
+                if (g.Items.Count != n)
+                {
+                    string kind = g.Shape.Split('|')[0];
+                    if (kind != "pp" && kind != "func" && kind != "semi") return false;
+                    continue;
+                }
                 full.Add(g);
                 foreach (var kv in g.Items) consumed.Add((kv.Key, branches[kv.Key].First(it => it.Text == kv.Value)));
             }
