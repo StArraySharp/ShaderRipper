@@ -106,7 +106,8 @@ namespace ShaderRipper.Plugin.SpirV
         /// </summary>
         public static string Compile(byte[] spirv, SpirvPayload names, bool vertex,
                                      string blobTag, out string error,
-                                     IReadOnlyDictionary<int, string> vertexSemantics = null)
+                                     IReadOnlyList<string> vertexAttributes = null,
+                                     IReadOnlyList<string> vertexInterpolators = null)
         {
             error = null;
             Cross api = Api;
@@ -144,7 +145,25 @@ namespace ShaderRipper.Plugin.SpirV
                 }
 
                 ApplyOptions(api, compiler);
-                if (vertex) ApplyVertexAttributes(api, compiler, spirv, vertexSemantics);
+                if (vertex)
+                {
+                    if (Environment.GetEnvironmentVariable("SHADERRIP_ATTRDBG") == "1")
+                        Console.Error.WriteLine($"[attr] locations={string.Join(",", InputLocations(spirv))} table=[{string.Join(",", vertexAttributes ?? new List<string>())}]");
+                    ApplyVertexAttributes(api, compiler, spirv, vertexAttributes);
+                }
+                else
+                {
+                    // The fragment's interpolators are Input variables too, and their
+                    // locations are the vertex output's locations: one USC reflection
+                    // table assigns both.  Applying the same GLSL-derived table maps
+                    // each interpolator to the semantic the vertex wrote it under,
+                    // which is what makes the stage link hold (the vertex now emits
+                    // COLOR0; an unpatched fragment still declares TEXCOORD0 and
+                    // Unity drops the draw).  The module's own OpName debug info --
+                    // `vs_COLOR0` on the fragment side -- names the same stream, so
+                    // it wins where present; the GLSL table fills the rest.
+                    ApplyInterpolatorSemantics(api, compiler, spirv, vertexInterpolators);
+                }
 
                 byte* source;
                 if (api.CompilerCompile(compiler, &source) != Result.Success)
@@ -155,6 +174,7 @@ namespace ShaderRipper.Plugin.SpirV
 
                 string text = new string((sbyte*)source);
                 text = Rename(text, names, vertex, spirv);
+                text = PatchSemantics(text, vertex, vertexAttributes, vertexInterpolators);
                 text = Flatten(text, vertex);
                 text = FoldMatrixMul(text);
 
@@ -229,7 +249,7 @@ namespace ShaderRipper.Plugin.SpirV
         /// by whatever lay in that stream.
         /// </summary>
         private static void ApplyVertexAttributes(Cross api, Compiler* compiler, byte[] spirv,
-                                                  IReadOnlyDictionary<int, string> vertexSemantics)
+                                                  IReadOnlyList<string> vertexAttributes)
         {
             SortedSet<int> locations = InputLocations(spirv);
             if (locations.Count == 0) return;
@@ -241,11 +261,12 @@ namespace ShaderRipper.Plugin.SpirV
                 int i = 0;
                 foreach (int location in locations)
                 {
-                    // The sibling table first; the positional fallback only for a
-                    // location it does not mention.
-                    string semantic = vertexSemantics != null &&
-                                      vertexSemantics.TryGetValue(location, out string known)
-                        ? known
+                    // The GLSL name list first: entry N is the declaration location N
+                    // binds, and `in_COLOR0` says COLOR0 exactly.  The positional
+                    // fallback only for a location the list does not cover.
+                    string semantic = vertexAttributes != null &&
+                                      location < vertexAttributes.Count
+                        ? SemanticOf(vertexAttributes[location])
                         : location == 0 ? "POSITION" : "TEXCOORD" + (location - 1);
                     pinned.Add(GCHandle.Alloc(Encoding.ASCII.GetBytes(semantic + "\0"), GCHandleType.Pinned));
                     entries[i++] = new HlslVertexAttributeRemap
@@ -262,6 +283,124 @@ namespace ShaderRipper.Plugin.SpirV
             {
                 foreach (GCHandle handle in pinned) handle.Free();
             }
+        }
+
+        /// <summary>
+        /// The D3D semantic a GLSL attribute name stands for: `in_POSITION0` is
+        /// POSITION, `in_COLOR0` is COLOR0, `in_TEXCOORD1` is TEXCOORD1.  Anything
+        /// unrecognised falls back to TEXCOORD so the declaration still compiles.
+        /// </summary>
+        /// <summary>
+        /// Rewrite the interface structs' semantics from the GLSL build's attribute
+        /// table.
+        ///
+        /// SPIRV-Cross's remap API covers only the vertex stage's INPUT variables;
+        /// the vertex's OUTPUT interpolators and every fragment input it spells
+        /// TEXCOORDn regardless of what the mesh stream actually is, because the
+        /// module records a location number and nothing else.  The GLSL build's
+        /// vertex `in` declarations (`in_COLOR0`, ...) are the surviving record of
+        /// which stream each location feeds, and both builds assign locations in the
+        /// same declaration order -- so location N of any interface struct maps to
+        /// the semantic of table entry N.
+        ///
+        /// The rewrite touches only the `: semantic` of `struct` members; bodies read
+        /// the member names, which do not change.  The vertex input keeps POSITION
+        /// where the table agrees, and a location beyond the table keeps its
+        /// positional spelling rather than guessing.
+        /// </summary>
+        private static string PatchSemantics(string text, bool vertex,
+                                             IReadOnlyList<string> vertexAttributes,
+                                             IReadOnlyList<string> vertexInterpolators)
+        {
+            // The vertex input reads mesh streams (`in_*` table); the vertex's output
+            // interpolators and the fragment's inputs -- which repeat the same names
+            // -- read the vertex's output list (`vs_*`), because that is what the
+            // interpolator slots carry.  A stage missing its table keeps its
+            // positional spelling rather than guessing.
+            IReadOnlyList<string> inputTable = vertexAttributes;
+            IReadOnlyList<string> interpTable = vertexInterpolators;
+            if (Environment.GetEnvironmentVariable("SHADERRIP_ATTRDBG") == "1")
+                Console.Error.WriteLine($"[patch] vertex={vertex} in={inputTable?.Count ?? -1} interp={interpTable?.Count ?? -1}");
+            if (vertex && (inputTable == null || inputTable.Count == 0)) return text;
+            if (!vertex && (interpTable == null || interpTable.Count == 0)) return text;
+
+            var lines = text.Replace("\r\n", "\n").Split('\n').ToList();
+            string currentStruct = null;
+            int location = -1;
+            for (int i = 0; i < lines.Count; i++)
+            {
+                string trimmed = lines[i].Trim();
+                var head = System.Text.RegularExpressions.Regex.Match(trimmed, @"^struct\s+(\w+)");
+                if (head.Success)
+                {
+                    currentStruct = head.Groups[1].Value;
+                    if (Environment.GetEnvironmentVariable("SHADERRIP_ATTRDBG") == "1")
+                        Console.Error.WriteLine($"[dbgstruct] {currentStruct}");
+                    location = -1;
+                    continue;
+                }
+                if (currentStruct == null) continue;
+                if (trimmed == "};") { currentStruct = null; continue; }
+
+                // The vertex stage patches its INPUT struct from the mesh-stream
+                // table and its OUTPUT struct from the interpolator table; the
+                // fragment stage has no mesh-stream input, so everything it declares
+                // comes from the interpolator table.  Unrelated structs are left
+                // alone.
+                // The struct names are still the backend's -- the per-stage suffix
+                // is added by Flatten, which runs after this pass.  The vertex stage
+                // declares one Input (its mesh streams) and one Output (its
+                // interpolators); the fragment stage declares one Input whose
+                // members are the vertex's interpolators.
+                IReadOnlyList<string> table =
+                    vertex && currentStruct == "SPIRV_Cross_Input" ? inputTable
+                    : vertex && currentStruct == "SPIRV_Cross_Output" ? interpTable
+                    : !vertex && currentStruct == "SPIRV_Cross_Input" ? interpTable
+                    : null;
+                if (table == null || table.Count == 0) continue;
+
+                var m = System.Text.RegularExpressions.Regex.Match(trimmed,
+                    @"^(\w[\w<>, ]*?)\s+(\w+)\s*:\s*(\w+)\s*;$");
+                if (!m.Success) continue;
+                // SV_Position is not a mesh stream -- the vertex output's clip-space
+                // position and the pixel input's copy of it live outside the
+                // attribute numbering, so they keep their semantic and the counter
+                // does not advance for them.
+                if (m.Groups[3].Value == "SV_Position" || m.Groups[3].Value == "SV_Target0"
+                    || m.Groups[3].Value == "SV_Target") continue;
+                location++;
+                if (location >= table.Count) continue;
+                string semantic = SemanticOf(table[location]);
+                if (semantic == m.Groups[3].Value) continue;
+
+                string indent = lines[i][..(lines[i].Length - lines[i].TrimStart().Length)];
+                if (Environment.GetEnvironmentVariable("SHADERRIP_ATTRDBG") == "1")
+                    Console.Error.WriteLine($"[patchline] {currentStruct}: {m.Groups[2].Value} {m.Groups[3].Value} -> {semantic}");
+                lines[i] = $"{indent}{m.Groups[1].Value} {m.Groups[2].Value} : {semantic};";
+            }
+            return string.Join("\n", lines);
+        }
+
+        /// <summary>
+        /// The D3D semantic a GLSL declaration name stands for.  Vertex inputs are
+        /// `in_POSITION0`-style; the vertex's interpolator outputs -- and the
+        /// fragment's inputs, which repeat them -- are `vs_COLOR0`-style.  Anything
+        /// unrecognised falls back to TEXCOORD so the declaration still compiles.
+        /// </summary>
+        private static string SemanticOf(string glslName)
+        {
+            var m = System.Text.RegularExpressions.Regex.Match(glslName ?? "", @"^(?:in|vs)_([A-Za-z]+?)(\d*)$");
+            if (!m.Success) return "TEXCOORD0";
+            string stem = m.Groups[1].Value.ToLowerInvariant();
+            string idx = m.Groups[2].Value;
+            return stem switch
+            {
+                "position" => "POSITION",
+                "color" => "COLOR" + (idx.Length > 0 ? idx : "0"),
+                "normal" => "NORMAL",
+                "tangent" => "TANGENT",
+                _ => "TEXCOORD" + (idx.Length > 0 ? idx : "0"),
+            };
         }
 
         /// <summary>Every <c>Input</c> variable's location, ascending.</summary>
@@ -290,6 +429,49 @@ namespace ShaderRipper.Plugin.SpirV
             foreach (var kv in locations)
                 if (inputs.Contains(kv.Key)) result.Add(kv.Value);
             return result;
+        }
+
+        /// <summary>
+        /// The fragment's Input variables carry no semantic in SPIR-V -- just a
+        /// location -- so SPIRV-Cross spells every interpolator TEXCOORDn and the
+        /// stage link breaks against a vertex that wrote COLOR0.  The GLSL build's
+        /// vertex `out` declarations are the surviving record: `vs_COLOR0` is the
+        /// stream the vertex wrote, in the order the reflection table assigned
+        /// locations, so declaration order maps location to semantic exactly as the
+        /// attribute table does for the vertex stage.
+        /// </summary>
+        private static void ApplyInterpolatorSemantics(Cross api, Compiler* compiler, byte[] spirv,
+                                                       IReadOnlyList<string> vertexAttributes)
+        {
+            SortedSet<int> locations = InputLocations(spirv);
+            if (locations.Count == 0) return;
+
+            var pinned = new List<GCHandle>(locations.Count);
+            var entries = new HlslVertexAttributeRemap[locations.Count];
+            try
+            {
+                int i = 0;
+                foreach (int location in locations)
+                {
+                    string semantic = vertexAttributes != null &&
+                                      location < vertexAttributes.Count
+                        ? SemanticOf(vertexAttributes[location])
+                        : "TEXCOORD" + location;
+                    pinned.Add(GCHandle.Alloc(Encoding.ASCII.GetBytes(semantic + "\0"), GCHandleType.Pinned));
+                    entries[i++] = new HlslVertexAttributeRemap
+                    {
+                        Location = (uint)location,
+                        Semantic = (byte*)pinned[^1].AddrOfPinnedObject(),
+                    };
+                }
+
+                fixed (HlslVertexAttributeRemap* p = entries)
+                    api.CompilerHlslAddVertexAttributeRemap(compiler, p, (nuint)i);
+            }
+            finally
+            {
+                foreach (GCHandle handle in pinned) handle.Free();
+            }
         }
 
         // ------------------------------------------------------------------

@@ -950,6 +950,18 @@ namespace ShaderRipper.Emit
         {
             if (vs == null && ps == null) return null;
 
+            // The SPIR-V route's two stages declare their interface separately --
+            // the vertex returns `SPIRV_Cross_Output_vs` and the fragment takes
+            // `SPIRV_Cross_Input_ps` -- and Unity only links a pixel input that
+            // carries `SV_Position` against a vertex output that has it.  Merging
+            // the pair into one `v2f` struct (plus the pixel's own output struct for
+            // SV_Target) is what makes the link hold: rB rendered, the unmerged
+            // export did not, with identical bodies.  The merge rewrites both entry
+            // signatures and the member accesses through the old names, so the SSA
+            // bodies need no other edit.  A non-SPIRV pair (GLSL, DXBC) has no such
+            // structs and passes through untouched.
+            (vs, ps) = MergeSpirvInterface(vs, ps);
+
             // The replacement tally is per pass, not per file.
             UnityIncludes.Reset();
 
@@ -1460,6 +1472,144 @@ namespace ShaderRipper.Emit
                 sb2.Append(t).Append('\n');
             }
             return sb2.ToString().TrimEnd();
+        }
+
+        /// <summary>
+        /// Merge the SPIR-V route's per-stage interface structs into one v2f.
+        ///
+        /// The vertex translation returns <c>SPIRV_Cross_Output_vs</c>; the fragment
+        /// translation takes <c>SPIRV_Cross_Input_ps</c> and returns its own
+        /// <c>SPIRV_Cross_Output_ps</c>.  The two interpolator lists carry the same
+        /// members under the same names (the merge already collapsed `_Color_2` and
+        /// friends), but as two declarations Unity's pixel-stage link does not bind:
+        /// the control-variable series showed the unmerged export renders nothing
+        /// while the v2f shape renders, with identical bodies.
+        ///
+        /// The merged text keeps one <c>v2f</c> (vertex members + SV_Position), the
+        /// pixel output struct renamed so it cannot collide, and both entries
+        /// retyped; every <c>stage_output.</c> / <c>stage_input.</c> access keeps
+        /// working because the member names are unchanged.  A stage without the
+        /// SPIRV-Cross shape (GLSL, DXBC, a fragment-only pass) passes through.
+        /// </summary>
+        private static (Stage, Stage) MergeSpirvInterface(Stage vs, Stage ps)
+        {
+            if (vs?.Hlsl == null || ps?.Hlsl == null) return (vs, ps);
+            if (!vs.Hlsl.Contains("struct SPIRV_Cross_Output_vs") ||
+                !ps.Hlsl.Contains("struct SPIRV_Cross_Input_ps")) return (vs, ps);
+
+            string vsOut = ReadStruct(vs.Hlsl, "SPIRV_Cross_Output_vs");
+            string psIn = ReadStruct(ps.Hlsl, "SPIRV_Cross_Input_ps");
+            string psOut = ReadStruct(ps.Hlsl, "SPIRV_Cross_Output_ps");
+            if (vsOut == null || psIn == null || psOut == null) return (vs, ps);
+
+            // The interpolator set: the vertex output's members minus its position.
+            // The pixel input's members must cover the same set -- the two modules
+            // were compiled from one source, so their members match position for
+            // position even though the names differ (each module names its own
+            // copies: the vertex calls the colour `vs_134`, the fragment `ps_22`).
+            // The merge keeps the vertex's spelling and rewrites the fragment body's
+            // accesses through a positional name map.
+            var members = new List<(string type, string name, string semantic)>();
+            foreach (var m in StructMembers(vsOut))
+            {
+                if (m.semantic == "SV_Position") continue;
+                members.Add(m);
+            }
+            var pixelSide = StructMembers(psIn).Where(m => m.semantic != "SV_Position").ToList();
+            if (members.Count != pixelSide.Count) return (vs, ps);
+            for (int i = 0; i < members.Count; i++)
+                if (members[i].semantic != pixelSide[i].semantic) return (vs, ps);
+
+            // Fragment spelling -> vertex spelling, positional.
+            var pixelNames = new Dictionary<string, string>(StringComparer.Ordinal);
+            for (int i = 0; i < members.Count; i++)
+                if (pixelSide[i].name != members[i].name)
+                    pixelNames[pixelSide[i].name] = members[i].name;
+
+            // v2f: position first, then the interpolators in vertex order.
+            var sb = new StringBuilder();
+            sb.Append("struct v2f\n{\n");
+            sb.Append("    float4 gl_Position : SV_Position;\n");
+            foreach (var (type, name, semantic) in members)
+                sb.Append($"    {type} {name} : {semantic};\n");
+            sb.Append("};");
+            string v2f = sb.ToString();
+
+            // The pixel output keeps its own name, tagged so no variant can collide
+            // with the vertex side or with a second variant.
+            string pixelOut = psOut.Replace("SPIRV_Cross_Output_ps", "SPIRV_Cross_Output_pixel");
+
+            string ApplyVertex(string hlsl)
+            {
+                // Struct declarations: the vertex input (mesh streams) stays; the
+                // vertex output folds into v2f.  The pixel-side structs are untouched
+                // here -- their text lives in the fragment stage.
+                hlsl = ReplaceStruct(hlsl, "SPIRV_Cross_Output_vs", "");
+
+                hlsl = System.Text.RegularExpressions.Regex.Replace(
+                    hlsl, @"SPIRV_Cross_Output_vs\s+vert\s*\(",
+                    "v2f vert(");
+                hlsl = hlsl.Replace("SPIRV_Cross_Output_vs stage_output;", "v2f stage_output;");
+                return hlsl;
+            }
+
+            string ApplyFragment(string hlsl)
+            {
+                // The pixel input folds into v2f, whose members spell the vertex's
+                // names; every `stage_input.<pixel name>` moves to the vertex name.
+                hlsl = ReplaceStruct(hlsl, "SPIRV_Cross_Input_ps", "");
+                hlsl = ReplaceStruct(hlsl, "SPIRV_Cross_Output_ps", pixelOut);
+                int at = hlsl.IndexOf("struct SPIRV_Cross_Output_pixel", StringComparison.Ordinal);
+                hlsl = hlsl.Insert(at < 0 ? 0 : at, v2f + "\n\n            ");
+
+                hlsl = System.Text.RegularExpressions.Regex.Replace(
+                    hlsl, @"SPIRV_Cross_Output_ps\s+frag\s*\(\s*SPIRV_Cross_Input_ps\s+(\w+)\s*\)",
+                    "SPIRV_Cross_Output_pixel frag(v2f $1)");
+                hlsl = hlsl.Replace("SPIRV_Cross_Output_ps stage_output;", "SPIRV_Cross_Output_pixel stage_output;");
+
+                foreach (var kv in pixelNames)
+                    hlsl = System.Text.RegularExpressions.Regex.Replace(
+                        hlsl, @"\bstage_input\." + System.Text.RegularExpressions.Regex.Escape(kv.Key) + @"\b",
+                        "stage_input." + kv.Value);
+                return hlsl;
+            }
+
+            return (new Stage { Hlsl = ApplyVertex(vs.Hlsl), Entry = vs.Entry },
+                       new Stage { Hlsl = ApplyFragment(ps.Hlsl), Entry = ps.Entry });
+        }
+
+        /// <summary>The struct declaration's full text, or null when absent.</summary>
+        private static string ReadStruct(string hlsl, string name)
+        {
+            int head = hlsl.IndexOf("struct " + name, StringComparison.Ordinal);
+            if (head < 0) return null;
+            int open = hlsl.IndexOf('{', head);
+            int close = hlsl.IndexOf('}', open);
+            if (open < 0 || close < 0) return null;
+            int semi = hlsl.IndexOf(';', close);
+            return hlsl.Substring(head, semi - head + 1);
+        }
+
+        /// <summary>Remove one struct declaration from the text.</summary>
+        private static string ReplaceStruct(string hlsl, string name, string replacement)
+        {
+            string old = ReadStruct(hlsl, name);
+            if (old == null) return hlsl;
+            int at = hlsl.IndexOf(old, StringComparison.Ordinal);
+            return hlsl.Remove(at, old.Length).Insert(at, replacement);
+        }
+
+        /// <summary>
+        /// The members of a struct body: type, name, semantic.  Only the
+        /// `type name : semantic;` shape the translators emit is understood.
+        /// </summary>
+        private static List<(string type, string name, string semantic)> StructMembers(string structText)
+        {
+            var result = new List<(string, string, string)>();
+            foreach (Match m in Regex.Matches(structText,
+                @"^\s*(\w+)\s+(\w+)\s*:\s*(\w+)\s*;", RegexOptions.Multiline))
+                result.Add((m.Groups[1].Value, m.Groups[2].Value, m.Groups[3].Value));
+            return result;
         }
 
         private static string Function(Stage stage)

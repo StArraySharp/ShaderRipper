@@ -111,6 +111,18 @@ namespace ShaderRipper.Plugins.Platforms
         /// <summary>The shader's property names, in declaration order.</summary>
         public IReadOnlyList<string> PropertyNames { get; init; }
 
+        /// <summary>
+        /// GLSL vertex attribute names in declaration order: `Inputs` are the mesh
+        /// streams the vertex reads (`in_COLOR0`, ...), `Interpolators` are what it
+        /// writes out (`vs_COLOR0`, ...) -- the fragment's inputs repeat those names,
+        /// and both lists are the only record of which semantic each SPIR-V location
+        /// carries.  Null when the asset shipped no GL build.
+        /// </summary>
+        public IReadOnlyList<string> VertexAttributes { get; init; }
+
+        /// <summary>The vertex's interpolator outputs, in declaration order.</summary>
+        public IReadOnlyList<string> VertexInterpolators { get; init; }
+
         /// <summary>The backend this program came from.</summary>
         public PlatformDescriptor Platform { get; init; }
     }

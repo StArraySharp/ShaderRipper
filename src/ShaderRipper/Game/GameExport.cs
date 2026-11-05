@@ -1115,6 +1115,12 @@ namespace ShaderRipper.Game
             // falls back to reflection and (honestly noted) inference.
             var glslFs = new Dictionary<int, string>();
             var glslVs = new Dictionary<int, string>();
+            // GLSL 顶点声明的 attribute 语义名：location N 的 in_COLOR0 意味着 COLOR0。
+            // Vulkan 模块只记录 location 序号，其声明顺序与 GL 构建相同（两者由同一
+            // 个 USC 反射表驱动），因此这是 N→语义 映射唯一存活的副本。
+            var glslAttr = CollectGlslAttributes(sh);
+            if (Environment.GetEnvironmentVariable("SHADERRIP_ATTRDBG") == "1")
+                Console.Error.WriteLine($"[glslattr] in=[{string.Join(",", glslAttr.Inputs)}] interp=[{string.Join(",", glslAttr.Interpolators)}]");
             // `SHADERRIP_NO_BORROW=1` pins the DXBC route to its own blob: no GLSL
             // sampler names, no other platform's parameter table.  That is the honest
             // baseline for "what a Windows-only asset can tell us".
@@ -1158,11 +1164,8 @@ namespace ShaderRipper.Game
                             if (!target.TryGetValue(loc, out var nm)) target[loc] = m.Groups[3].Value;
                         }
 
-                    // A vertex program's `in` declarations are where the semantic
-                    // names live (`in_COLOR0`, `in_TEXCOORD1`) -- the only record of
-                    // them anywhere in the asset.  The GLSL route reads its own text,
-                    // and the plugin routes work from their payloads alone, so the
-                    // names are commentary here, not data anything consumes.
+                    // A vertex program's `in` declarations carry the semantic names,
+                    // collected by CollectGlslAttributes below.
                 }
             }
 
@@ -1205,7 +1208,7 @@ namespace ShaderRipper.Game
                     passOf, spOf, kwIndex, props, perPass, programs, origAsm, s, null, null, glslVs, glslFs);
                 else if (info.Format == "glsl") ExportGlsl(sh, name, info, decoded, dir, passOf, spOf, kwIndex, perPass, s, origAsm);
                 else if (info.Format == "d3d9") ExportD3d9(sh, name, info, decoded, dir, passOf, spOf, perPass, origAsm, s);
-                else ExportPlugin(sh, name, info, decoded, dir, passOf, spOf, kwIndex, props, perPass, origAsm, s);
+                else ExportPlugin(sh, name, info, decoded, dir, passOf, spOf, kwIndex, props, perPass, origAsm, s, glslAttr: glslAttr);
             }
 
             // A shader whose passes all failed to translate still carries things
@@ -1333,6 +1336,12 @@ namespace ShaderRipper.Game
                 if (!string.IsNullOrEmpty(sh.ParsedForm.KeywordNames[ki]))
                     kwIndex[ki] = sh.ParsedForm.KeywordNames[ki];
 
+            // Same GLSL attribute scan the main export path runs: the plugin routes
+            // need the location-to-semantic table the GL build is the only record of.
+            var glslAttr = CollectGlslAttributes(sh);
+            if (Environment.GetEnvironmentVariable("SHADERRIP_ATTRDBG") == "1")
+                Console.Error.WriteLine($"[glslattr] in=[{string.Join(",", glslAttr.Inputs)}] interp=[{string.Join(",", glslAttr.Interpolators)}]");
+
             var perPass = new Dictionary<Pass, PassBuild>();
             var (passOf, spOf) = PassMaps(sh);
 
@@ -1407,7 +1416,7 @@ namespace ShaderRipper.Game
                     passOf, spOf, kwIndex, props, perPass, false, false, s, null, pre, null, null);
                 else if (info.Format == "glsl") ExportGlsl(sh, name, info, decoded, null, passOf, spOf, kwIndex, perPass, s, false);
                 else if (info.Format == "d3d9") ExportD3d9(sh, name, info, decoded, null, passOf, spOf, perPass, false, s);
-                else ExportPlugin(sh, name, info, decoded, null, passOf, spOf, kwIndex, props, perPass, false, s, null);
+                else ExportPlugin(sh, name, info, decoded, null, passOf, spOf, kwIndex, props, perPass, false, s, null, glslAttr);
             }
 
             var (text, error) = WrapShader(sh, name, perPass, props);
@@ -1635,6 +1644,53 @@ namespace ShaderRipper.Game
                 if (n > bestCount) { bestCount = n; best = table; }
             }
             return best;
+        }
+
+        /// <summary>
+        /// The GL-family build's vertex attribute names, in declaration order, plus
+        /// the vertex's interpolator outputs.
+        ///
+        /// The declarations carry no location and GL binds them by position, while
+        /// the Vulkan module records a location number and nothing else -- and both
+        /// builds compile from the one USC reflection table, so declaration order IS
+        /// location order.  <c>Inputs</c> lists the mesh streams (`in_POSITION0`,
+        /// `in_COLOR0`, ...); <c>Interpolators</c> lists what the vertex writes out
+        /// (`vs_COLOR0`, `vs_TEXCOORD0`, ...) -- the names the fragment's inputs
+        /// repeat, and the only record of which semantic each interpolator slot
+        /// carries.  Either list is empty when the asset shipped no GL-family slot.
+        /// </summary>
+        private sealed class GlslNames
+        {
+            public readonly List<string> Inputs = new();
+            public readonly List<string> Interpolators = new();
+        }
+
+        private static GlslNames CollectGlslAttributes(Shader sh)
+        {
+            var result = new GlslNames();
+            for (int gi = 0; gi < (sh.Platforms?.Length ?? 0); gi++)
+            {
+                var ginfo = Plugins.PlatformCatalog.Get((int)sh.Platforms[gi]);
+                if (ginfo == null || ginfo.Format != "glsl") continue;
+                byte[] gdecoded;
+                try { gdecoded = BlobTool.DecodeBlob(sh, gi); }
+                catch { continue; }
+                if (gdecoded == null || gdecoded.Length == 0) continue;
+                foreach (var pr in ProgramSource.Extract(gdecoded))
+                {
+                    if (pr.Format != BlobFormat.Glsl || string.IsNullOrEmpty(pr.Text)) continue;
+                    bool hasVertex = pr.Text.Contains("#ifdef VERTEX") || pr.Text.Contains("#ifdef VERTEX ");
+                    string vertexHalf = hasVertex
+                        ? SliceIfdef(pr.Text, "VERTEX")
+                        : pr.Text.Contains("gl_Position") && !pr.Text.Contains("#ifdef FRAGMENT") ? pr.Text : null;
+                    if (vertexHalf == null) continue;
+                    foreach (Match m in Regex.Matches(vertexHalf, @"in\s+\w+\s+(in_[A-Za-z_]\w*)"))
+                        if (!result.Inputs.Contains(m.Groups[1].Value)) result.Inputs.Add(m.Groups[1].Value);
+                    foreach (Match m in Regex.Matches(vertexHalf, @"out\s+\w+\s+(vs_[A-Za-z_]\w*)"))
+                        if (!result.Interpolators.Contains(m.Groups[1].Value)) result.Interpolators.Add(m.Groups[1].Value);
+                }
+            }
+            return result;
         }
 
         private static void ExportDxbc(Shader sh, string name, PlatformInfo info, byte[] decoded,
@@ -1981,7 +2037,8 @@ namespace ShaderRipper.Game
             string dir, Dictionary<int, List<Pass>> passOf, Dictionary<int, SubProgram> spOf,
             Dictionary<int, string> kwIndex, List<Property> props,
             Dictionary<Pass, PassBuild> perPass, bool origAsm, Stats s,
-            List<(int blobIndex, string stage, string hlsl)> collected = null)
+            List<(int blobIndex, string stage, string hlsl)> collected = null,
+            GlslNames glslAttr = null)
         {
             var registry = Plugins.PluginContext.Registry;
             var entry = registry?.PlatformFor(info.Id);
@@ -2029,6 +2086,8 @@ namespace ShaderRipper.Game
                     Entry = program.Entry,
                     PropertyNames = propertyNames,
                     Platform = entry.Descriptor,
+                    VertexAttributes = glslAttr?.Inputs,
+                    VertexInterpolators = glslAttr?.Interpolators,
                 };
 
                 Plugins.Platforms.TranslationResult result = null;

@@ -30,7 +30,9 @@ namespace ShaderRipper.Plugin.SpirV
                                           : "payload has no fragment module");
 
             string hlsl = SpirvCross.Compile(module, blob, vertex,
-                                             $"b{request.BlobIndex}", out string error);
+                                             $"b{request.BlobIndex}", out string error,
+                                             request.VertexAttributes,
+                                             request.VertexInterpolators);
             if (hlsl == null) return Unsupported("SPIRV-Cross: " + error);
 
             return new TranslationResult
