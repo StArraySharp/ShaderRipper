@@ -1518,8 +1518,12 @@ namespace ShaderRipper.Emit
                 members.Add(m);
             }
             var pixelSide = StructMembers(psIn).Where(m => m.semantic != "SV_Position").ToList();
-            if (members.Count == 0) return (vs, ps);
 
+            // A program with no interpolators at all is legal -- a solid-colour or
+            // clear pass writes only the clip-space position and reads nothing
+            // interpolated -- and it still has to merge: the pixel input declaring
+            // SV_Position as its own struct does not link against the vertex output
+            // any more than a richer pair would.
             var bySemantic = new Dictionary<string, (string type, string name, string semantic)>(StringComparer.Ordinal);
             foreach (var m in members)
                 if (!bySemantic.ContainsKey(m.semantic)) bySemantic[m.semantic] = m;

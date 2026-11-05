@@ -968,13 +968,28 @@ namespace ShaderRipper.Plugin.SpirV
             // `float4x4` -- exactly what mul() wants.  A module-level array declaration
             // for one of those is an artifact of the SPIR-V typing, not of the final
             // program, so the fold applies.
+            // A `float4 M[4]` cannot feed mul() -- the intrinsic wants a float4x4 -- so a
+            // product over such a matrix keeps its spelled-out rows.
+            //
+            // The engine's own matrices (`unity_ObjectToWorld` and friends) are the
+            // exception: the module stores them as vector arrays, but the merge hands
+            // their declarations to Unity's include files, which spell them
+            // `float4x4` -- exactly what mul() wants.  The test is the NAME, because
+            // that is what the merge matches on: a member called `unity_ObjectToWorld`
+            // is handed to the include whatever its prefix looked like, while a
+            // GLSL-derived spelling such as `vs_24_hlslcc_mtx4x4unity_ObjectToWorld`
+            // is not, and stays a real `float4[4]` that mul() rejects.
             var arrays = new HashSet<string>(StringComparer.Ordinal);
             foreach (System.Text.RegularExpressions.Match m in System.Text.RegularExpressions.Regex
                          .Matches(text, @"float4\s+(\w+)\s*\[\s*4\s*\]"))
             {
                 string name = m.Groups[1].Value;
-                if (!name.StartsWith("unity_", StringComparison.Ordinal))
-                    arrays.Add(name);
+                // Only a BARE engine name is handed to the include.  A GLSL-derived
+                // spelling that merely contains one (`vs_24_hlslcc_mtx4x4unity_...`)
+                // stays in the program's own cbuffer as a `float4[4]`, and `mul` has no
+                // overload for an array -- folding it produced "no matching 2 parameter
+                // intrinsic function".
+                if (!name.StartsWith("unity_", StringComparison.Ordinal)) arrays.Add(name);
             }
 
             var lines = text.Replace("\r\n", "\n").Split('\n').ToList();
@@ -995,10 +1010,12 @@ namespace ShaderRipper.Plugin.SpirV
                 var m2 = AddLine(lines[i + 2], m1.Groups[1].Value, vec0, mat, 2, "zzzz");
                 if (m2 == null) continue;
                 // The last row is either `acc += M[3]` (when the accumulator keeps
-                // living) or `result = (M[3] * vec.wwww) + acc` (when this product's
-                // value is written straight into its destination -- the gl_Position
-                // store a vertex shader ends on).
+                // living), `result = acc + M[3]` (when both the untranslated and the
+                // translated product are needed), or `result = (M[3] * vec.wwww) + acc`
+                // (when this product's value is written straight into its destination
+                // -- the gl_Position store a vertex shader ends on).
                 var m3 = PlusLine(lines[i + 3], m2.Groups[1].Value, mat)
+                      ?? TranslationLine(lines[i + 3], m2.Groups[1].Value, mat)
                       ?? LastLine(lines[i + 3], m2.Groups[1].Value, vec0, mat);
                 if (m3 == null) continue;
 
@@ -1109,10 +1126,25 @@ namespace ShaderRipper.Plugin.SpirV
         }
 
         /// <summary><c>acc += matrix[3];</c> -- the final row, accumulator kept.</summary>
+        /// <summary><c>acc += matrix[3];</c> -- the final row, accumulator kept.</summary>
         private static System.Text.RegularExpressions.Match PlusLine(string line, string acc, string matrix)
         {
             var m = System.Text.RegularExpressions.Regex.Match(line.Trim(),
                 @"^([\w]+)\s*\+=\s*" + matrix + @"\[3\]\s*;\s*$");
+            return m.Success ? m : null;
+        }
+
+        /// <summary>
+        /// <c>result = acc + matrix[3];</c> -- the same final row, but the product's
+        /// value is needed under a second name as well (a shader that keeps the
+        /// object-space position around for a lighting term stores the un-translated
+        /// accumulator first and the translated one after it).
+        /// </summary>
+        private static System.Text.RegularExpressions.Match TranslationLine(string line, string acc,
+                                                                           string matrix)
+        {
+            var m = System.Text.RegularExpressions.Regex.Match(line.Trim(),
+                @"^([\w]+)\s*=\s*" + acc + @"\s*\+\s*" + matrix + @"\[3\]\s*;\s*$");
             return m.Success ? m : null;
         }
 

@@ -235,16 +235,11 @@ namespace ShaderRipper.Plugins.Hlsl
                 if (m.Semantic == "SV_Position") continue;
                 psMembers.Add(m);
             }
-            if (vsMembers.Count == 0) return InterfaceMerge.Unchanged;
-
-            // The fragment reads a SUBSET of what the vertex writes: a vertex program
-            // routinely emits an interpolator the fragment never looks at (a second
-            // UV set used only for a keyword-off path, a colour the branch does not
-            // need).  Requiring the two lists to be equal refused exactly those
-            // programs, which left the stage pair unmerged -- and an unmerged pair does
-            // not link, so the material drew nothing.  Matching by semantic instead
-            // keeps the vertex's full output and points each fragment member at the
-            // vertex member carrying the same semantic.
+            // A program with no interpolators at all is legal -- a solid-colour or
+            // clear pass writes only the clip-space position and reads nothing
+            // interpolated -- and it still has to merge: the pixel input declaring
+            // SV_Position on its own struct does not link against the vertex output any
+            // more than a richer pair would.
             var bySemantic = new Dictionary<string, StructMember>(StringComparer.Ordinal);
             foreach (StructMember m in vsMembers)
                 if (!bySemantic.ContainsKey(m.Semantic)) bySemantic[m.Semantic] = m;
