@@ -207,6 +207,92 @@ public class VariantPlanTests
         Assert.That(a.Notes[0], Does.Contain("single variant"));
     }
 
+    // ---- always-on groups ----------------------------------------------------
+
+    /// <summary>
+    /// A group that is on in every compiled variant contributes no guard term at
+    /// all -- not even when the branch has it on.
+    ///
+    /// Spelling `defined(X)` there made the guard reject the states the pragma
+    /// still allows: a material can force the keyword off at runtime, and the
+    /// preprocessor state then matched no branch.  Unity reports that as "did not
+    /// find shader kernel 'vert' to compile", which points at the pragma rather
+    /// than at the guard that was too narrow.
+    /// </summary>
+    [Test]
+    public void AnAlwaysOnGroupContributesNoGuardTerm()
+    {
+        var groups = new List<VariantPlan.Group> { new() { Name = "DIRECTIONAL" }, new() { Name = "SHADOWS" } };
+        var alwaysOn = new HashSet<string> { "DIRECTIONAL" };
+
+        string on = VariantPlan.Guard(groups, new HashSet<string> { "DIRECTIONAL", "SHADOWS" }, alwaysOn);
+        Assert.That(on, Is.EqualTo("defined(SHADOWS)"));
+
+        string off = VariantPlan.Guard(groups, new HashSet<string> { "DIRECTIONAL" }, alwaysOn);
+        Assert.That(off, Is.EqualTo("!defined(SHADOWS)"));
+    }
+
+    /// <summary>
+    /// The chain's guards have to partition the keyword space before the `#else`
+    /// fallback can go.
+    ///
+    /// "Every guard names every keyword" is not that test: a chain missing one
+    /// combination still has guards mentioning all the keywords, and dropping the
+    /// fallback left that combination with no program at all -- which Unity
+    /// reports as "did not find shader kernel".
+    /// </summary>
+    [Test]
+    public void AChainMissingOneCombinationIsNotComplete()
+    {
+        // Two independent flags, but the "both off" state has no branch.
+        var guards = new[]
+        {
+            "defined(A) && !defined(B)",
+            "!defined(A) && defined(B)",
+            "defined(A) && defined(B)",
+        };
+
+        Assert.That(ShaderLab.CoversAllStates(guards), Is.False);
+    }
+
+    [Test]
+    public void AChainThatPartitionsTheSpaceIsComplete()
+    {
+        var guards = new[]
+        {
+            "!defined(A) && !defined(B)",
+            "defined(A) && !defined(B)",
+            "!defined(A) && defined(B)",
+            "defined(A) && defined(B)",
+        };
+
+        Assert.That(ShaderLab.CoversAllStates(guards), Is.True);
+    }
+
+    /// <summary>
+    /// An always-on group's term is dropped, so the guards that remain say nothing
+    /// about that keyword and still partition the space.  This is the shape the
+    /// four broken GLSL shaders had: eight branches, DIRECTIONAL on in all of them.
+    /// </summary>
+    [Test]
+    public void DroppingAnAlwaysOnTermStillPartitionsTheSpace()
+    {
+        var guards = new List<string>();
+        foreach (bool b in new[] { false, true })
+            foreach (bool c in new[] { false, true })
+                foreach (bool d in new[] { false, true })
+                    guards.Add($"{(b ? "" : "!")}defined(B) && {(c ? "" : "!")}defined(C) && {(d ? "" : "!")}defined(D)");
+
+        Assert.That(ShaderLab.CoversAllStates(guards), Is.True);
+    }
+
+    [Test]
+    public void AnEmptyChainNeverClaimsCompleteness()
+    {
+        Assert.That(ShaderLab.CoversAllStates(Array.Empty<string>()), Is.False);
+        Assert.That(ShaderLab.CoversAllStates(new[] { "" }), Is.False);
+    }
+
     // ---- keyword resolution --------------------------------------------------
 
     /// <summary>The name table is the only way a keyword index becomes a name.</summary>

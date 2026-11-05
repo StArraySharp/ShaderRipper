@@ -882,13 +882,42 @@ namespace ShaderRipper.Plugin.SpirV
             {
                 if (i > open && i < close && lines[i].Trim() == "return;")
                 {
-                    result.AddRange(epilogue);
+                    result.AddRange(Reindent(epilogue, lines[i]));
                     continue;
                 }
                 result.Add(lines[i]);
             }
             result.AddRange(lines.GetRange(close + 1, lines.Count - close - 1));
             return string.Join("\n", result);
+        }
+
+        /// <summary>
+        /// Shift a block so its first line sits at the same column as
+        /// <paramref name="like"/>.
+        ///
+        /// The epilogue is written at the entry point's own depth, but a
+        /// <c>return;</c> that ends the function early usually sits inside an
+        /// <c>if</c>, one level deeper.  Pasting the epilogue unchanged puts it a
+        /// brace level too far left, and the branch then reads as though the exit
+        /// happened outside it -- the statement the condition was guarding looks
+        /// unconditional to anyone reading the file.
+        /// </summary>
+        private static List<string> Reindent(List<string> block, string like)
+        {
+            if (block == null || block.Count == 0) return block;
+            int target = like.Length - like.TrimStart().Length;
+            int baseCol = block[0].Length - block[0].TrimStart().Length;
+            int delta = target - baseCol;
+            if (delta == 0) return block;
+
+            var shifted = new List<string>(block.Count);
+            foreach (string line in block)
+            {
+                if (line.Trim().Length == 0) { shifted.Add(line); continue; }
+                int col = Math.Max(0, line.Length - line.TrimStart().Length + delta);
+                shifted.Add(new string(' ', col) + line.TrimStart());
+            }
+            return shifted;
         }
 
         /// <summary>

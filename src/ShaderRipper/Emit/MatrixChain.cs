@@ -109,6 +109,20 @@ internal static class MatrixChain
 
     public static List<string> Fold(List<string> lines, bool macros = true)
     {
+        return Fold(lines, macros, out _);
+    }
+
+    /// <summary>
+    /// As <see cref="Fold(List{string}, bool)"/>, and reports whether the result calls
+    /// <c>UnityObjectToClipPos</c>.
+    ///
+    /// That call is a macro in <c>UnityCG.cginc</c>, not a variable, so it appears in
+    /// no name table and nothing else records that the file now needs the include.
+    /// A caller that writes the folded body into a program block has to know: without
+    /// the include the body fails to compile with "undeclared identifier".
+    /// </summary>
+    public static List<string> Fold(List<string> lines, bool macros, out bool usedClipPos)
+    {
         // A matrix the includes provide is a `float4x4` and `mul` takes it.  A
         // name the payload declared itself may still be a row array, and then `mul`
         // has no overload for it (X3013), so those products keep the expansion.
@@ -135,9 +149,13 @@ internal static class MatrixChain
             products.Add(p);
             i += p.Count - 1;
         }
-        if (products.Count == 0) return FoldRowSums(lines, arrays);
+        if (products.Count == 0)
+        {
+            usedClipPos = false;
+            return FoldRowSums(lines, arrays);
+        }
 
-        MergeClipPos(lines, products, arrays);
+        usedClipPos = MergeClipPos(lines, products, arrays);
 
         var outLines = new List<string>(lines.Count);
         var at = new Dictionary<int, Product>();
@@ -1121,10 +1139,13 @@ internal static class MatrixChain
     ///
     /// A vertex transform is written twice, once per matrix, and the intermediate
     /// register usually dies right after -- which is exactly the shape of the macro.
+    /// Returns true when at least one product was merged, i.e. when the caller's text
+    /// now calls a macro that only <c>UnityCG.cginc</c> defines.
     /// </summary>
-    private static void MergeClipPos(List<string> lines, List<Product> products,
+    private static bool MergeClipPos(List<string> lines, List<Product> products,
                                      HashSet<string> arrays)
     {
+        bool merged = false;
         foreach (var p1 in products)
         {
             if (p1.Matrix != "unity_ObjectToWorld" || !p1.Homogeneous) continue;
@@ -1155,9 +1176,11 @@ internal static class MatrixChain
                               : $"float3({Narrow(p1.Comp[0])}, {Narrow(p1.Comp[1])}, {Narrow(p1.Comp[2])})") +
                           ");";
                 p1.Text = null;
+                merged = true;
                 break;
             }
         }
+        return merged;
     }
 
     /// <summary>

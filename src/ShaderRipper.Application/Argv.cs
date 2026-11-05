@@ -33,6 +33,12 @@ namespace ShaderRipper
             "--platform", "--glsl2cg", "--disasm", "--lang",
             "--syntax", "--mat-check", "--file", "--file-bare", "--dump-objects", "--asm-parser",
             "--glsl-parser", "--asm-translate", "--jobs", "--plugin-dir",
+            // A plugin's value-taking option has to be listed here too: the parser
+            // decides whether a token is a value by this table, not by what the
+            // consuming command declares.  `--gen-test-project --textures <dir>`
+            // would otherwise read the directory as a second positional and hand
+            // the command null.
+            "--textures",
         };
 
         /// <summary>Options that accept several values rm/cp-style (space separated).</summary>

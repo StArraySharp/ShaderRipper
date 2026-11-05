@@ -589,17 +589,13 @@ namespace ShaderRipper.Emit
                 }
                 // Combinations the build never shipped: compile the base variant.
                 // The fallback is only needed when a preprocessor state can miss
-                // every guard; the guards are exact over the keyword set, so that
-                // happens exactly when some guard is not the strict complement of
-                // the ones before it.  Testing the last guard is enough: guards are
-                // mutually exclusive by construction (each names one keyword state),
-                // so if the last one already covers every remaining state, the whole
-                // chain does.  Dropping a redundant `#else` also removes the only
+                // every guard, so the whole chain has to be tested -- a guard that
+                // names every keyword still leaves the states it does not spell out
+                // uncovered.  Dropping a redundant `#else` also removes the only
                 // source of a duplicated cbuffer: branch 0's copy is otherwise
                 // written twice, and two declarations of one cbuffer name in a
                 // single program is a compile error.
-                string lastGuard = chain.Guards.Count > 0 ? chain.Guards[chain.Guards.Count - 1] : "";
-                if (!CoversAllStates(lastGuard, chain.Guards))
+                if (!CoversAllStates(chain.Guards))
                 {
                     sb.Append("            #else\n");
                     if (synth != null)
@@ -616,36 +612,66 @@ namespace ShaderRipper.Emit
             body != null && Regex.IsMatch(body, @"\b" + name + @"\s*\(");
 
         /// <summary>
-        /// Does this guard already cover every preprocessor state the chain leaves?
+        /// True when the guards together accept every preprocessor state, so the
+        /// `#else` fallback behind them would never compile.
         ///
-        /// The guards come from <c>VariantPlan.Guard</c>, one term per keyword group:
-        /// either <c>defined(X)</c> for the alternative the branch was built with, or
-        /// <c>!defined(X) && !defined(Y)...</c> for a branch with the group off.  A
-        /// guard carries a term for a group only when the branch fixed that group, so
-        /// a guard that mentions every keyword of the chain -- positively or negatively
-        /// -- is true for exactly one state and false for all the others: the branches
-        /// together partition the whole space, and the `#else` fallback behind them
-        /// would never compile.  Dropping it also removes the only source of a
-        /// duplicated cbuffer: branch 0's copy would otherwise be written a second
-        /// time, and two declarations of one cbuffer name in a single program is a
-        /// compile error.
+        /// The guards come from <c>VariantPlan.Guard</c>: a conjunction of terms, one
+        /// per keyword group, each either <c>defined(X)</c> or <c>!defined(X)</c>.  A
+        /// guard therefore accepts every state consistent with the literals it
+        /// spells, and the chain covers the space exactly when those cubes leave no
+        /// assignment out.  The states are enumerated rather than reasoned about
+        /// because "every guard names every keyword" is not the same thing: a chain
+        /// missing one combination still has guards that mention all the keywords,
+        /// and dropping its `#else` would leave that combination with no program at
+        /// all -- which Unity reports as "did not find shader kernel".
         ///
-        /// The keyword set is read off the guards themselves: an atom appearing
-        /// anywhere in the chain names a group member, and every guard spells a term
-        /// for the groups its branch fixed.  A guard that mentions all of those atoms
-        /// therefore partitions the space regardless of how many groups are silent.
+        /// Dropping a redundant `#else` also removes the only source of a duplicated
+        /// cbuffer: branch 0's copy would otherwise be written a second time, and two
+        /// declarations of one cbuffer name in a single program is a compile error.
         /// </summary>
-        private static bool CoversAllStates(string guard, IEnumerable<string> allGuards)
+        internal static bool CoversAllStates(IEnumerable<string> allGuards)
         {
-            if (string.IsNullOrEmpty(guard)) return false;
-            var atoms = new HashSet<string>(StringComparer.Ordinal);
-            foreach (Match m in Regex.Matches(string.Join("\n", allGuards), @"(!?)\s*defined\((\w+)\)"))
-                atoms.Add(m.Groups[2].Value);
+            var guards = allGuards.Where(g => !string.IsNullOrWhiteSpace(g)).ToList();
+            if (guards.Count == 0) return false;
 
-            var mine = new HashSet<string>(StringComparer.Ordinal);
-            foreach (Match m in Regex.Matches(guard, @"(!?)\s*defined\((\w+)\)"))
-                mine.Add(m.Groups[2].Value);
-            return mine.Count >= atoms.Count && !atoms.Except(mine).Any();
+            var atoms = new SortedSet<string>(StringComparer.Ordinal);
+            foreach (string g in guards)
+                foreach (Match m in Regex.Matches(g, @"defined\((\w+)\)"))
+                    atoms.Add(m.Groups[1].Value);
+            // Past this many keywords the enumeration stops being worth its cost,
+            // and keeping the `#else` is always safe.
+            if (atoms.Count == 0 || atoms.Count > 16) return false;
+
+            // An OR term means a group with several alternatives on at once, which a
+            // multi_compile line cannot produce; such a chain keeps its fallback.
+            var cubes = new List<Dictionary<string, bool>>(guards.Count);
+            foreach (string g in guards)
+            {
+                var cube = new Dictionary<string, bool>(StringComparer.Ordinal);
+                foreach (string term in g.Split(new[] { "&&" }, StringSplitOptions.None))
+                {
+                    Match m = Regex.Match(term.Trim(), @"^(!?)\s*defined\((\w+)\)$");
+                    if (!m.Success) return false;
+                    cube[m.Groups[2].Value] = m.Groups[1].Value.Length == 0;
+                }
+                cubes.Add(cube);
+            }
+
+            var names = atoms.ToList();
+            for (int mask = 0; mask < 1 << names.Count; mask++)
+            {
+                bool covered = false;
+                foreach (var cube in cubes)
+                {
+                    bool match = true;
+                    for (int b = 0; b < names.Count && match; b++)
+                        if (cube.TryGetValue(names[b], out bool want))
+                            match = want == ((mask & (1 << b)) != 0);
+                    if (match) { covered = true; break; }
+                }
+                if (!covered) return false;
+            }
+            return true;
         }
 
         /// <summary>
@@ -1385,8 +1411,15 @@ namespace ShaderRipper.Emit
             // a program built from material properties alone draws on nothing -- so
             // the include is added here when the body needs it and nothing else
             // asked for it.
+            //
+            // The same holds for the helpers a translated body spells by name:
+            // `UnityObjectToClipPos` is a macro in that include, not a variable, so
+            // the name table never records it and the member-driven path above
+            // cannot see it.  A body that calls one of them without the include
+            // fails to compile with "undeclared identifier".
             if (!outp.Any(line => line.Contains("UnityCG.cginc")) &&
-                outp.Any(line => line.Contains("TRANSFORM_TEX(")))
+                outp.Any(line => line.Contains("TRANSFORM_TEX(") ||
+                                 Regex.IsMatch(line, @"\bUnityObjectToClipPos\s*\(")))
             {
                 outp.InsertRange(0, new[] { "#include \"UnityCG.cginc\"", "" });
             }
@@ -1574,8 +1607,14 @@ namespace ShaderRipper.Emit
                 // names; every `stage_input.<pixel name>` moves to the vertex name.
                 hlsl = ReplaceStruct(hlsl, "SPIRV_Cross_Input_ps", "");
                 hlsl = ReplaceStruct(hlsl, "SPIRV_Cross_Output_ps", pixelOut);
+                // The v2f goes above the pixel output struct, with nothing between
+                // them but a blank line.  Indenting the insertion point would put
+                // leading spaces on that struct's declaration line, and Reindent
+                // reads the first non-blank line's column as the block's base -- so
+                // every member of the struct would collapse onto that column and
+                // the declaration would come out flat.
                 int at = hlsl.IndexOf("struct SPIRV_Cross_Output_pixel", StringComparison.Ordinal);
-                hlsl = hlsl.Insert(at < 0 ? 0 : at, v2f + "\n\n            ");
+                hlsl = hlsl.Insert(at < 0 ? 0 : at, v2f + "\n\n");
 
                 hlsl = System.Text.RegularExpressions.Regex.Replace(
                     hlsl, @"SPIRV_Cross_Output_ps\s+frag\s*\(\s*SPIRV_Cross_Input_ps\s+(\w+)\s*\)",

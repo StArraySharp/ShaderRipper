@@ -144,16 +144,18 @@ namespace ShaderRipper.Emit
             var terms = new List<string>();
             foreach (var g in groups)
             {
+                // A group that is on in every compiled variant has no off state to
+                // guard against, so it contributes no term at all -- not even when
+                // the branch has it on.  Spelling `defined(X)` there makes the guard
+                // reject the states the pragma still allows (a material can force the
+                // keyword off at runtime), and the whole chain then matches nothing,
+                // which Unity reports as "did not find shader kernel".
+                if (alwaysOn != null && Members(g).Any(alwaysOn.Contains))
+                    continue;
+
                 var on = Members(g).Where(keywords.Contains).Select(k => $"defined({k})").ToList();
                 if (on.Count == 0)
                 {
-                    // The group is on in this variant but no member matched -- that
-                    // is the always-on case, not an off branch: the keyword is set
-                    // under a name this group's member list spells differently
-                    // (case-insensitive match), so guarding on its absence would
-                    // reject the state this very variant was built for.
-                    if (alwaysOn != null && Members(g).Any(alwaysOn.Contains))
-                        continue;
                     terms.Add(string.Join(" && ", Members(g).Select(k => $"!defined({k})")));
                 }
                 else if (on.Count == 1) terms.Add(on[0]);

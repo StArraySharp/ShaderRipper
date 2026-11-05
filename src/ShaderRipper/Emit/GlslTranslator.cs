@@ -153,6 +153,15 @@ namespace ShaderRipper.Emit
             "_Time", "_SinTime", "_CosTime", "_DeltaTime",
             "_ProjectionParams", "_ScreenParams", "_ZBufferParams", "_OrthoParams",
             "_WorldSpaceCameraPos",
+            // UnityPerFrame (UnityShaderVariables.cginc, unconditional inside the
+            // block).  `unity_StereoEyeIndex` is the one member the file guards,
+            // but it guards it with USING_STEREO_MATRICES -- the branch that turns
+            // the same name into a macro over a stereo array -- so the name is
+            // declared on both sides of the condition and dropping it here is safe
+            // either way.
+            "glstate_lightmodel_ambient", "unity_AmbientSky", "unity_AmbientEquator",
+            "unity_AmbientGround", "unity_IndirectSpecColor",
+            "unity_StereoEyeIndex", "unity_ShadowColor",
             // spherical harmonics block (unconditional, `half4` there)
             "unity_SHAr", "unity_SHAg", "unity_SHAb",
             "unity_SHBr", "unity_SHBg", "unity_SHBb", "unity_SHC",
@@ -219,6 +228,13 @@ namespace ShaderRipper.Emit
         /// define the macro.  See <see cref="TransformTexChain"/>.
         /// </summary>
         internal bool _usedTransformTex;
+
+        /// <summary>
+        /// This stage's body calls <c>UnityObjectToClipPos</c>, another macro from
+        /// <c>UnityCG.cginc</c>.  A folded vertex transform spells it, and the include
+        /// has to come in for it just as it does for <c>TRANSFORM_TEX</c>.
+        /// </summary>
+        internal bool _usedClipPos;
 
         /// <summary>
         /// name -> HLSL type for every material property the payload declares, in
@@ -382,6 +398,7 @@ namespace ShaderRipper.Emit
             // One union per payload, shared by its stages and by nothing else.
             var materialUnion = new Dictionary<string, string>(StringComparer.Ordinal);
             bool usesTransformTex = false;
+            bool usesClipPos = false;
             var synthNeeded = new SortedSet<string>(StringComparer.Ordinal);
 
             foreach (var (stage, text) in Branches(glsl))
@@ -402,6 +419,7 @@ namespace ShaderRipper.Emit
                 // and drop the include line.
                 engineNames.AddRange(t._engineNames);
                 usesTransformTex |= t._usedTransformTex;
+                usesClipPos |= t._usedClipPos;
                 // A struct's members are not free-standing globals: the vertex
                 // stage's `vs_out` and the fragment stage's `vs_in` deliberately
                 // carry the same field lines, so deduplicating them by text empties
@@ -453,7 +471,7 @@ namespace ShaderRipper.Emit
             // URP-only names (`unity_LightData`) not at all, and dropping those
             // left the name undeclared.  Only names verified unconditional in
             // `UnityShaderVariables.cginc` / `UnityLightingCommon.cginc` go.
-            bool includeEmitted = engineNames.Count > 0 || usesTransformTex;
+            bool includeEmitted = engineNames.Count > 0 || usesTransformTex || usesClipPos;
             Func<string, bool> provided = name => includeEmitted && IncludeDeclared.Contains(name);
             MergeCbufferBlocks(globals, materialUnion, provided, includeEmitted, out bool payloadMaterial);
 
@@ -470,7 +488,7 @@ namespace ShaderRipper.Emit
             // under those names.  A private copy would compile and read zero, so the
             // include goes first -- once, at file scope, before any struct or entry
             // point.  A folded texture transform needs it too: the macro is there.
-            if (engineNames.Count > 0 || usesTransformTex)
+            if (engineNames.Count > 0 || usesTransformTex || usesClipPos)
                 sb.Append("#include \"UnityCG.cginc\"\n\n");
             // One `UnityPerMaterial` for the whole file, built from both stages'
             // property sets.  This is the buffer Unity fills from the Material; a
@@ -1480,7 +1498,11 @@ namespace ShaderRipper.Emit
 
             // The payload unrolled every matrix-vector product into one assignment
             // per row; put them back.  See MatrixChain.
-            var folded = MatrixChain.Fold(_sb.ToString().Split('\n').ToList());
+            var folded = MatrixChain.Fold(_sb.ToString().Split('\n').ToList(), true, out bool usedClipPos);
+            // A folded transform spells `UnityObjectToClipPos`, which is a macro in
+            // `UnityCG.cginc` rather than a variable, so the include has to come in
+            // for it exactly as it does for the texture transform.
+            if (usedClipPos) _usedClipPos = true;
             // Same idea for Unity's texture transform, which no longer exists as a
             // macro by the time the GLSL was generated.  See TransformTexChain.
             var withMacro = TransformTexChain.Fold(folded);
