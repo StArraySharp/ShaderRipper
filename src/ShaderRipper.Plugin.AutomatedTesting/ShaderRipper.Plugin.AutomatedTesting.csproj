@@ -1,0 +1,24 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <!-- Turns the export's own output into a machine-readable test manifest.  It
+         lives in src/ but is still a plugin: nothing references it, and the host only
+         sees it through the plugin directory given on the command line. -->
+    <TargetFramework>net10.0</TargetFramework>
+    <Nullable>disable</Nullable>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <AssemblyName>ShaderRipper.Plugin.AutomatedTesting</AssemblyName>
+    <RootNamespace>ShaderRipper.Plugin.AutomatedTesting</RootNamespace>
+    <IsPackable>false</IsPackable>
+    <Version>1.0.0</Version>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <!-- Same rule as the other plugins: the host already has these types loaded, so
+         the library must NOT be copied next to the plugin or IShaderRipperPlugin would
+         mean two different things and registration would be silently ignored. -->
+    <ProjectReference Include="..\ShaderRipper\ShaderRipper.csproj">
+      <Private>false</Private>
+      <ExcludeAssets>runtime</ExcludeAssets>
+    </ProjectReference>
+  </ItemGroup>
+</Project>

@@ -31,6 +31,19 @@ namespace ShaderRipper.Game
         };
 
         /// <summary>
+        /// Is this name one this tool produces?
+        ///
+        /// The fixed list covers the built-ins; a plugin that writes a file registers
+        /// its name through <c>IPluginRegistry.AddExportArtifact</c>, and that list is
+        /// consulted too.  Without it the plugin's own output would look foreign on the
+        /// next <c>--overwrite</c> run and the directory would be refused.
+        /// </summary>
+        private static bool IsProduced(string name) =>
+            Produced.Contains(name, StringComparer.OrdinalIgnoreCase) ||
+            (Plugins.PluginContext.Registry?.ExportArtifacts
+                ?.Contains(name, StringComparer.OrdinalIgnoreCase) ?? false);
+
+        /// <summary>
         /// Make <paramref name="dir"/> ready to receive an export, emptying it first
         /// when <paramref name="overwrite"/> is set.
         /// </summary>
@@ -119,7 +132,7 @@ namespace ShaderRipper.Game
             foreach (string entry in Directory.EnumerateFileSystemEntries(dir))
             {
                 string name = Path.GetFileName(entry);
-                if (Produced.Contains(name, StringComparer.OrdinalIgnoreCase)) continue;
+                if (IsProduced(name)) continue;
                 foreign.Add(name);
             }
             return foreign;

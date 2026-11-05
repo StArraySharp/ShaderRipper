@@ -64,6 +64,8 @@ namespace ShaderRipper.Plugins
         private readonly List<PlatformEntry> _platforms = new();
         private readonly List<RegisteredPass> _passes = new();
         private readonly List<RegisteredCommand> _commands = new();
+        private readonly List<RegisteredHook> _hooks = new();
+        private readonly List<string> _artifacts = new();
 
         private bool _closed;
 
@@ -87,6 +89,12 @@ namespace ShaderRipper.Plugins
         private sealed class RegisteredCommand
         {
             public ICommandHandler Handler;
+            public string Owner;
+        }
+
+        private sealed class RegisteredHook
+        {
+            public IExportHook Hook;
             public string Owner;
         }
 
@@ -223,6 +231,44 @@ namespace ShaderRipper.Plugins
             _commands.FirstOrDefault(c =>
                 string.Equals(c.Handler.Command, word, StringComparison.OrdinalIgnoreCase))?.Owner ?? "";
 
+        /// <summary>
+        /// Register a name the export directory should treat as this tool's own
+        /// output.
+        ///
+        /// An export refuses to overwrite a directory holding anything it did not
+        /// produce, and that check is a name list.  A plugin writing a file without
+        /// registering its name here would make the next <c>--overwrite</c> run look at
+        /// a foreign directory -- its own output -- and refuse.
+        /// </summary>
+        /// <param name="fileName">File name at the export root (no directory part).</param>
+        public void AddExportArtifact(string fileName)
+        {
+            ThrowIfClosed();
+            if (string.IsNullOrWhiteSpace(fileName))
+                throw new ArgumentException("an artifact name is required", nameof(fileName));
+            if (fileName.IndexOfAny(new[] { '/', '\\' }) >= 0)
+                throw new ArgumentException(
+                    $"'{fileName}' must be a file name at the export root, not a path", nameof(fileName));
+            if (!_artifacts.Contains(fileName, StringComparer.OrdinalIgnoreCase))
+                _artifacts.Add(fileName);
+        }
+
+        /// <summary>
+        /// Register a hook that runs once the export finishes.
+        ///
+        /// This is the place for anything derived from the output as a whole: a test
+        /// manifest, a report, an index.  An <see cref="Emit.IEmitterPass"/> cannot do
+        /// it -- a pass sees one program's text at a time and never learns which
+        /// shaders the run covered.
+        /// </summary>
+        public void AddExportHook(IExportHook hook)
+        {
+            ThrowIfClosed();
+            if (hook == null) throw new ArgumentNullException(nameof(hook));
+            _hooks.Add(new RegisteredHook { Hook = hook, Owner = CurrentOwner });
+            Notes.Add($"export hook {hook.Name} from {CurrentOwner}");
+        }
+
         /// <summary>Who is registering right now, so a note can name the plugin.</summary>
         internal string CurrentOwner { get; set; } = "builtin";
 
@@ -260,6 +306,16 @@ namespace ShaderRipper.Plugins
                 .FirstOrDefault(c => string.Equals(c.Handler.Command, word, StringComparison.OrdinalIgnoreCase))
                 ?.Handler;
 
+        /// <summary>Hooks to run when an export finishes, in registration order.</summary>
+        public IReadOnlyList<IExportHook> ExportHooks =>
+            _hooks.Select(h => h.Hook).ToList();
+
+        /// <summary>
+        /// Names the export directory should accept as this tool's own output.
+        /// Empty when no plugin registered one.
+        /// </summary>
+        public IReadOnlyList<string> ExportArtifacts => _artifacts;
+
         /// <summary>The backend registered for <paramref name="id"/>, or null.</summary>
         public PlatformEntry PlatformFor(int id) =>
             _platforms.FirstOrDefault(p => p.Descriptor.Id == id);
@@ -284,6 +340,10 @@ namespace ShaderRipper.Plugins
                 yield return $"emitter    priority {p.Priority,4}  {p.Pass.Name} ({p.Owner})";
             foreach (var c in _commands)
                 yield return $"command                 {c.Handler.Command} ({c.Owner})";
+            foreach (var h in _hooks)
+                yield return $"export hook             {h.Hook.Name} ({h.Owner})";
+            foreach (string a in _artifacts)
+                yield return $"artifact                {a}";
         }
     }
 }

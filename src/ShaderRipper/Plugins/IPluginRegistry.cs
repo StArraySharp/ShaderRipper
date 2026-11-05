@@ -43,5 +43,26 @@ namespace ShaderRipper.Plugins
         /// set independent of load order.
         /// </summary>
         void AddCommand(ICommandHandler handler);
+
+        /// <summary>
+        /// Register a hook that runs once an export finishes.
+        ///
+        /// The place for anything derived from the output as a whole -- a test
+        /// manifest, a report, an index of what was produced.  An emitter pass cannot
+        /// do it: a pass sees one program's text at a time and never learns which
+        /// shaders the run covered.
+        /// </summary>
+        void AddExportHook(IExportHook hook);
+
+        /// <summary>
+        /// Register a file name the export directory should treat as this tool's own
+        /// output.
+        ///
+        /// An export refuses to overwrite a directory holding anything it did not
+        /// produce, and that check is a name list.  A hook that writes a file without
+        /// registering the name here would make the next <c>--overwrite</c> run refuse
+        /// the directory it wrote itself.
+        /// </summary>
+        void AddExportArtifact(string fileName);
     }
 }

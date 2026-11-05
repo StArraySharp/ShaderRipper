@@ -481,12 +481,13 @@ namespace ShaderRipper.Game
                 // cannot carry -- which shader each material binds and every property
                 // value the game saved on it.  Written after the shader paths are
                 // final so `shaderFile` names a file that actually exists.
+                var materials = new List<MaterialIndex.Entry>();
                 if (opened.Count > 0)
                 {
                     var shaderPath = new Dictionary<(long pathId, string source), string>();
                     foreach (var seat in seats)
                         shaderPath[(seat.Sh.PathId, seat.Sh.SourceFile ?? "")] = seat.Rel;
-                    var entries = MaterialIndex.Collect(
+                    materials = MaterialIndex.Collect(
                         opened, shaderPath,
                         (fileId, pathId) => ResourcePath(resMap, opened, fileId, pathId));
 
@@ -497,7 +498,7 @@ namespace ShaderRipper.Game
                     // built from its own Properties block (the same source Unity
                     // fills a new material from) and flagged synthetic.
                     var covered = new HashSet<string>(StringComparer.Ordinal);
-                    foreach (var e in entries)
+                    foreach (var e in materials)
                         if (e.ShaderFile != null) covered.Add(e.ShaderFile);
 
                     foreach (var seat in seats)
@@ -505,14 +506,81 @@ namespace ShaderRipper.Game
                         if (covered.Contains(seat.Rel)) continue;
                         var props = seat.Sh.ParsedForm?.Props;
                         if (props == null || props.Count == 0) continue;
-                        entries.Add(MaterialIndex.Synthetic(seat.Name, seat.Rel, props));
+                        materials.Add(MaterialIndex.Synthetic(seat.Name, seat.Rel, props));
                     }
-
-                    MaterialIndex.Write(outDir, entries);
                 }
-                else MaterialIndex.Write(outDir, null);
+                MaterialIndex.Write(outDir, materials);
+
+                // The finished-export hooks: a plugin that wants to describe the run
+                // as a whole (a test manifest, a report) has everything it needs here
+                // and nothing to gain from seeing one program at a time.
+                ExportHooks.Raise(Describe(outDir, seats, materials, s), s);
             }
             return s;
+        }
+
+        /// <summary>
+        /// Snapshot what the run wrote, for the finished-export hooks.
+        ///
+        /// The shader objects themselves are not handed out: the export is over and a
+        /// hook that mutated one would be changing state that has already been written.
+        /// What a hook actually needs is the name, the path, and the Properties block,
+        /// so that is what it gets.
+        /// </summary>
+        private static Plugins.ExportCompleted Describe(string outDir, Seat[] seats,
+                                                       List<MaterialIndex.Entry> materials, Stats s)
+        {
+            var shaders = new List<Plugins.ExportedShader>(seats.Length);
+            foreach (Seat seat in seats)
+            {
+                if (seat?.Sh == null || seat.Rel == null) continue;
+
+                var props = new List<Plugins.ExportedProperty>();
+                foreach (Property p in seat.Sh.ParsedForm?.Props ?? new List<Property>())
+                {
+                    if (string.IsNullOrEmpty(p.Name)) continue;
+                    props.Add(new Plugins.ExportedProperty
+                    {
+                        Name = p.Name,
+                        Type = p.Type,
+                        DefaultValue = p.DefValue,
+                        DefaultTexture = p.DefTextureName,
+                    });
+                }
+
+                shaders.Add(new Plugins.ExportedShader
+                {
+                    Name = seat.Name,
+                    Path = seat.Rel,
+                    Properties = props,
+                });
+            }
+
+            var mats = new List<Plugins.ExportedMaterial>(materials?.Count ?? 0);
+            foreach (MaterialIndex.Entry e in materials ?? new List<MaterialIndex.Entry>())
+            {
+                mats.Add(new Plugins.ExportedMaterial
+                {
+                    Name = e.Name,
+                    AssetPath = e.AssetPath,
+                    Shader = e.Shader,
+                    ShaderFile = e.ShaderFile,
+                    Floats = e.Floats,
+                    Colors = e.Colors,
+                    Textures = e.Textures,
+                    Synthetic = e.Synthetic,
+                });
+            }
+
+            return new Plugins.ExportCompleted
+            {
+                OutputDirectory = outDir,
+                Shaders = shaders,
+                Materials = mats,
+                Skipped = s.Skipped + s.BuiltinSkipped,
+                Translated = s.Translated,
+                Cancelled = false,
+            };
         }
 
         /// <summary>

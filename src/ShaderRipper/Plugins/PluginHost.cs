@@ -44,7 +44,16 @@ namespace ShaderRipper.Plugins
             true;
 #endif
 
-        /// <summary>Default directory: <c>plugins</c> beside the executable.</summary>
+        /// <summary>
+        /// Default directory: <c>Plugins</c> beside the executable.
+        ///
+        /// That directory is a PARENT, not a plugin: each plugin gets a subdirectory of
+        /// its own (<c>Plugins/ShaderRipper.Plugin.SpirV/</c>), so two plugins can
+        /// bring different versions of one dependency without overwriting each other,
+        /// and a plugin's native libraries stay inside its own folder.  Loose
+        /// <c>*.dll</c> files directly in the parent are still loaded, which keeps a
+        /// hand-copied plugin working.
+        /// </summary>
         public static string DefaultDirectory
         {
             get
@@ -53,10 +62,10 @@ namespace ShaderRipper.Plugins
                 {
                     string exe = Assembly.GetEntryAssembly()?.Location;
                     if (!string.IsNullOrEmpty(exe))
-                        return Path.Combine(Path.GetDirectoryName(exe) ?? ".", "plugins");
+                        return Path.Combine(Path.GetDirectoryName(exe) ?? ".", "Plugins");
                 }
                 catch { /* single-file publish has no Location */ }
-                return Path.Combine(AppContext.BaseDirectory, "plugins");
+                return Path.Combine(AppContext.BaseDirectory, "Plugins");
             }
         }
 
@@ -85,15 +94,42 @@ namespace ShaderRipper.Plugins
                 return registry;
             }
 
+            // Two phases, because order matters: every plugin is loaded and
+            // instantiated first, then they register in dependency order.  A plugin
+            // cannot influence the load order of another -- its directory is just a
+            // file name -- so the ordering has to be resolved over the whole set.
+            var found = new List<FoundPlugin>();
             foreach (string path in EnumerateAssemblies(directory))
             {
                 try
                 {
-                    LoadAssembly(path, registry, notes);
+                    LoadAssembly(path, registry, notes, found);
                 }
                 catch (Exception e)
                 {
                     notes?.Add($"{Path.GetFileName(path)}: {e.GetType().Name}: {e.Message}");
+                }
+            }
+
+            // Registration runs in dependency order: a plugin that extends another
+            // registers after it, so the slot it wants to build on is already filled.
+            // The order is resolved over the whole set -- a plugin's own directory
+            // position says nothing about what it needs.
+            foreach (var plugin in InDependencyOrder(found, notes))
+            {
+                registry.CurrentOwner = string.IsNullOrEmpty(plugin.Name) ? plugin.TypeName : plugin.Name;
+                try
+                {
+                    plugin.Instance.Register(registry);
+                }
+                catch (Exception e)
+                {
+                    notes?.Add($"{registry.CurrentOwner}: Register() threw " +
+                               $"{e.GetType().Name}: {e.Message}");
+                }
+                finally
+                {
+                    registry.CurrentOwner = "builtin";
                 }
             }
 
@@ -154,7 +190,17 @@ namespace ShaderRipper.Plugins
                 || stem.Equals("ShaderRipper.Gui", StringComparison.OrdinalIgnoreCase);
         }
 
-        private static void LoadAssembly(string path, PluginRegistry registry, ICollection<string> notes)
+        /// <summary>One instantiated plugin, held until the dependency order is known.</summary>
+        private sealed class FoundPlugin
+        {
+            public IShaderRipperPlugin Instance;
+            public string Name;
+            public string TypeName;
+            public string AssemblyPath;
+        }
+
+        private static void LoadAssembly(string path, PluginRegistry registry, ICollection<string> notes,
+                                         List<FoundPlugin> found)
         {
             // A collectible context keeps a failed load from pinning the assembly for
             // the life of the process.  Unloading only happens at exit; there is no
@@ -215,22 +261,69 @@ namespace ShaderRipper.Plugins
                     continue;
                 }
 
-                registry.CurrentOwner = string.IsNullOrEmpty(plugin.Name)
-                    ? type.Name : plugin.Name;
-                try
+                found.Add(new FoundPlugin
                 {
-                    plugin.Register(registry);
-                }
-                catch (Exception e)
-                {
-                    notes?.Add($"{registry.CurrentOwner}: Register() threw " +
-                               $"{e.GetType().Name}: {e.Message}");
-                }
-                finally
-                {
-                    registry.CurrentOwner = "builtin";
-                }
+                    Instance = plugin,
+                    Name = plugin.Name,
+                    TypeName = type.Name,
+                    AssemblyPath = path,
+                });
             }
+        }
+
+        /// <summary>
+        /// Sort the loaded plugins so every dependency registers before its dependents.
+        ///
+        /// A plugin that extends another has to run second, or it registers against a
+        /// registry whose platform slot is still empty and silently gets nothing.  The
+        /// order comes from <see cref="IShaderRipperPlugin.DependsOn"/>, which names
+        /// plugins by <see cref="IShaderRipperPlugin.Name"/>.
+        ///
+        /// Three situations are handled explicitly rather than left to chance:
+        /// a dependency that is not present is reported and the dependent is still
+        /// loaded (it may work standalone), a dependency cycle is broken by loading
+        /// what it can in discovery order, and plugins with no relation keep the
+        /// discovery order, which is the assembly path sorted -- so a run is
+        /// reproducible.
+        /// </summary>
+        private static List<FoundPlugin> InDependencyOrder(List<FoundPlugin> found,
+                                                           ICollection<string> notes)
+        {
+            var byName = new Dictionary<string, FoundPlugin>(StringComparer.Ordinal);
+            foreach (FoundPlugin p in found)
+                if (!string.IsNullOrEmpty(p.Name)) byName[p.Name] = p;
+
+            var ordered = new List<FoundPlugin>(found.Count);
+            var state = new Dictionary<string, int>(StringComparer.Ordinal);   // 1 = visiting, 2 = done
+
+            void Visit(FoundPlugin p)
+            {
+                string key = p.Name ?? "";
+                if (state.TryGetValue(key, out int st))
+                {
+                    if (st == 1)
+                        notes?.Add($"{key}: dependency cycle, registering in discovery order");
+                    return;
+                }
+                state[key] = 1;
+
+                foreach (string need in p.Instance.DependsOn ?? Array.Empty<string>())
+                {
+                    if (string.IsNullOrEmpty(need)) continue;
+                    if (!byName.TryGetValue(need, out FoundPlugin dep))
+                    {
+                        notes?.Add($"{key}: needs '{need}', which is not installed");
+                        continue;
+                    }
+                    Visit(dep);
+                }
+
+                state[key] = 2;
+                ordered.Add(p);
+            }
+
+            foreach (FoundPlugin p in found) Visit(p);
+            return ordered;
         }
     }
 
