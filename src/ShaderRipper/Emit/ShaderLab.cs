@@ -1093,7 +1093,18 @@ namespace ShaderRipper.Emit
             // where it belongs.  A member may only be declared once, so the name
             // stays in the buffer that is one Unity defines, and the other
             // occurrence falls back to a suffixed name.
+            //
+            // A MATERIAL PROPERTY has no such fallback.  Unity fills values by
+            // property name, so a copy renamed to `_Color_2` is a name no property
+            // answers and it reads zero forever -- under premultiplied-alpha blending
+            // that turns the whole material transparent, with no compile error and
+            // no warning.  The Vulkan payload records the same property in both
+            // stages' buffers (`PGlobals` for the fragment's copy, `VGlobals` for the
+            // vertex's), so the duplicate is common; the loser is deleted and the
+            // stage bodies that spelled it are rewritten to the winner's name, which
+            // reads the same bytes the panel sets.
             var owner = new Dictionary<string, string>(StringComparer.Ordinal);
+            var renames = new Dictionary<string, string>(StringComparer.Ordinal);
             foreach (var kv in buffers.OrderBy(k => k.Key))
                 foreach (var row in kv.Value.Rows.Values)
                 {
@@ -1114,6 +1125,17 @@ namespace ShaderRipper.Emit
                 {
                     bool demote = !IsPositional(row.Name) &&
                                   owner.TryGetValue(row.Name, out string ownName) && ownName != kv.Key;
+                    if (demote && row.Name.StartsWith("_", StringComparison.Ordinal))
+                    {
+                        // A property duplicated across the stages' buffers: the copy
+                        // here would be renamed to a name no property answers, so it
+                        // is deleted and the bodies that spell it are pointed at the
+                        // winner -- the same identifier, declared once in the buffer
+                        // that kept it.  The rename map runs before the per-row
+                        // rewrites, so no `_Color` → `_Color_2` intermediate appears.
+                        renames[row.Name] = row.Name;
+                        continue;
+                    }
                     fixedRows.Add(demote ? Demoted(row, taken) : row);
                 }
                 kv.Value.Rows.Clear();
@@ -1126,18 +1148,25 @@ namespace ShaderRipper.Emit
                 // the first keeps it and the others become suffixed members --
                 // each body then reads the bytes its own program actually named,
                 // instead of every body reading the same (possibly wrong) ones.
+                // A property is the exception again: a suffixed copy reads zero, so
+                // it is dropped and its readers follow the first declaration.
                 var claimed = new Dictionary<string, (int row, int col)>(StringComparer.Ordinal);
                 foreach (var key in kv.Value.Rows.Keys.OrderBy(k => k.row).ThenBy(k => k.col).ToList())
                 {
                     var row = kv.Value.Rows[key];
                     if (IsPositional(row.Name)) continue;
                     if (claimed.TryAdd(row.Name, key)) continue;
+                    if (row.Name.StartsWith("_", StringComparison.Ordinal))
+                    {
+                        renames[row.Name] = row.Name;
+                        kv.Value.Rows.Remove(key);
+                        continue;
+                    }
                     kv.Value.Rows[key] = Demoted(row, taken);
                 }
             }
 
             var outp = new List<string>();
-            var renames = new Dictionary<string, string>(StringComparer.Ordinal);
             foreach (var block in structs) { outp.AddRange(Reindent(block, 0)); outp.Add(""); }
 
             // Unity's own constant buffers are declared by the include chain, not
