@@ -57,19 +57,27 @@ dotnet test src/ShaderRipper.Tests/ShaderRipper.Tests.csproj -c Release
 ## 插件
 
 管线有三处可扩展：**容器**（本工具读不了的封装格式）、**后端**（翻不了译的载荷格式）
-和**发射后处理**（对生成出的 HLSL 做改写）。插件就是一个类库，实现
+和**发射后处理**（对生成出的 HLSL 做改写）。此外插件还能注册**子命令**和**导出完成钩子**，
+并把 HLSL 结构体操作当作公共工具复用。插件就是一个类库，实现
 `IShaderRipperPlugin` 并注册它需要的那几项。
 
 ```bash
 # 看加载了什么，以及它们被询问的先后顺序
 ShaderRipper.exe --plugins
 
-# 指定 <exe>/plugins 之外的目录
+# 指定 <exe>/Plugins 之外的目录
 ShaderRipper.exe --game "游戏名_Data" --shaderlab out --plugin-dir ./my-plugins
 
 # 完全忽略插件——"与上个版本行为一致"的可复现写法
 ShaderRipper.exe --game "游戏名_Data" --shaderlab out --no-plugins
 ```
+
+### 目录与依赖
+
+插件默认放在 `<exe>/Plugins/` 下，**一个插件一个子目录**：插件自带的原生库按
+`runtimes/<rid>/native` 放在自己的目录里就能被找到，不必碰宿主。加载顺序由
+`IShaderRipperPlugin.DependsOn` 决定——它列的是插件名（`Name`，即 `--plugins` 里显示的
+那个），加载器按依赖做拓扑排序；依赖缺失或出现环都会报告，而不是静默地乱序注册。
 
 | 能力 | 接口 | 调用时机 |
 |---|---|---|
@@ -77,9 +85,20 @@ ShaderRipper.exe --game "游戏名_Data" --shaderlab out --no-plugins
 | 枚举某个后端的程序 | `ISlotReader` | 每个 shader × 槽位 |
 | 翻译单个程序 | `IProgramTranslator` | 每个程序一次 |
 | 改写生成的 HLSL | `IEmitterPass` | 每个程序体一次 |
+| 追加子命令 | `ICommandHandler` | 命令行解析后 |
+| 导出完成后处理 | `IExportHook` | 一次导出写完后 |
 
 每项能力都带优先级：内置为 `0`，插件默认 `100`。查询时数字小的先被执行；同一平台 id
 后来注册者胜出——否则一个永远轮不到被询问的条目等于不可用。
+
+子命令不能覆盖宿主已有的参数（`--game`、`--file`、`--emit` 等），重复注册也会被拒绝，
+所以有效命令集不依赖加载顺序。`IExportHook` 拿到的是这一趟导出的完整索引——每个 shader
+写到哪儿、每个材质引用了什么——够用来生成报表、回归清单或测试工程。
+
+`ShaderRipper.Plugins.Hlsl` 把 SPIR-V 路线自己用到的两件结构体操作开放了出来：
+`StructTools`（读写、按语义表改接口结构体，以及把顶点输出与像素输入合并成 `v2f`）和
+`HlslItems`（按语法树切分顶层项）。第二个后端——Metal、WebGPU——面对的是同一种形状，
+所以这些不是某个插件的私用代码。
 
 插件抛异常会被跳过、导出继续；每种不同的失败只报告一次，避免一个在 400 个 shader 上
 都失败的 pass 把真正的问题淹掉。`SHADERRIP_PLUGINDBG=1` 会打印实际生效顺序，并确认某个
@@ -97,7 +116,7 @@ py -3 scripts/gen_api_docs.py     # 读 bin/Release/net10.0/ShaderRipper.xml，�
 > 见[发布打包](#发布打包)。
 >
 > [`examples/ShaderRipper.Plugin.Example`](examples/ShaderRipper.Plugin.Example/ExamplePlugin.cs)
-> 是三个扩展点的完整示例。它不在解决方案内，按路径单独构建。
+> 是扩展点的完整示例。它不在解决方案内，按路径单独构建。
 >
 > [`src/ShaderRipper.Plugin.SpirV`](src/ShaderRipper.Plugin.SpirV/SpirVPlugin.cs)
 > 是一个真实后端的示例：认领 Vulkan，把 Unity 打包的 SMOL-V 压缩 SPIR-V 用
@@ -113,6 +132,10 @@ py -3 scripts/gen_api_docs.py     # 读 bin/Release/net10.0/ShaderRipper.xml，�
 > 模块里没有调试名，所以纹理与采样器名从同一载荷的参数槽回填；cbuffer 保留
 > SPIRV-Cross 自己的名字并加 `vs_`/`ps_` 前缀，因为 SPIR-V id 只在单个模块内唯一。
 > 顶点属性按 `POSITION` 加 `TEXCOORDn` 命名——一个 location 编号也只能说明这些。
+>
+> [`src/ShaderRipper.Plugin.AutomatedTesting`](src/ShaderRipper.Plugin.AutomatedTesting/AutomatedTestingPlugin.cs)
+> 用 `IExportHook` 把一趟导出变成一个可自动运行的测试工程，见
+> [渲染验证](#渲染验证)。
 
 ## 渲染器支持
 
@@ -279,7 +302,7 @@ Windows / Linux 构建格式一致，APK 从 zip 内读取。
 | `--lang <en\|zh>` | 界面语言，默认跟随系统 UI 语言 |
 | `--tmp-layouts <文件\|目录>` / `--no-tmp-layout` / `--builtin-index <文件>` | 名称表覆盖项（默认用内嵌的那份） |
 | `--plugins` | 列出已加载的容器、后端与发射后处理，按被询问的顺序 |
-| `--plugin-dir <目录>` | 插件目录（默认 `<exe>/plugins`） |
+| `--plugin-dir <目录>` | 插件目录（默认 `<exe>/Plugins`，一个插件一个子目录） |
 | `--no-plugins` | 不加载插件，只用内置后端 |
 | `--list-shaders <文件>` | 列出 SerializedFile / bundle 里的 shader（名字、pathId、容器路径），不写文件 |
 | `--dump <文件> [--dump-filter <文本>]` | 打印每个 shader 的结构：平台槽位、pass/子程序数、属性、非默认渲染状态 |
@@ -287,6 +310,8 @@ Windows / Linux 构建格式一致，APK 从 zip 内读取。
 | `--glsl <文件> [--shaderlab]` | 一份 GLSL 载荷 → HLSL（配 `--shaderlab` 再套一层 ShaderLab 并自检） |
 | `--emit <目录> <输出目录>` | 把目录下所有 `*.asm` / `*.glsl` 逐份翻成 HLSL，镜像目录树 |
 | `--stats <目录>` | 语料统计：可解析文件数、逐指令的翻译覆盖率、缺 handler 的指令 TOP15 |
+| `--test-manifest <导出目录>` | （插件）由既有导出重建测试清单 `.shaderripper-tests.json` |
+| `--gen-test-project <导出目录> [输出目录] [--textures <目录>]` | （插件）写出一个渲染全部用例的 Unity 工程，`--textures` 提供真实图片作为着色器输入 |
 | `-h, --help` | 帮助（与 `--lang` 同步） |
 
 每个 `.shader` 落盘前都会用 ShaderLab 文法复核一遍，不合格的不写文件、只记一条提示；导出带失败项时进程退出码为 1，用法错误为 2。
@@ -322,13 +347,45 @@ Windows / Linux 构建格式一致，APK 从 zip 内读取。
 ```
 verify_logic  428/428 = 100%     scan_unwritten  0 处未写入的 lane
 verify_glsl    34/34  = 100%     scan_nan        0 处逃逸的 NaN
-usc_check       89/89            NUnit 单测      170/170
+usc_check      415/415           NUnit 单测      201/201
 ```
 
 过一遍真实 Unity 6 测试工程的往返记录——原始源码、反解回来的产物、每个变体的合并反汇编
 ——在 [`docs/verification/`](docs/verification/) 下。每项检查具体怎么做、什么算真差异而不是
 编译器的合法改写、以及它守护的可读性 pass，见
 [`docs/verification.zh-CN.md`](docs/verification.zh-CN.md)。
+
+### 渲染验证
+
+编译通过不等于画得对：一个把颜色算成常量的着色器照样能编译。所以还有一层端到端检查——
+把产物放进一个最小 Unity 工程里真的渲染一遍。
+
+```bash
+# 1. 导出，插件会顺手写一份测试清单（.shaderripper-tests.json）
+ShaderRipper.exe --game "Game_Data" --shaderlab out
+
+# 2. 生成工程；--textures 给一批真实图片当作着色器的输入
+ShaderRipper.exe --gen-test-project out UnityTestProject \
+                 --textures "D:/pictures"
+
+# 3. 跑
+Unity.exe -batchmode -quit -projectPath UnityTestProject \
+          -executeMethod ShaderRipperTest.Run -logFile -
+```
+
+工程里每个用例给出一个材质，铺在满屏四边形上渲染成 1920×1080（游戏实际用的分辨率，这样
+按 `_ScreenResolution` 算 UV 的着色器看到的是同一组数字），再按四个指标分类：
+
+| 结果 | 含义 |
+|---|---|
+| `pass` | 画出了有结构的画面 |
+| `flat` | 画出来了，但整幅是一个颜色（纯色填充是合法的，所以不算失败） |
+| `skip` | 测试环境给不全输入——着色器读的 uniform 在 Properties 里没声明、引用了工程没带的纹理、依赖顶点色、或是清屏 pass |
+| `fail` | 什么都没画出来 |
+
+`skip` 里占绝大多数的是"game 的脚本在运行时塞进材质的 uniform"——这类着色器本身没问题，
+只是重建出来的材质没有值可填。把它们和真正的失败分开，是这套 harness 有用的前提：一个
+永远报 90 个红的套件没人会看。清单里同时记了每个引用的材质路径，够用来做回归对比。
 
 ## 限制
 

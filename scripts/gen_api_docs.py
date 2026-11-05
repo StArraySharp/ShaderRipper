@@ -24,6 +24,7 @@ API_NAMESPACES = (
     "ShaderRipper.Plugins",
     "ShaderRipper.Plugins.Containers",
     "ShaderRipper.Plugins.Emit",
+    "ShaderRipper.Plugins.Hlsl",
     "ShaderRipper.Plugins.Platforms",
 )
 

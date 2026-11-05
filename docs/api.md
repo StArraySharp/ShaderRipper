@@ -9,7 +9,14 @@ needs. For the worked example, see [`examples/ShaderRipper.Plugin.Example`](../e
 ## Contents
 
 - **`ShaderRipper.Plugins`**
+  - [`CommandArgs`](#commandargs)
   - [`EmitterPipeline`](#emitterpipeline)
+  - [`ExportCompleted`](#exportcompleted)
+  - [`ExportedMaterial`](#exportedmaterial)
+  - [`ExportedProperty`](#exportedproperty)
+  - [`ExportedShader`](#exportedshader)
+  - [`ICommandHandler`](#icommandhandler)
+  - [`IExportHook`](#iexporthook)
   - [`IPluginRegistry`](#ipluginregistry)
   - [`IShaderRipperPlugin`](#ishaderripperplugin)
   - [`PlatformEntry`](#platformentry)
@@ -22,7 +29,13 @@ needs. For the worked example, see [`examples/ShaderRipper.Plugin.Example`](../e
   - [`IContainerProvider`](#icontainerprovider)
 - **`ShaderRipper.Plugins.Emit`**
   - [`IEmitterPass`](#iemitterpass)
+- **`ShaderRipper.Plugins.Hlsl`**
+  - [`HlslItem`](#hlslitem)
+  - [`HlslItems`](#hlslitems)
+  - [`StructMember`](#structmember)
+  - [`StructTools`](#structtools)
 - **`ShaderRipper.Plugins.Platforms`**
+  - [`EngineBuffers`](#enginebuffers)
   - [`IProgramTranslator`](#iprogramtranslator)
   - [`ISlotReader`](#islotreader)
   - [`PlatformDescriptor`](#platformdescriptor)
@@ -32,6 +45,40 @@ needs. For the worked example, see [`examples/ShaderRipper.Plugin.Example`](../e
   - [`TranslationResult`](#translationresult)
 
 ## Namespace `ShaderRipper.Plugins`
+
+### CommandArgs
+
+```csharp
+public class CommandArgs
+```
+
+One command line's worth of already-parsed arguments, handed to a plugin's
+command handler.
+
+This is a read-only view rather than the parser itself: the flag vocabulary is
+the host's, and a plugin that added its own flags would make the help text
+disagree with the parser. A handler that needs an argument takes it from
+`Value` or `Positionals` by the index the plugin
+documented for its own command.
+
+#### `Has`
+
+True when the flag is present, whether or not it carries a value.
+
+#### `Positionals`
+
+Arguments that are not options and not an option's value, in order. The
+command word itself is not among them.
+
+#### `Raw`
+
+Everything on the command line, including the command word.
+
+#### `Value`
+
+Value of a `--flag value` pair, or null. An empty string is the
+documented answer for "the flag was given without a value", which is how
+the host's own boolean flags read.
 
 ### EmitterPipeline
 
@@ -65,6 +112,198 @@ A pass that throws is skipped and the text keeps the state it had before
 that pass: a broken plugin must not take the export down, and it must not
 leave a half-rewritten body either.
 
+### ExportCompleted
+
+```csharp
+public class ExportCompleted
+```
+
+What an export produced, handed to every `IExportHook` when it
+finishes.
+
+A hook that wants to write extra files has to register their names first
+(through `AddExportArtifact`): the export directory
+refuses to overwrite anything it did not produce, and a file a plugin writes
+without registering would make the next run look foreign.
+
+#### `Cancelled`
+
+True when the run was cancelled, so a hook should not write.
+
+#### `Materials`
+
+Every material the run indexed -- the game's own plus the synthetic entries
+built for shaders that ship none. A hook that has to instantiate something
+to render works from this list.
+
+#### `OutputDirectory`
+
+The directory the export wrote to.
+
+#### `Shaders`
+
+Every shader the run emitted, in write order.
+
+#### `Skipped`
+
+Shaders seen but not written (built-ins, failures), for a summary.
+
+#### `Translated`
+
+Programs the run translated.
+
+### ExportedMaterial
+
+```csharp
+public class ExportedMaterial
+```
+
+One material the game shipped, with the property values it saved.
+
+This is the same data the export writes to its own material index; it is handed
+to hooks as well so a hook can build its own view without re-reading the game
+data, which it has no access to.
+
+#### `AssetPath`
+
+Suggested project path for the material.
+
+#### `Colors`
+
+Color and Vector properties, four components each.
+
+#### `Floats`
+
+Float and Range properties.
+
+#### `Name`
+
+Material asset name.
+
+#### `Shader`
+
+Shader name the material binds, or null when unresolved.
+
+#### `ShaderFile`
+
+Emitted `.shader` file, or null when that shader was not exported.
+
+#### `Synthetic`
+
+True when the game shipped no material and this entry was built from the
+shader's Properties block: the values are Unity's defaults, not the game's.
+
+#### `Textures`
+
+Texture properties: property name to asset path or `fileId:pathId`.
+
+### ExportedProperty
+
+```csharp
+public class ExportedProperty
+```
+
+One entry of a shader's Properties block.
+
+#### `DefaultTexture`
+
+Default texture for a Texture property (`white`, `black`).
+
+#### `DefaultValue`
+
+Declared default, four components (a scalar uses the first).
+
+#### `Name`
+
+Property name, including the leading underscore where it has one.
+
+#### `Type`
+
+Unity's property type id: 0 Color, 1 Vector, 2 Float, 3 Range, 4 Texture.
+Kept as the raw number because that is what the asset stores and what a
+reader has to branch on.
+
+### ExportedShader
+
+```csharp
+public class ExportedShader
+```
+
+One shader an export wrote, as the post-export hooks see it.
+
+This is a value snapshot rather than a live reference: the export is finished by
+the time a hook runs, and handing out the mutable objects the exporter used
+would let a hook change state that has already been written to disk.
+
+#### `Name`
+
+Shader name as the asset spells it (`UI/Pause Planets`).
+
+#### `Path`
+
+Emitted file, relative to the export root (`Assets/Shader/X.shader`).
+
+#### `Properties`
+
+The asset's Properties block, in declaration order.
+
+### ICommandHandler
+
+```csharp
+public interface ICommandHandler
+```
+
+A command a plugin adds to the command line.
+
+The host's own commands (`--game`, `--emit`, ...) take precedence: a
+plugin cannot shadow one, and a duplicate among plugins is refused at load time
+so the effective command set never depends on load order.
+
+#### `Command`
+
+The command word, including its leading dashes (`--my-thing`).
+
+#### `PositionalCount`
+
+How many non-option arguments the command needs. The host checks this
+before calling, so a handler can index `Positionals`
+without bounds tests.
+
+#### `Summary`
+
+One help line; shown in the usage block under a plugin heading.
+
+#### `Run(CommandArgs)`
+
+Run the command and return a process exit code. 0 means success, which is
+what a script wrapping the tool tests.
+
+### IExportHook
+
+```csharp
+public interface IExportHook
+```
+
+Runs after an export finishes.
+
+This is the extension point for anything derived from the output as a whole --
+a test manifest, a report, an index of what was produced. It is deliberately
+not an `IEmitterPass`: a pass sees one program's text at a time
+and has no idea which shaders the run covered.
+
+Hooks run in registration order, on the export's own thread, after every file
+is written. One that throws is skipped and the export still succeeds: a broken
+plugin must not turn a finished export into a failed one.
+
+#### `Name`
+
+Short name for diagnostics.
+
+#### `ExportFinished(ExportCompleted)`
+
+Called once per export. `context` is a snapshot; a hook
+that writes files must use `OutputDirectory`.
+
 ### IPluginRegistry
 
 ```csharp
@@ -79,6 +318,15 @@ to 100. Ordering is explicit rather than "last registration wins" because the
 effective order has to be printable and testable -- this codebase has been
 bitten before by results that depended on an implicit ordering.
 
+#### `AddCommand(ICommandHandler)`
+
+Add a command word to the tool's command line.
+
+The host answers its own words first and refuses a plugin that tries to
+take one, so `--game` keeps meaning what the help text says. A word
+two plugins both claim is refused as well, which is what keeps the command
+set independent of load order.
+
 #### `AddContainerProvider(IContainerProvider, int)`
 
 Claim input bytes before the built-in readers see them. Returning false
@@ -87,6 +335,25 @@ from `CanHandle` passes the file on.
 #### `AddEmitterPass(IEmitterPass, int)`
 
 Add a post-processing pass over the emitted HLSL.
+
+#### `AddExportArtifact(string)`
+
+Register a file name the export directory should treat as this tool's own
+output.
+
+An export refuses to overwrite a directory holding anything it did not
+produce, and that check is a name list. A hook that writes a file without
+registering the name here would make the next `--overwrite` run refuse
+the directory it wrote itself.
+
+#### `AddExportHook(IExportHook)`
+
+Register a hook that runs once an export finishes.
+
+The place for anything derived from the output as a whole -- a test
+manifest, a report, an index of what was produced. An emitter pass cannot
+do it: a pass sees one program's text at a time and never learns which
+shaders the run covered.
 
 #### `AddPlatform(PlatformDescriptor, ISlotReader, IProgramTranslator, int)`
 
@@ -112,6 +379,21 @@ mutable state.
 #### `ApiVersion`
 
 Contract the plugin was compiled against.
+
+#### `DependsOn`
+
+Names of plugins this one needs loaded first, or null/empty when it stands
+alone.
+
+A plugin that extends another (a testing harness driving a specific
+backend, say) has to run after it, or it registers against a registry whose
+platform slot is still empty. The loader sorts by this list before calling
+`Register`, and reports a dependency that is not present rather
+than silently loading out of order.
+
+The name is `Name`, not the assembly name: that is what the
+user sees in `--plugins`, and what a plugin author can state without
+knowing how the host files assemblies.
 
 #### `Description`
 
@@ -297,6 +579,10 @@ added afterwards would never be consulted, so it fails loudly instead. Lookups
 are ordered by priority and then by insertion, which makes the effective order
 reproducible and printable.
 
+#### `Commands`
+
+Commands plugins added, in registration order.
+
 #### `ContainerProviders`
 
 Providers in the order they should be asked.
@@ -308,6 +594,15 @@ Who is registering right now, so a note can name the plugin.
 #### `EmitterPasses`
 
 Post-processing passes in the order they should run.
+
+#### `ExportArtifacts`
+
+Names the export directory should accept as this tool's own output.
+Empty when no plugin registered one.
+
+#### `ExportHooks`
+
+Hooks to run when an export finishes, in registration order.
 
 #### `Notes`
 
@@ -324,6 +619,29 @@ Priority of everything this build ships with.
 #### `DefaultPriority`
 
 Priority a plugin gets when it does not ask for one.
+
+#### `ReservedCommands`
+
+Words the host itself answers. Kept here so the check is one list rather
+than a copy of the dispatcher's switch.
+
+#### `AddCommand(ICommandHandler)`
+
+Add a command word to the tool's command line.
+
+The host's own commands win: registering `--game` or any other built-in
+word is refused rather than silently shadowing it, and so is a word another
+plugin already claimed. That keeps the command set independent of load
+order, which is the same rule the platform slots follow.
+
+**Parameters**
+
+- `handler` — The command.
+
+**Exceptions**
+
+- `InvalidOperationException` — Registration is closed, or the
+word is taken.
 
 #### `AddContainerProvider(IContainerProvider, int)`
 
@@ -356,6 +674,29 @@ so it must be a pure function of its arguments.
 
 - `InvalidOperationException` — Registration is closed.
 
+#### `AddExportArtifact(string)`
+
+Register a name the export directory should treat as this tool's own
+output.
+
+An export refuses to overwrite a directory holding anything it did not
+produce, and that check is a name list. A plugin writing a file without
+registering its name here would make the next `--overwrite` run look at
+a foreign directory -- its own output -- and refuse.
+
+**Parameters**
+
+- `fileName` — File name at the export root (no directory part).
+
+#### `AddExportHook(IExportHook)`
+
+Register a hook that runs once the export finishes.
+
+This is the place for anything derived from the output as a whole: a test
+manifest, a report, an index. An `IEmitterPass` cannot do
+it -- a pass sees one program's text at a time and never learns which
+shaders the run covered.
+
 #### `AddPlatform(PlatformDescriptor, ISlotReader, IProgramTranslator, int)`
 
 Add or replace a backend.
@@ -380,6 +721,10 @@ priority first and an entry that never gets asked would be unusable.
 #### `Close`
 
 Refuse any later registration.
+
+#### `CommandFor(string)`
+
+The plugin command registered for a word, or null.
 
 #### `Describe`
 
@@ -512,7 +857,215 @@ nothing to do; that is cheaper than comparing strings afterwards.
 `UnityObjectToClipPos` and friends. False for a standalone program,
 where those macros do not exist and emitting one is a compile error.
 
+## Namespace `ShaderRipper.Plugins.Hlsl`
+
+### HlslItem
+
+```csharp
+public class HlslItem
+```
+
+One top-level item of a translated HLSL program.
+
+#### `Kind`
+
+`pp` (preprocessor line), `cbuffer`, `struct`,
+`decl` (a global declaration), `func` (a function definition) or
+`semi` (a stray semicolon).
+
+#### `Name`
+
+Declared name, when the item has one (struct name, entry point).
+
+#### `Register`
+
+Register a cbuffer names, or -1.
+
+#### `Text`
+
+The item's text, taken verbatim from the input.
+
+### HlslItems
+
+```csharp
+public class HlslItems
+```
+
+Splits a program body into its top-level items, for plugin passes that need to
+reason about declarations rather than lines.
+
+The split runs on the project's `Hlsl.g4` parse tree, so a
+`float4 _Color;` inside a function body is never mistaken for a global --
+which is exactly the bug a line scanner produces. The item texts come from the
+original source over the line spans the tree reports, so joining them
+reproduces the input.
+
+A body the grammar cannot carry comes back as one item of kind `raw`, and
+`parseErrors` says how many errors the parser logged. A pass
+that only wants "declarations before the first function" can stop at the first
+`func` either way.
+
+#### `Split(string, Int32@)`
+
+Split one program body.
+
+**Parameters**
+
+- `hlsl` — Program text, without the surrounding ShaderLab tags.
+- `parseErrors` — Number of parse errors the grammar reported.
+
+### StructMember
+
+```csharp
+public class StructMember
+```
+
+One member of an HLSL interface struct.
+
+Plain fields rather than a record so a plugin compiled against an older minor
+keeps working when the host adds one.
+
+#### `Name`
+
+Member name.
+
+#### `Semantic`
+
+D3D semantic after the colon, e.g. `TEXCOORD0`.
+
+#### `Type`
+
+Declared type, e.g. `float4`.
+
+#### `ToString`
+
+Renders one member declaration line, without indentation.
+
+### StructTools
+
+```csharp
+public class StructTools
+```
+
+Structural edits on emitted HLSL text, offered to plugins.
+
+A translator that produces interface structs of its own needs the same two
+operations the built-in SPIR-V route does: fold a vertex-output/pixel-input
+pair into one struct so the stages link, and rewrite a struct's semantics from
+a name table when the backend only recorded location numbers. Both live here
+rather than in the plugin that happens to need them first, because a second
+backend (Metal, WebGPU) faces exactly the same shape.
+
+Everything is a pure function of its arguments -- no static state, no file
+access -- so it is safe to call concurrently from any number of translators.
+
+#### `IsSystemSemantic(string)`
+
+True when the semantic is D3D's own rather than an interpolator:
+`SV_Position` and the render targets sit outside the attribute
+numbering and must not consume a slot when a table is walked positionally.
+
+#### `Members(string)`
+
+The members of a struct declaration, in declaration order. Only the
+`type name : semantic;` shape a translator emits is understood; a
+member without a semantic is skipped.
+
+#### `MergeInterface(string, string, string, string, string, string)`
+
+Fold a vertex-output / pixel-input struct pair into one struct so the two
+stages link.
+
+Unity's pixel-stage link needs the vertex's output members and the
+fragment's input members declared as one shape carrying
+`SV_Position`; a pair of separate declarations with the same bytes
+does not bind, and the material then draws nothing with no compile error.
+The two programs also name their copies independently -- the vertex calls
+its colour `vs_134`, the fragment `ps_22` -- so the merge keeps
+the vertex's spelling and rewrites the fragment's
+`parameter.<name>` accesses.
+
+The fragment normally reads a subset of what the vertex writes (a vertex
+program emits interpolators a keyword-off path never consumes), so the
+merge keeps the vertex's full member list and matches each fragment member
+to the vertex member with the same semantic. It declines (returns
+`Unchanged`) when a fragment member has no vertex
+counterpart: that reads an interpolator the vertex never writes, which no
+spelling of the merged struct could fix.
+
+**Parameters**
+
+- `vertex` — Vertex program text.
+- `fragment` — Fragment program text.
+- `vertexOutput` — Name of the vertex's output struct.
+- `pixelInput` — Name of the pixel's input struct.
+- `mergedName` — Name for the merged struct.
+- `parameter` — Parameter name both entries use.
+
+#### `PatchSemantics(string, string, String>)`
+
+Rewrite the `: semantic` of the named struct's members from a
+positional table, leaving names and types alone.
+
+Each table entry is a declaration name in the source language
+(`in_COLOR0`, `vs_COLOR0`) and is mapped through
+`SemanticOf`. System semantics are skipped and do not consume
+a table entry. When the table runs out, the remaining members keep what
+they had -- guessing past the end would invent a binding.
+
+**Parameters**
+
+- `hlsl` — Program text to rewrite.
+- `structName` — Struct to patch.
+- `names` — Source-language declaration names, in location order.
+
+#### `ReadStruct(string, string)`
+
+The full text of a struct declaration, or null when the text has none.
+
+The match is on the declaration head, so a name that is a prefix of
+another (`Foo` and `FooBar`) is not confused for the shorter one.
+
+#### `ReplaceStruct(string, string, string)`
+
+Replace a struct declaration with `replacement`; an empty
+replacement deletes it. Returns the input unchanged when the struct is not
+declared.
+
+#### `SemanticOf(string)`
+
+The D3D semantic a source-language declaration name stands for:
+`in_POSITION0` / `vs_POSITION0` is POSITION, `in_COLOR0` is
+COLOR0, `vs_TEXCOORD1` is TEXCOORD1. Null for a name whose stem is
+not one this understands, so the caller keeps the original spelling.
+
 ## Namespace `ShaderRipper.Plugins.Platforms`
+
+### EngineBuffers
+
+```csharp
+public class EngineBuffers
+```
+
+Unity's built-in constant-buffer layout, for backends whose payload does not
+carry one.
+
+A payload records the member names of the buffers it binds, but not of the
+engine's own: `UnityPerDraw` is recorded as a size with no members at all.
+A translated program still reads it, and the engine layout is fixed, so it can
+be recovered from the include that declares it rather than left positional.
+
+#### `At(string, int)`
+
+The member covering a row, or null when the table does not describe it.
+
+#### `ForBuffer(string)`
+
+Every member the layout table knows for one buffer.
+
+#### `Known(string)`
+
+True when the layout table describes this buffer at all.
 
 ### IProgramTranslator
 
@@ -678,6 +1231,18 @@ The shader's property names, in declaration order.
 
 Stage from `Stage`; may be null.
 
+#### `VertexAttributes`
+
+GLSL vertex attribute names in declaration order: `Inputs` are the mesh
+streams the vertex reads (`in_COLOR0`, ...), `Interpolators` are what it
+writes out (`vs_COLOR0`, ...) -- the fragment's inputs repeat those names,
+and both lists are the only record of which semantic each SPIR-V location
+carries. Null when the asset shipped no GL build.
+
+#### `VertexInterpolators`
+
+The vertex's interpolator outputs, in declaration order.
+
 ### TranslationResult
 
 ```csharp
@@ -693,6 +1258,20 @@ HLSL program body; null when nothing was produced.
 #### `Notes`
 
 Comment lines to write into the `.shader`.
+
+#### `Original`
+
+The original program text, when the backend can spell it -- a GLSL source,
+a SPIR-V disassembly, a byte dump. Written into the `.shader` as a
+comment block when the user asks for it, so the recovered source and the
+bytes it came from sit in the same file instead of two directories.
+
+Null when the backend has no readable form of its own (the built-in DXBC
+route supplies the disassembly directly, not through this field).
+
+#### `OriginalKind`
+
+What `Original` is, for the comment's heading.
 
 #### `Stage`
 

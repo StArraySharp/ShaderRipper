@@ -64,19 +64,30 @@ real game data or Unity's own compiler. See
 
 Three parts of the pipeline are extensible: **containers** (a format this build cannot
 read), **backends** (a payload format it cannot translate) and **emitter passes**
-(post-processing over the generated HLSL). A plugin is a class library that
-implements `IShaderRipperPlugin` and registers whichever of those it needs.
+(post-processing over the generated HLSL). A plugin can also add **sub-commands** and
+**export-completion hooks**, and reuse the HLSL struct helpers as public tools. A plugin
+is a class library that implements `IShaderRipperPlugin` and registers whichever of
+those it needs.
 
 ```bash
 # what is loaded, in the order it will be consulted
 ShaderRipper.exe --plugins
 
-# a plugin directory other than <exe>/plugins
+# a plugin directory other than <exe>/Plugins
 ShaderRipper.exe --game "Game_Data" --shaderlab out --plugin-dir ./my-plugins
 
 # ignore every plugin, which is the reproducible spelling of "behave like the release"
 ShaderRipper.exe --game "Game_Data" --shaderlab out --no-plugins
 ```
+
+### Layout and dependencies
+
+Plugins live under `<exe>/Plugins/`, **one sub-directory per plugin**: a plugin's own
+native library, placed at `runtimes/<rid>/native` inside its directory, is found
+without touching the host. Load order comes from `IShaderRipperPlugin.DependsOn`,
+which lists plugin names (the `Name` shown by `--plugins`) rather than assembly names;
+the loader sorts topologically and reports a missing dependency or a cycle instead of
+registering silently out of order.
 
 | Capability | Interface | Called |
 |---|---|---|
@@ -84,10 +95,24 @@ ShaderRipper.exe --game "Game_Data" --shaderlab out --no-plugins
 | Enumerate a backend's programs | `ISlotReader` | once per shader × slot |
 | Translate one program | `IProgramTranslator` | once per program |
 | Rewrite emitted HLSL | `IEmitterPass` | once per program body |
+| Add a sub-command | `ICommandHandler` | after argument parsing |
+| Post-process a finished export | `IExportHook` | once, after the export is written |
 
 Every capability takes a priority — built-ins are `0`, plugins default to `100`. Lower
 runs first for lookup; a platform registered later wins its id, since an entry that
 never gets asked would be unusable.
+
+A sub-command cannot shadow one of the host's own flags (`--game`, `--file`, `--emit`,
+...) and a duplicate among plugins is refused, so the effective command set never
+depends on load order. `IExportHook` is handed the finished export's index — which
+shader went where, what each material referenced — which is enough to write a report, a
+regression list or a test project.
+
+`ShaderRipper.Plugins.Hlsl` opens up the two struct operations the SPIR-V route already
+needed: `StructTools` (read, rewrite and merge interface structs by semantic, including
+folding a vertex output and a pixel input into one `v2f`) and `HlslItems` (split a
+program into its top-level items on the parse tree). A second backend — Metal, WebGPU —
+faces the same shape, so these are not one plugin's private code.
 
 A plugin that throws is skipped and the run continues; each distinct failure is
 reported once, so a pass failing on every program of a 400-shader run cannot bury the
@@ -107,7 +132,7 @@ py -3 scripts/gen_api_docs.py     # docs/api.md, from bin/Release/net10.0/Shader
 > [Release packaging](#release-packaging).
 >
 > [`examples/ShaderRipper.Plugin.Example`](examples/ShaderRipper.Plugin.Example/ExamplePlugin.cs)
-> is a worked example of all three extension points. It is not part of the solution —
+> is a worked example covering the extension points. It is not part of the solution —
 > build it by path.
 >
 > [`src/ShaderRipper.Plugin.SpirV`](src/ShaderRipper.Plugin.SpirV/SpirVPlugin.cs)
@@ -304,7 +329,7 @@ For more readable output, prefer game data that includes **GLES3 / OpenGLCore** 
 | `--lang <en\|zh>` | UI language; follows the system UI language by default |
 | `--tmp-layouts <file\|dir>` / `--no-tmp-layout` / `--builtin-index <file>` | Name-table overrides (the embedded tables are used by default) |
 | `--plugins` | List what was loaded — containers, backends and emitter passes, in the order they are consulted |
-| `--plugin-dir <dir>` | Plugin directory (default `<exe>/plugins`) |
+| `--plugin-dir <dir>` | Plugin directory (default `<exe>/Plugins`, one sub-directory per plugin) |
 | `--no-plugins` | Skip loading plugins; built-in backends only |
 | `--list-shaders <file>` | List the shaders inside a SerializedFile / bundle (name, pathId, container path); writes nothing |
 | `--dump <file> [--dump-filter <text>]` | Print each shader's structure: platform slots, pass/sub-program counts, properties, `UsePass` refs, non-default render state; for a compute shader, its kernels and backends |
@@ -312,6 +337,8 @@ For more readable output, prefer game data that includes **GLES3 / OpenGLCore** 
 | `--glsl <file> [--shaderlab]` | One GLSL payload → HLSL (with `--shaderlab`, wrap it and self-check the result) |
 | `--emit <dir> <outDir>` | Translate every `*.asm` / `*.glsl` under a directory into HLSL, mirroring the tree |
 | `--stats <dir>` | Corpus report: files parsed, per-instruction translation coverage, top-15 missing handlers |
+| `--test-manifest <exportDir>` | (plugin) Rebuild the render-test manifest `.shaderripper-tests.json` from an existing export |
+| `--gen-test-project <exportDir> [outDir] [--textures <dir>]` | (plugin) Write a Unity project that renders every case; `--textures` supplies real pictures as shader input |
 | `-h, --help` | Help (localized by `--lang`) |
 
 Every `.shader` is re-parsed with the ShaderLab grammar before it is written; one that is not well-formed is counted but not emitted (with a note). An export with failures exits 1, a usage error exits 2.
@@ -348,7 +375,7 @@ Measured on the corpora used for the last release:
 ```
 verify_logic  428/428 = 100%     scan_unwritten  0 unwritten lanes
 verify_glsl    34/34  = 100%     scan_nan        0 escaping NaNs
-usc_check       89/89            NUnit suite     170/170
+usc_check      415/415           NUnit suite     201/201
 ```
 
 A round trip through a real Unity 6 test project — the source, what came back out, and
@@ -356,6 +383,42 @@ the merged disassembly of every variant — is in [`docs/verification/`](docs/ve
 How each check works, what it treats as a real difference rather than a compiler
 rewrite, and the readability passes it guards are described in
 [`docs/verification.md`](docs/verification.md).
+
+### Render verification
+
+Compiling is not the same as drawing correctly: a shader that reduces its output to a
+constant compiles fine. So there is one more end-to-end layer — put the output in a
+minimal Unity project and actually render it.
+
+```bash
+# 1. export; the plugin also writes a test manifest (.shaderripper-tests.json)
+ShaderRipper.exe --game "Game_Data" --shaderlab out
+
+# 2. generate the project; --textures supplies real pictures as shader input
+ShaderRipper.exe --gen-test-project out UnityTestProject \
+                 --textures "D:/pictures"
+
+# 3. run it
+Unity.exe -batchmode -quit -projectPath UnityTestProject \
+          -executeMethod ShaderRipperTest.Run -logFile -
+```
+
+Each case gets a material, is drawn on a full-screen quad at 1920x1080 — the resolution
+the game renders at, so a shader deriving UVs from `_ScreenResolution` sees the same
+numbers — and is classified on four outcomes:
+
+| Outcome | Meaning |
+|---|---|
+| `pass` | drew a frame with structure |
+| `flat` | drew, but the whole frame is one colour (a solid fill is legal, so this is not a failure) |
+| `skip` | the harness could not supply the inputs: a uniform the Properties block never declares, a texture the project does not carry, vertex colour, or a clear pass |
+| `fail` | drew nothing at all |
+
+Most `skip`s are "the game's script pushes this uniform at run time": the shader is fine,
+the rebuilt material simply has no value to fill. Keeping those apart from real failures
+is what makes the suite usable — nobody reads a run that reports ninety reds forever.
+The manifest also records every referenced material path, which is enough for a
+regression diff.
 
 ## Limitations
 
