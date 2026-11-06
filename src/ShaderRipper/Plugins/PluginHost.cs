@@ -166,7 +166,13 @@ namespace ShaderRipper.Plugins
                 // and those are not assemblies: opening one throws BadImageFormat and
                 // buries the real diagnostics.  They are found by name at call time
                 // instead, through the load context's unmanaged resolver.
+                //
+                // A framework-dependent publish flattens them into the plugin's own
+                // directory next to the managed ones, so the directory test alone misses
+                // them and every startup logs a BadImageFormat line that looks like a
+                // failure.  The header check covers both layouts.
                 if (IsNativePath(f)) continue;
+                if (!LooksLikeManagedAssembly(f)) continue;
                 yield return f;
             }
         }
@@ -179,6 +185,37 @@ namespace ShaderRipper.Plugins
                                                     Path.AltDirectorySeparatorChar))
                 if (part.Equals("runtimes", StringComparison.OrdinalIgnoreCase)) return true;
             return false;
+        }
+
+        /// <summary>
+        /// True when the file is a .NET assembly rather than a native library.
+        ///
+        /// Both arrive as <c>*.dll</c> in a plugin directory.  An assembly starts with
+        /// <c>MZ</c> and carries the <c>BSJB</c> metadata signature; a native library is
+        /// a PE file without it.  Reading a native one as an assembly throws
+        /// <c>BadImageFormatException</c>, which used to surface as a startup warning
+        /// that looked like a broken plugin even though nothing was wrong.
+        /// </summary>
+        private static bool LooksLikeManagedAssembly(string path)
+        {
+            try
+            {
+                using var fs = new FileStream(path, FileMode.Open, FileAccess.Read,
+                                              FileShare.ReadWrite);
+                int size = (int)Math.Min(fs.Length, 8192);
+                if (size < 64) return false;
+
+                var head = new byte[size];
+                int read = fs.Read(head, 0, size);
+                if (read < 64 || head[0] != 'M' || head[1] != 'Z') return false;
+
+                for (int i = 0; i + 4 <= read; i++)
+                    if (head[i] == 'B' && head[i + 1] == 'S' &&
+                        head[i + 2] == 'J' && head[i + 3] == 'B') return true;
+                return false;
+            }
+            catch (IOException) { return false; }
+            catch (UnauthorizedAccessException) { return false; }
         }
 
         /// <summary>Assemblies the host itself ships, which are never plugins.</summary>

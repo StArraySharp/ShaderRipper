@@ -104,14 +104,18 @@ try {
         #
         # Each is published separately so its own dependencies land beside it instead of
         # being merged into the host's output: that is what lets a plugin carry a native
-        # library the host has never heard of.
+        # library the host has never heard of.  The publish is framework-dependent on
+        # purpose -- the host already carries the runtime and resolves it for the plugin,
+        # so a self-contained publish here only added a second copy of 179 runtime files
+        # per plugin (the Linux package went from 51 MB to 128 MB that way) without
+        # making anything work that did not work before.
         foreach ($plugin in $Plugins) {
             $proj = "src/$plugin/$plugin.csproj"
             if (-not (Test-Path $proj)) { throw "plugin project not found: $proj" }
 
             $pluginOut = Join-Path $out "Plugins/$plugin"
             dotnet publish $proj `
-                -c $Configuration -r $oneRid --self-contained `
+                -c $Configuration -r $oneRid --no-self-contained `
                 -p:PublishSingleFile=false -p:PublishTrimmed=false `
                 -o $pluginOut
             if ($LASTEXITCODE -ne 0) { throw "plugin publish failed for $plugin (exit $LASTEXITCODE)" }
