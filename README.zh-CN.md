@@ -79,6 +79,16 @@ ShaderRipper.exe --game "游戏名_Data" --shaderlab out --no-plugins
 `IShaderRipperPlugin.DependsOn` 决定——它列的是插件名（`Name`，即 `--plugins` 里显示的
 那个），加载器按依赖做拓扑排序；依赖缺失或出现环都会报告，而不是静默地乱序注册。
 
+发行包里已经把这个仓库自带的两个插件解好放在该目录，`--plugins` 不加任何选项就能看到：
+
+| 目录 | 提供什么 |
+|---|---|
+| `Plugins/ShaderRipper.Plugin.SpirV/` | `vulkan` 后端（SMOL-V 压缩的 SPIR-V，经 SPIRV-Cross 翻译） |
+| `Plugins/ShaderRipper.Plugin.AutomatedTesting/` | `--test-manifest` 与 `--gen-test-project` |
+
+两者都是解决方案里的类库，但没有任何项目引用它们；放进解决方案只是为了保持编译。
+删掉某个目录（或加 `--no-plugins`），工具的行为就和没有它们时完全一致。
+
 | 能力 | 接口 | 调用时机 |
 |---|---|---|
 | 认领输入字节 | `IContainerProvider` | 每个候选文件一次 |

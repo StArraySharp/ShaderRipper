@@ -25,8 +25,13 @@
     <!-- The single library the tool is built on: src/ShaderRipper
          (AssemblyName ShaderRipper).  The old hand-written implementation,
          src/ShaderRipper.Old, is kept on disk for reference only and is not
-         referenced by anything. -->
-    <ProjectReference Include="..\ShaderRipper\ShaderRipper.csproj"
-                      AdditionalProperties="ShaderNativeRid=$(RuntimeIdentifier)" />
+         referenced by anything.
+
+         No `AdditionalProperties` here.  Passing one made the library's global
+         properties differ from every other project's, so MSBuild built it twice under
+         two configurations into one obj/ directory and the parallel solution build
+         failed with CS2012 ("the file is being used by another process").  The library
+         picks its native set from its own RuntimeIdentifier instead. -->
+    <ProjectReference Include="..\ShaderRipper\ShaderRipper.csproj" />
   </ItemGroup>
 </Project>

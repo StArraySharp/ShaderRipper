@@ -34,9 +34,9 @@ namespace ShaderRipper.Plugins.Hlsl
     /// reproduces the input.
     ///
     /// A body the grammar cannot carry comes back as one item of kind <c>raw</c>, and
-    /// <paramref name="parseErrors"/> says how many errors the parser logged.  A pass
-    /// that only wants "declarations before the first function" can stop at the first
-    /// <c>func</c> either way.
+    /// the split reports how many errors the parser logged.  A pass that only wants
+    /// "declarations before the first function" can stop at the first <c>func</c>
+    /// either way.
     /// </summary>
     public static class HlslItems
     {

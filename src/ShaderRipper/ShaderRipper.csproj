@@ -27,7 +27,18 @@
          InvariantGlobalization is deliberately NOT set: it disables every
          non-invariant culture, so the "zh" language option could not resolve
          zh-Hans and the satellite assembly would never be found. -->
-    <ShaderNativeRid Condition="'$(ShaderNativeRid)' == ''">$(RuntimeIdentifier)</ShaderNativeRid>
+    <!-- Which native libraries to embed.  A publish that sets a RuntimeIdentifier gets
+         only that platform's binaries; a plain build gets both.
+
+         This has to come from the library's own `RuntimeIdentifier` rather than from a
+         property the referencing project passes in.  An `AdditionalProperties` value on
+         a ProjectReference makes MSBuild treat the reference as a *different*
+         configuration, so the library was built twice under two global-property sets,
+         concurrently, into the same obj/ directory, which fails with CS2012/MSB3713
+         ("the file is being used by another process") on any machine that builds the
+         solution in parallel.  The residual `ShaderNativeRid` keeps the older spelling
+         working for a caller that does set it by hand. -->
+    <ShaderNativeRid Condition="'$(ShaderNativeRid)' == '' And '$(RuntimeIdentifier)' != ''">$(RuntimeIdentifier)</ShaderNativeRid>
   </PropertyGroup>
   <ItemGroup>
     <InternalsVisibleTo Include="ShaderRipper.Application" />

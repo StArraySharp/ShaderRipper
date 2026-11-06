@@ -21,8 +21,6 @@ src/*.Old/
 # UnityShaderCompiler run log
 scripts/usc_check.log
 
-# 某款游戏的 .block 解包工具（ENCR/mr0k/Oodle）。本地研究工具，不入库：
-# 依赖 Epic 的 Oodle DLL，且只为一款游戏服务，不属于本项目的交付范围
 tools/starrail/
 
 #其他

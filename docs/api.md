@@ -901,9 +901,9 @@ original source over the line spans the tree reports, so joining them
 reproduces the input.
 
 A body the grammar cannot carry comes back as one item of kind `raw`, and
-`parseErrors` says how many errors the parser logged. A pass
-that only wants "declarations before the first function" can stop at the first
-`func` either way.
+the split reports how many errors the parser logged. A pass that only wants
+"declarations before the first function" can stop at the first `func`
+either way.
 
 #### `Split(string, Int32@)`
 

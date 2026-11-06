@@ -89,6 +89,18 @@ which lists plugin names (the `Name` shown by `--plugins`) rather than assembly 
 the loader sorts topologically and reports a missing dependency or a cycle instead of
 registering silently out of order.
 
+The release carries the two plugins that ship with this repository already unpacked
+into that directory, so `--plugins` lists them without any option:
+
+| Directory | What it adds |
+|---|---|
+| `Plugins/ShaderRipper.Plugin.SpirV/` | the `vulkan` backend (SMOL-V SPIR-V translated with SPIRV-Cross) |
+| `Plugins/ShaderRipper.Plugin.AutomatedTesting/` | `--test-manifest` and `--gen-test-project` |
+
+Both are class libraries in the solution but nothing references them; being in the
+solution only keeps them compiling. Drop a directory out (or pass `--no-plugins`) and
+the tool behaves exactly as it would without them.
+
 | Capability | Interface | Called |
 |---|---|---|
 | Claim input bytes | `IContainerProvider` | once per candidate file |
