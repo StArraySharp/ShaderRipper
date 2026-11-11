@@ -361,6 +361,29 @@ The old front end's options (`--data`, `--root`, `--platform`, `--syntax`, `--de
 
 Debug environment variables: `SHADERRIP_NOTES=all` prints every diagnostic (8 by default), `SHADERRIP_STACK=1` prints exception stacks, `SHADERRIP_FORCE_MANAGED=1` skips d3dcompiler and uses the managed disassembler, `SHADERRIP_TPK=<file>` points at the type tree, and `SHADERRIP_CBDBG` / `SHADERRIP_TMPDBG` / `SHADERRIP_TYPEDBG` / `SHADERRIP_BUNDLEDBG` trace their stage.
 
+## License
+
+ShaderRipper is licensed under the [Apache License, Version 2.0](LICENSE).
+
+### Linking exception for GPL-3.0 works
+
+Apache-2.0 and GPL-3.0 are not compatible licenses: Apache-2.0's
+patent-termination and indemnity clauses are additional restrictions that
+GPL-3.0 §7 forbids. A GPL-3.0 program therefore cannot normally link this
+library.
+
+Because the copyright holder of ShaderRipper is also the copyright holder of
+those hosts, **[LICENSE-EXCEPTION](LICENSE-EXCEPTION)** grants permission to
+link ShaderRipper with a GPL-3.0 (or later) work and distribute the result
+under GPL-3.0, without ShaderRipper itself becoming GPL-3.0. It covers
+[AssetRipperPatcher](https://github.com/StArraySharp/AssetRipperPatcher) and any
+other GPL-3.0 host; it does not extend to the third-party components below,
+which keep their own licenses.
+
+If you distribute such a combined work, include both `LICENSE` and
+`LICENSE-EXCEPTION`, and state that ShaderRipper is used under Apache-2.0 with
+the linking exception.
+
 ## Third-party libraries
 
 | Library | Purpose | License |

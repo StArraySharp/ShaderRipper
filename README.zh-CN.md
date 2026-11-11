@@ -332,6 +332,25 @@ Windows / Linux 构建格式一致，APK 从 zip 内读取。
 
 调试用环境变量：`SHADERRIP_NOTES=all` 打印全部诊断（默认 8 条）、`SHADERRIP_STACK=1` 打印异常栈、`SHADERRIP_FORCE_MANAGED=1` 跳过 d3dcompiler 走纯托管反汇编、`SHADERRIP_TPK=<文件>` 指定类型树，`SHADERRIP_CBDBG` / `SHADERRIP_TMPDBG` / `SHADERRIP_TYPEDBG` / `SHADERRIP_BUNDLEDBG` 输出对应环节的细节追踪。
 
+## 许可
+
+ShaderRipper 以 [Apache License 2.0](LICENSE) 发布。
+
+### 面向 GPL-3.0 作品的链接例外
+
+Apache-2.0 与 GPL-3.0 不兼容：Apache-2.0 的专利终止条款和赔偿义务，正是
+GPL-3.0 §7 所禁止的「附加限制」。所以 GPL-3.0 程序通常无法链接本库。
+
+由于 ShaderRipper 的版权持有人同时也是这些宿主程序的版权持有人，
+**[LICENSE-EXCEPTION](LICENSE-EXCEPTION)** 授予一项许可：可以把 ShaderRipper
+与 GPL-3.0（或更高版本）作品链接，并以 GPL-3.0 分发合并后的成果，
+而 ShaderRipper 本身不必转为 GPL-3.0。它适用于
+[AssetRipperPatcher](https://github.com/StArraySharp/AssetRipperPatcher) 以及
+任何其它 GPL-3.0 宿主；不适用于下面列出的第三方组件，它们各自保留原有许可。
+
+分发这类合并作品时，请同时附带 `LICENSE` 与 `LICENSE-EXCEPTION`，
+并注明 ShaderRipper 是在 Apache-2.0 加链接例外下使用。
+
 ## 第三方库
 
 | 库                                                                                                                                                                                               | 用途                        | 许可                      |

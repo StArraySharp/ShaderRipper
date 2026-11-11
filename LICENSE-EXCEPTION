@@ -1,0 +1,76 @@
+ShaderRipper is licensed under the Apache License, Version 2.0 (see LICENSE).
+
+                   GNU GENERAL PUBLIC LICENSE
+              Version 3, Linking Exception for ShaderRipper
+
+Copyright 2026 StArray
+
+The Apache License, Version 2.0 and the GNU General Public License, version 3
+are not compatible: Apache-2.0 carries patent-termination and indemnity terms
+that GPL-3.0 treats as additional restrictions (GPL-3.0 §7). As a result, a
+GPL-3.0 work cannot normally link against an Apache-2.0 library.
+
+Because the copyright holder of ShaderRipper is also the copyright holder of
+the works listed below, this exception is granted to remove that restriction
+for those works only.
+
+================================================================================
+1. GRANT
+================================================================================
+
+As a special exception, the copyright holder of ShaderRipper gives you
+permission to link ShaderRipper, in whole or in part, with any work that is
+licensed under the GNU General Public License, version 3 (or any later version
+published by the Free Software Foundation) — including, but not limited to,
+AssetRipperPatcher — and to distribute the resulting combined work under the
+terms of the GNU General Public License, version 3 (or later), without
+ShaderRipper itself being subject to GPL-3.0.
+
+This exception applies to ShaderRipper's own source code and to the compiled
+ShaderRipper library. It does not extend to any third-party component that
+ShaderRipper itself links or embeds; those remain under their own licenses,
+which are listed in the "Third-party libraries" section of README.md.
+
+================================================================================
+2. HOW TO APPLY IT
+================================================================================
+
+If you distribute a combined work that includes ShaderRipper and a GPL-3.0
+work, follow the GPL-3.0 requirements for the GPL-covered part, and:
+
+  (a) state in the combined work's own notices that ShaderRipper is used under
+      the Apache License 2.0 together with this linking exception;
+
+  (b) include a copy of both LICENSE (Apache-2.0) and this file
+      (LICENSE-EXCEPTION) in the distribution;
+
+  (c) keep ShaderRipper's copyright notices intact in the source form.
+
+You do not need to relicense ShaderRipper itself, nor to publish the source of
+any additional code you wrote, in order to exercise this exception.
+
+================================================================================
+3. SCOPE AND LIMITS
+================================================================================
+
+This exception is a permission, not a warranty. It grants no rights beyond
+what Apache-2.0 and GPL-3.0 already grant, and it does not change the license
+of ShaderRipper for anyone who is not exercising it.
+
+If you modify ShaderRipper, you may continue to use this exception for your
+modified version, provided you retain this file and its notices. You may not
+add further restrictions on top of it.
+
+If any provision of this exception is held unenforceable, the remainder stays
+in effect, and the situation reverts to whatever Apache-2.0 and GPL-3.0
+independently allow.
+
+================================================================================
+4. WHY THIS FILE EXISTS
+================================================================================
+
+Without it, the combination of ShaderRipper (Apache-2.0) and a GPL-3.0 host
+such as AssetRipperPatcher would be undistributable as a single binary: GPL-3.0
+requires the whole combined work to be GPL-3.0, while Apache-2.0 forbids
+imposing the additional terms that would entail. The copyright holder can
+waive that conflict for their own works, and this file does exactly that.
