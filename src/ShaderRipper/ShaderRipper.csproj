@@ -9,7 +9,7 @@
     <ImplicitUsings>enable</ImplicitUsings>
     <AssemblyName>ShaderRipper</AssemblyName>
     <RootNamespace>ShaderRipper</RootNamespace>
-    <Version>1.2.2</Version>
+    <Version>1.2.3</Version>
     <PlatformTarget>x64</PlatformTarget>
     <AllowUnsafeBlocks>true</AllowUnsafeBlocks>
     <!-- XML documentation is emitted for every public API.  The plugin surface

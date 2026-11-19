@@ -11,7 +11,7 @@
     <AssemblyName>ShaderRipper.Gui</AssemblyName>
     <!-- Matches the library, so a release asset name and the binaries inside it agree.
          Read by tools/make-release.ps1 to name the zip. -->
-    <Version>1.2.2</Version>
+    <Version>1.2.3</Version>
     <RootNamespace>ShaderRipper.Gui</RootNamespace>
     <PlatformTarget>x64</PlatformTarget>
     <!-- The window is 1180x800 at 100%; a display scale of 150% would clip the log
