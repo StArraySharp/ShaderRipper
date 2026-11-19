@@ -1713,16 +1713,7 @@ namespace ShaderRipper.Emit
             if (name is "texture" && args.Count is 2 or 3 && _samplers.Contains(args[0]))
             {
                 string sampler = args[0];
-                string coord = args[1];
-                // GLSL passes a vec4 coordinate; .Sample takes a float2.
-                // A 2D fetch narrows the vec4 coordinate to .xy; a cube or 3D
-                // fetch takes three components and must keep them.
-                string kind = _samplerKind.TryGetValue(sampler, out var k) ? k : "sampler2D";
-                if (kind is "sampler2D" or "sampler2DArray")
-                {
-                    var m = Swizzle.Match(coord);
-                    coord = m.Success ? $"({m.Groups[1].Value}).xy" : $"({coord}).xy";
-                }
+                string coord = SampleCoord(sampler, args[1]);
                 // Three arguments is GLSL's fragment-only bias form, which is what
                 // URP's SAMPLE_TEXTURE2D_BIAS macro expands to:
                 // `texture(_BaseMap, uv, _GlobalMipBias.x)`.  HLSL has no `texture`
@@ -1746,7 +1737,7 @@ namespace ShaderRipper.Emit
             // same argument, so they pass through unchanged.
 
             if (name == "textureLod" && args.Count == 3)
-                return $"{args[0]}.SampleLevel({SamplerOf(args[0])}, {args[1]}, {args[2]})";
+                return $"{args[0]}.SampleLevel({SamplerOf(args[0])}, {SampleCoord(args[0], args[1])}, {args[2]})";
 
             // Integer-coordinate fetch.  GLSL's texelFetch takes (sampler, ivecN,
             // lod) and returns the unfiltered texel; HLSL's equivalent is
@@ -1758,8 +1749,18 @@ namespace ShaderRipper.Emit
                 string sampler = args[0];
                 string coord = args[1];
                 string lod = args.Count > 2 ? args[2] : "0";
+                // A swizzle written directly on the coordinate is the fetch
+                // position and must survive.  A cast or constructor is already
+                // the right width (`(int3)(uv.xyz)`), so leave it alone --
+                // appending .xy there would cut a three-component fetch down
+                // to two and change the texel it reads.
                 var m = Swizzle.Match(coord);
-                string xy = m.Success ? m.Groups[1].Value : coord;
+                string xy = coord;
+                if (m.Success)
+                {
+                    string sw = m.Groups[2].Value;
+                    xy = $"({m.Groups[1].Value}).{(sw.Length > 2 ? sw.Substring(0, 2) : sw)}";
+                }
                 return $"{sampler}.Load(int3({xy}, {lod}))";
             }
 
@@ -1802,6 +1803,41 @@ namespace ShaderRipper.Emit
 
         private static readonly System.Text.RegularExpressions.Regex Swizzle =
             new(@"^(\w[\w.\[\]]*)\.([xyzw]+)$", System.Text.RegularExpressions.RegexOptions.Compiled);
+
+        /// <summary>
+        /// Narrow a GLSL sample coordinate to the width an HLSL texture object takes,
+        /// keeping the components the payload actually selected.
+        ///
+        /// HLSLcc packs two UVs into one vec4 and fetches them separately
+        /// (`uv.xy` and `uv.zw`).  Rewriting both to `.xy` makes the two fetches
+        /// read the same texel: the shader still compiles, but a chromatic
+        /// aberration filter loses its offset and the image turns into stripes.
+        /// A cube or 3D fetch keeps its three components; a sampler whose kind is
+        /// unknown (one the include chain declared) is left alone rather than
+        /// guessed at.
+        /// </summary>
+        private string SampleCoord(string sampler, string coord)
+        {
+            if (!_samplerKind.TryGetValue(sampler, out string kind)) return coord;
+            if (kind is not ("sampler2D" or "sampler2DArray")) return coord;
+            return kind == "sampler2DArray"
+                ? NarrowCoord(coord, 3, "xyz")   // (u, v, slice)
+                : NarrowCoord(coord, 2, "xy");
+        }
+
+        /// <summary>
+        /// A swizzle the payload wrote IS the sample position, so keep it.  Only a
+        /// vector-wide coordinate with no swizzle, or one wider than the texture
+        /// accepts, is trimmed; `uv.zw` must never become `uv.xy`.
+        /// </summary>
+        private static string NarrowCoord(string coord, int width, string full)
+        {
+            var m = Swizzle.Match(coord);
+            if (!m.Success) return $"({coord}).{full}";
+            string sw = m.Groups[2].Value;
+            string keep = sw.Length > width ? sw.Substring(0, width) : sw;
+            return $"({m.Groups[1].Value}).{keep}";
+        }
 
         /// <summary>
         /// The sampler spelling for a texture at a call site.  Textures the include

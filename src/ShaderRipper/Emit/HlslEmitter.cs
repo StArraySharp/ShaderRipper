@@ -3405,12 +3405,17 @@ namespace ShaderRipper.Emit
                     }
                     return true;
                 case "movc":
-                    // movc dst, src0, src1, src2 -> dst = src0 != 0 ? src1 : src2
+                    // movc dst, cond, src1, src2 -> dst.i = cond.i ? src1.i : src2.i
                     //
-                    // The condition is handed over as the bare expression: a float
-                    // converts to bool implicitly, and spelling `!= 0.0` makes fxc
-                    // emit an extra `ne` before every select.
-                    Line($"{d} = {Scalar(a[1])} ? {Expr(a[2])} : {Expr(a[3])};");
+                    // The select is PER COMPONENT.  Reading the condition with
+                    // Scalar() took lane x and applied it to every lane, so a
+                    // per-lane select silently became a broadcast -- a mask whose
+                    // lanes differ (a comparison over a vector) picked the same
+                    // branch four times.  HLSL's `?:` takes a vector condition
+                    // and fxc compiles it straight back to movc, so the whole
+                    // operand goes over.  A broadcast swizzle (`r1.xxxx`) still
+                    // compiles to the same `movc` as the old scalar spelling.
+                    Line($"{d} = {Expr(a[1])} ? {Expr(a[2])} : {Expr(a[3])};");
                     return true;
 
                 case "add": Line($"{d} = {Expr(a[1])} + {Expr(a[2])};"); return true;

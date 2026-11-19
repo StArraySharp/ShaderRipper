@@ -15,6 +15,9 @@ the answer for the stages that do exist.
 
 Usage:
     py -3 usc_check.py <file-or-dir...> [-j N] [-u <unity-dir>] [-p d3d11]
+
+On Windows, -u may be omitted: installed editors are read from the registry
+when neither -u nor UNITY_EDITOR is set, and the newest usable one is picked.
 """
 
 import os
@@ -32,6 +35,43 @@ from usc_compile import Client   # noqa: E402
 PLATFORM_IDS = {"d3d11": 4, "gles3": 9, "gles20": 5, "openglcore": 15, "glcore": 15}
 
 SCRIPT_DIR = os.path.dirname(os.path.abspath(__file__))
+
+
+def find_unity():
+    """Newest installed Unity editor with a usable shader compiler."""
+    if sys.platform != "win32":
+        return None
+    import re
+    import winreg
+
+    roots = (
+        (winreg.HKEY_LOCAL_MACHINE, r"SOFTWARE\Unity Technologies\Installer"),
+        (winreg.HKEY_LOCAL_MACHINE, r"SOFTWARE\WOW6432Node\Unity Technologies\Installer"),
+    )
+    found = []
+    for hive, path in roots:
+        try:
+            root = winreg.OpenKey(hive, path)
+        except OSError:
+            continue
+        with root:
+            i = 0
+            while True:
+                try:
+                    name = winreg.EnumKey(root, i)
+                except OSError:
+                    break
+                i += 1
+                try:
+                    with winreg.OpenKey(root, name) as sub:
+                        loc, _ = winreg.QueryValueEx(sub, "Location x64")
+                        ver, _ = winreg.QueryValueEx(sub, "Version")
+                except OSError:
+                    continue
+                usc = os.path.join(loc, "Editor", "Data", "Tools", "UnityShaderCompiler.exe")
+                if os.path.isfile(usc):
+                    found.append((tuple(int(n) for n in re.findall(r"\d+", ver)[:4]), loc))
+    return max(found, key=lambda c: c[0])[1] if found else None
 
 
 class Server:
@@ -154,6 +194,11 @@ def main():
         if a in ("-p", "--platform"):
             platform_name = args[i + 1]; i += 2; continue
         rest.append(a); i += 1
+
+    if not unity and rest:
+        unity = find_unity()
+        if unity:
+            print(f"Unity editor (registry): {unity}")
 
     if not unity or not rest:
         print(__doc__)
