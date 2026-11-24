@@ -1,5 +1,6 @@
 using Photino.NET;
 using ShaderRipper.Game;
+using ShaderRipper.Plugins;
 using System.Diagnostics;
 using System.Text;
 using System.Text.Json;
@@ -27,6 +28,7 @@ internal static class Program
 
     /// <summary>Everything the log pane has shown, for "save log".</summary>
     private static readonly StringBuilder Transcript = new();
+    private static readonly List<string> PluginNotes = new();
 
     /// <summary>
     /// Folders handed in on the command line, and whether to start immediately.
@@ -46,6 +48,7 @@ internal static class Program
         // still filters what reaches the sink, so keep it at Normal.
         Log.Level = LogLevel.Normal;
         Log.Sink = OnLog;
+        PluginContext.Install(PluginHost.Load(PluginHost.DefaultDirectory, PluginNotes));
 
         _window = new PhotinoWindow()
             .SetTitle("ShaderRipper")
@@ -192,6 +195,7 @@ internal static class Program
         lock (Transcript) Transcript.Clear();
 
         Send(new JsonObject { ["ev"] = "started", ["out"] = o.OutDir });
+        foreach (string note in PluginNotes) Log.Note(note);
 
         Task.Run(() =>
         {

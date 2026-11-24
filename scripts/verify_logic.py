@@ -26,13 +26,27 @@ without Unity.
 
 The GLSL route's programs (`*_glsl.hlsl`) include UnityCG.cginc and are skipped
 here; `usc_check.py` is the tool for those.
+
+    py -3 verify_logic.py <export dir> --hlslcc[=<exe>] [-j N] [--lang glsl330] [-v]
+
+`--hlslcc` checks the other side of the same route: `--orig-asm` also writes each
+program's `<blob>_<stage>.orig.dxbc`, the container the game ships with the RDEF
+Unity strips spliced back in.  HLSLcc reads that container by name, so every one
+it translates is evidence the completion is right -- a container it rejects, or
+one it has to translate under synthesized `_cb0` / `_tex0` names, means the RDEF
+is missing or wrong.  The executable comes from the flag value, `$HLSLCC`, or
+`PATH` (`hlslcc` / `hlslcc_tool`).
 """
 
 import collections
 import ctypes
 import os
 import re
+import shutil
+import struct
+import subprocess
 import sys
+import tempfile
 import threading
 
 # --- d3dcompiler -----------------------------------------------------------
@@ -519,21 +533,190 @@ def pairs(root):
                 yield os.path.join(dirpath, f), asm
 
 
+# --- DXBC containers (--hlslcc) --------------------------------------------
+
+# HLSLcc fallbacks plus ShaderRipper's raw, padding and row declarations.
+SYNTHESIZED = re.compile(r"\b(?:_cb\d+(?:_(?:row)?\d+(?:_[xyzw])?)?|_(?:m|tex)\d+|cb\d+|CB\d+)\b")
+
+
+def containers(root):
+    """Every exported DXBC container under an export tree."""
+    for dirpath, _dirs, files in os.walk(root):
+        for f in files:
+            if f.endswith(".orig.dxbc"):
+                yield os.path.join(dirpath, f)
+
+
+def find_hlslcc(explicit):
+    """The HLSLcc front end to run, from the flag, the environment or PATH."""
+    for cand in (explicit, os.environ.get("HLSLCC")):
+        if cand:
+            return cand if os.path.exists(cand) else shutil.which(cand)
+    return shutil.which("hlslcc") or shutil.which("hlslcc_tool")
+
+
+def translate_container(exe, path, workdir, lang):
+    """-> (glsl text, None) or (None, error text)."""
+    out = os.path.join(workdir, os.path.basename(path) + ".glsl")
+    try:
+        proc = subprocess.run([exe, "--lang", lang, "--strip-unused", "-o", out, path],
+                              capture_output=True, text=True, timeout=120)
+    except (OSError, subprocess.SubprocessError) as e:
+        return None, str(e)
+    if proc.returncode != 0:
+        lines = [l.strip() for l in (proc.stderr or proc.stdout or "").splitlines() if l.strip()]
+        # A note is printed before the work starts and stays when the work fails, so
+        # only a non-note line says why; with none, the exit code is the answer.
+        reason = [l for l in lines if not l.lower().startswith("note:")]
+        if not reason:
+            reason = ["exit %d%s" % (proc.returncode,
+                                     " (crashed)" if proc.returncode < 0 else "")]
+        return None, reason[-1]
+    try:
+        with open(out, encoding="utf-8", errors="replace") as f:
+            text = f.read()
+    except OSError as e:
+        return None, str(e)
+    return (text, None) if text.strip() else (None, "no output")
+
+
+def without_chunk(data, code=b"RDEF"):
+    """The container with one chunk removed, or None when it does not carry it.
+
+    The tables hold offsets into the rest of the file, so the chunks are copied out
+    and laid back down rather than the bytes being cut in place.
+    """
+    if len(data) < 32 or data[:4] != b"DXBC":
+        return None
+    count = struct.unpack_from("<I", data, 28)[0]
+    if count <= 0 or count > 64 or 32 + 4 * count > len(data):
+        return None
+    chunks = []
+    for k in range(count):
+        at = struct.unpack_from("<I", data, 32 + 4 * k)[0]
+        if at + 8 > len(data):
+            return None
+        size = struct.unpack_from("<I", data, at + 4)[0]
+        if at + 8 + size > len(data):
+            return None
+        if data[at:at + 4] == code:
+            continue
+        chunks.append((data[at:at + 4], data[at + 8:at + 8 + size]))
+    table = 32 + 4 * len(chunks)
+    body = b""
+    offsets = []
+    for four_cc, payload in chunks:
+        offsets.append(table + len(body))
+        body += four_cc + struct.pack("<I", len(payload)) + payload
+    return (b"DXBC" + b"\0" * 16 + struct.pack("<III", 1, table + len(body), len(chunks)) +
+            b"".join(struct.pack("<I", off) for off in offsets) + body)
+
+
+def hlslcc_check(root, exe, jobs, lang, verbose):
+    work = list(containers(root))
+    if not work:
+        print("no *.orig.dxbc under %s (--orig-asm on a d3d backend writes them)" % root)
+        return 2
+
+    print("%d DXBC container(s), %d thread(s), target %s" % (len(work), jobs, lang))
+    results = []
+    q = collections.deque(work)
+    qlock = threading.Lock()
+
+    def worker():
+        # One scratch directory per thread: hlslcc writes one file per input.
+        workdir = tempfile.mkdtemp(prefix="sr-hlslcc-")
+        try:
+            while True:
+                with qlock:
+                    if not q:
+                        return
+                    path = q.popleft()
+                text, err = translate_container(exe, path, workdir, lang)
+                if text is None:
+                    # HLSLcc has programs it cannot read at all (a structured-buffer
+                    # vertex shader, for one).  That is not this tool's regression, so
+                    # the same container without the RDEF is the control: if it fails
+                    # the same way, the program is out of HLSLcc's reach either way.
+                    control = without_chunk(open(path, "rb").read())
+                    if control is not None:
+                        probe = os.path.join(workdir, os.path.basename(path) + ".stripped.dxbc")
+                        with open(probe, "wb") as f:
+                            f.write(control)
+                        if translate_container(exe, probe, workdir, lang)[0] is None:
+                            results.append((path, [], ["hlslcc cannot translate this program "
+                                                       "even without the RDEF"]))
+                            continue
+                    results.append((path, ["hlslcc failed: " + err], []))
+                    continue
+                synth = sorted(set(SYNTHESIZED.findall(text)))
+                results.append((path, [], ["unnamed in the RDEF: " + ", ".join(synth[:6])]
+                                if synth else []))
+        finally:
+            shutil.rmtree(workdir, ignore_errors=True)
+
+    threads = [threading.Thread(target=worker, daemon=True) for _ in range(max(1, jobs))]
+    for t in threads:
+        t.start()
+    for t in threads:
+        t.join()
+
+    ok = 0
+    soft_only = 0
+    failed = []
+    for path, bad, soft in sorted(results):
+        rel = os.path.relpath(path, root)
+        if not bad:
+            ok += 1
+            if soft:
+                soft_only += 1
+            if verbose:
+                print("PASS %s%s" % (rel, ("  (soft: " + "; ".join(soft) + ")") if soft else ""))
+        else:
+            failed.append((rel, bad))
+
+    print()
+    print("containers=%d translated=%d failed=%d (soft %d) rate=%.1f%%"
+          % (len(results), ok, len(failed), soft_only, 100.0 * ok / max(len(results), 1)))
+    for rel, bad in failed[:40]:
+        print("FAIL %s" % rel)
+        for note in bad:
+            print("     " + note)
+    if len(failed) > 40:
+        print("... %d more" % (len(failed) - 40))
+    return 0 if not failed else 1
+
+
 def main():
     args = [a for a in sys.argv[1:] if not a.startswith("-")]
     verbose = "-v" in sys.argv
     limit = 0
     jobs = 1
+    lang = "glsl330"
+    hlslcc = None
     for i, a in enumerate(sys.argv):
         if a == "--max" and i + 1 < len(sys.argv):
             limit = int(sys.argv[i + 1])
         if a in ("-j", "--jobs") and i + 1 < len(sys.argv):
             jobs = int(sys.argv[i + 1])
+        if a == "--lang" and i + 1 < len(sys.argv):
+            lang = sys.argv[i + 1]
+        if a == "--hlslcc":
+            hlslcc = ""
+        elif a.startswith("--hlslcc="):
+            hlslcc = a.split("=", 1)[1]
 
     if not args:
         print(__doc__)
         return 2
     root = args[0]
+
+    if hlslcc is not None:
+        exe = find_hlslcc(hlslcc)
+        if exe is None:
+            print("hlslcc not found: give --hlslcc=<path> or set HLSLCC")
+            return 2
+        return hlslcc_check(root, exe, jobs, lang, verbose)
 
     work = list(pairs(root))
     if limit:

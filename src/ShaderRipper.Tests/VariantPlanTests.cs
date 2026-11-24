@@ -293,6 +293,16 @@ public class VariantPlanTests
         Assert.That(ShaderLab.CoversAllStates(new[] { "" }), Is.False);
     }
 
+    [Test]
+    public void AlwaysActiveAlternativesStillSelectDifferentBodies()
+    {
+        var groups = new List<VariantPlan.Group> { new() { Name = "A", Alternatives = { "B" } } };
+        var alwaysOn = new HashSet<string> { "A", "B" };
+
+        Assert.That(VariantPlan.Guard(groups, new[] { "A" }, alwaysOn), Is.EqualTo("defined(A)"));
+        Assert.That(VariantPlan.Guard(groups, new[] { "B" }, alwaysOn), Is.EqualTo("defined(B)"));
+    }
+
     // ---- keyword resolution --------------------------------------------------
 
     /// <summary>The name table is the only way a keyword index becomes a name.</summary>
@@ -327,6 +337,23 @@ public class VariantPlanTests
     public void NoSubProgramMeansNoKeywords()
     {
         CollectionAssert.IsEmpty(VariantPlan.KeywordsOf(null, new Dictionary<int, string>()));
+    }
+
+    [Test]
+    public void PassDefinesAreExcludedFromBothKeywordFormats()
+    {
+        var table = new Dictionary<int, string>
+        {
+            [0] = "UNITY_PASS_SHADOWCASTER",
+            [1] = "SHADOWS_DEPTH",
+            [2] = "UNITY_HDR_ON",
+        };
+        var indexed = new Data.SubProgram { KeywordIndices = { 0, 1, 2 } };
+        var legacy = new Data.SubProgram { PassKeywords = new List<string> { table[0], table[1], table[2] } };
+        var expected = new[] { "SHADOWS_DEPTH", "UNITY_HDR_ON" };
+
+        CollectionAssert.AreEqual(expected, VariantPlan.KeywordsOf(indexed, table));
+        CollectionAssert.AreEqual(expected, VariantPlan.KeywordsOf(legacy, table));
     }
 
     [Test]

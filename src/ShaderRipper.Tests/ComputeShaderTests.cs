@@ -4,6 +4,7 @@ using NUnit.Framework;
 using ShaderRipper.Ast;
 using ShaderRipper.Data;
 using ShaderRipper.Emit;
+using ShaderRipper.Plugin.Compute;
 
 namespace ShaderRipper.Tests;
 
@@ -16,6 +17,50 @@ namespace ShaderRipper.Tests;
 [TestFixture]
 public class ComputeShaderTests
 {
+    [Test]
+    public void ReflectedMembersKeepPackOffsetsAndIntegerBits()
+    {
+        var buffer = new AssetConstantBuffer { Size = 32 };
+        buffer.Members.Add(new AssetCbMember { Name = "Count", Offset = 0, Type = 5, Dim = 1, RowCount = 1 });
+        buffer.Members.Add(new AssetCbMember { Name = "Scale", Offset = 4, Type = 0, Dim = 2, RowCount = 1 });
+        var (hlsl, restored) = RestoreBuffer("float3 v = cb0[0].yzx;", buffer);
+
+        Assert.That(restored, Is.True);
+        Assert.That(hlsl, Does.Contain("uint Count : packoffset(c0.x);"));
+        Assert.That(hlsl, Does.Contain("float2 Scale : packoffset(c0.y);"));
+        Assert.That(hlsl, Does.Contain("float3(Scale.x, Scale.y, asfloat(Count))"));
+        Assert.That(hlsl, Does.Not.Contain("cb0["));
+    }
+
+    [Test]
+    public void ReflectedArrayUsesItsElementAndSwizzle()
+    {
+        var buffer = new AssetConstantBuffer { Size = 32 };
+        buffer.Members.Add(new AssetCbMember { Name = "Offsets", Type = 2, Dim = 4, RowCount = 1, ArraySize = 2 });
+        var (hlsl, restored) = RestoreBuffer("float2 v = cb0[1].zw;", buffer);
+
+        Assert.That(restored, Is.True);
+        Assert.That(hlsl, Does.Contain("int4 Offsets[2] : packoffset(c0.x);"));
+        Assert.That(hlsl, Does.Contain("asfloat(Offsets[1].zw)"));
+    }
+
+    [TestCase("cb0[0].y")]
+    [TestCase("cb0[index].x")]
+    public void UnresolvedReadKeepsTheRawBufferAndOtherReads(string unresolved)
+    {
+        var buffer = new AssetConstantBuffer { Size = 32 };
+        buffer.Members.Add(new AssetCbMember { Name = "Count", Type = 5, Dim = 1, RowCount = 1 });
+        var (hlsl, restored) = RestoreBuffer($"float v = cb0[0].x + {unresolved};", buffer);
+
+        Assert.That(restored, Is.False);
+        Assert.That(hlsl, Does.Contain("float4 cb0[2];"));
+        Assert.That(hlsl, Does.Contain($"cb0[0].x + {unresolved}"));
+    }
+
+    private static (string Hlsl, bool Restored) RestoreBuffer(string body, AssetConstantBuffer buffer) =>
+        ComputeBufferReflection.Apply("cbuffer CB0 : register(b0)\n{\n    float4 cb0[2];\n};\n" + body,
+                                      new Dictionary<int, AssetConstantBuffer> { [0] = buffer });
+
     private const string Simple = """
 cs_5_0
 dcl_globalFlags refactoringAllowed
@@ -29,6 +74,72 @@ ld_raw_indexable(raw_buffer)(mixed,mixed,mixed,mixed) r0.xy, vThreadID.x, t0.xyx
 store_raw u0.x, vThreadID.x, r0.x
 ret
 """;
+
+    [Test]
+    public void BufferInfoReportsStructuredElementsAndRawBytes()
+    {
+        var m = Module.Read("""
+cs_5_0
+dcl_resource_structured t1, 64
+dcl_uav_raw u0
+dcl_temps 1
+dcl_thread_group 1, 1, 1
+bufinfo_indexable(structured_buffer, stride=64)(mixed,mixed,mixed,mixed) r0.xy, t1.xyzw
+bufinfo r0.z, u0
+ret
+""");
+        var result = HlslEmitter.Emit(m);
+
+        Assert.That(m.ParseErrors, Is.Zero);
+        Assert.That(result.Missing, Is.Empty);
+        Assert.That(result.Hlsl, Does.Contain("t1.GetDimensions(_bufCount0);")
+            .And.Contain("r0.xy = asfloat(_bufCount0 / 64u);")
+            .And.Contain("u0.GetDimensions(_bufCount1);")
+            .And.Contain("r0.z = asfloat(_bufCount1);"));
+    }
+
+    [Test]
+    public void GroupMemoryFencePreservesTheExecutionSyncFlag()
+    {
+        var result = HlslEmitter.Emit(Module.Read("""
+cs_5_0
+dcl_tgsm_structured g0, 8, 8
+dcl_input vThreadIDInGroup.x
+dcl_temps 1
+dcl_thread_group 8, 1, 1
+store_structured g0.xy, vThreadIDInGroup.x, l(0), r0.xyxx
+sync_g
+sync_g_t
+ld_structured r0.xy, vThreadIDInGroup.x, l(0), g0.xyxx
+ret
+"""));
+        Assert.That(result.Missing, Is.Empty);
+        Assert.That(result.Hlsl, Does.Contain("groupshared uint g0[16];")
+            .And.Contain("g0[(svThreadIDInGroup.x * 2u + (0u >> 2u)) + 1u] = asuint(r0.y);")
+            .And.Contain("GroupMemoryBarrier();")
+            .And.Contain("GroupMemoryBarrierWithGroupSync();")
+            .And.Contain("r0.xy = asfloat(uint2(g0["));
+    }
+
+    [Test]
+    public void DoubleAddReassemblesWordsAndReadsBothPairsBeforeOverwriting()
+    {
+        var m = Module.Read("""
+cs_5_0
+dcl_globalFlags enableDoublePrecisionFloatOps
+dcl_temps 1
+dcl_thread_group 1, 1, 1
+dadd r0.xyzw, r0.zwxy, d(1.500000l, 2.000000l)
+ret
+""");
+        var result = HlslEmitter.Emit(m);
+
+        Assert.That(m.ParseErrors, Is.Zero);
+        Assert.That(result.Missing, Is.Empty);
+        Assert.That(result.Hlsl, Does.Contain("asdouble(asuint(r0.z), asuint(r0.w)) + asdouble(0u, 1073217536u)")
+            .And.Contain("asdouble(asuint(r0.x), asuint(r0.y)) + asdouble(0u, 1073741824u)")
+            .And.Contain("r0.xyzw = asfloat(uint4(_dadd0lo, _dadd0hi, _dadd2lo, _dadd2hi));"));
+    }
 
     [Test]
     public void TheThreadGroupSizeIsReadFromItsDeclaration()
@@ -99,7 +210,7 @@ ret
     {
         var hlsl = HlslEmitter.Emit(Module.Read(Simple)).Hlsl;
 
-        Assert.That(hlsl, Does.Contain("r0.xy = t0.Load2("));
+        Assert.That(hlsl, Does.Contain("r0.xy = asfloat(t0.Load2(svThreadID.x));"));
         Assert.That(hlsl, Does.Not.Contain("TODO ld_raw"));
     }
 

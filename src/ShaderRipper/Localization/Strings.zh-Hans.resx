@@ -73,7 +73,8 @@
 导出:
     --shaderlab      输出 &lt;名字&gt;.shader（交付物；与 --programs / --orig-asm 至少给一个）
     --programs       额外把每个程序的 HLSL 写进 &lt;名字&gt;/ 子目录
-    --orig-asm       额外把原始反汇编 / 原 GLSL 写进 &lt;名字&gt;/ 子目录
+    --orig-asm       额外把原始反汇编 / 原 GLSL 写进 &lt;名字&gt;/ 子目录；d3d 后端还会写出
+                     补回 RDEF 的 DXBC 容器（.orig.dxbc）
     --embed-original 把原始程序文本作为注释块写进 .shader 内部，
                      恢复出的正文和它的来源留在同一个文件里
     --out &lt;目录&gt;     输出目录（默认 "&lt;输入&gt;_Ripped"）
@@ -81,6 +82,7 @@
     --overwrite      写出前先清空输出目录（别名 --clean），
                     可以直接复用同一个目录，不必每次新建
     --no-dedup       保留每一个副本（默认：每个路径只留一份）
+    --dedup-content  保留每种不同的着色器内容，在 shader-copies.json 中记录相同副本
     --builtin        连 Unity 自带的 shader 一起导出
     --no-incremental 即使输出文件已是最新也重新翻译（默认：未变化的文件连同
                      .shaderripper-cache.json 里的记录一起保留）

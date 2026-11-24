@@ -1,6 +1,8 @@
 using System;
 using System.Collections.Generic;
 using System.Globalization;
+using System.Linq;
+using System.Text.RegularExpressions;
 using Antlr4.Runtime;
 using Antlr4.Runtime.Atn;
 using Antlr4.Runtime.Tree;
@@ -194,7 +196,7 @@ namespace ShaderRipper.Ast
 
         public static Module Read(string asm)
         {
-            var m = new Module { Source = asm ?? "" };
+            var m = new Module { Source = NormalizeDoubleLiterals(asm ?? "") };
             if (string.IsNullOrWhiteSpace(asm)) return m;
 
             var root = Parse(m);
@@ -222,6 +224,31 @@ namespace ShaderRipper.Ast
 
             SignatureReader.Read(m.Source, m);
             return m;
+        }
+
+        private static string NormalizeDoubleLiterals(string asm)
+        {
+            if (!asm.Contains("d(", StringComparison.Ordinal)) return asm;
+
+            // Route d(...) through the existing literal grammar as pairs of raw words.
+            return Regex.Replace(asm, @"//[^\r\n]*|\bd\(([^()\r\n]+)\)", match =>
+            {
+                if (!match.Groups[1].Success) return match.Value;
+                var parts = match.Groups[1].Value.Split(',');
+                if (parts.Length is < 1 or > 2) return match.Value;
+                var words = new List<string>(parts.Length * 2);
+                foreach (string part in parts)
+                {
+                    string value = part.Trim().TrimEnd('l', 'L');
+                    if (!double.TryParse(value, NumberStyles.Float, CultureInfo.InvariantCulture, out double number))
+                        return match.Value;
+                    ulong bits = unchecked((ulong)BitConverter.DoubleToInt64Bits(number));
+                    words.Add($"0x{(uint)bits:X8}");
+                    words.Add($"0x{bits >> 32:X8}");
+                }
+                if (parts.Length == 1) words.AddRange(words.ToArray());
+                return "l(" + string.Join(", ", words) + ")";
+            });
         }
 
         // ---------------------------------------------------------------- parse
@@ -351,6 +378,25 @@ namespace ShaderRipper.Ast
                                     if (atom.number() != null && atom.operand() == null && atom.IDENT() == null)
                                         d.Stride = Number(atom.number());
                     }
+                    break;
+                case DxbcAsmParser.DCL_TGSM:
+                    d.Kind = "groupshared";
+                    if (reg == null) break;
+                    d.Register = IndexOf(reg.GetText());
+                    d.Structured = ctx.Start.Text == "dcl_tgsm_structured";
+                    var dimensions = ctx.dclArgs()?.dclArg().SelectMany(x => x.dclAtom())
+                                        .Select(a => a.number()).Where(n => n != null)
+                                        .Select(Number).ToArray();
+                    if (d.Structured && dimensions?.Length == 2)
+                    {
+                        d.Stride = dimensions[0];
+                        long bytes = (long)d.Stride * dimensions[1];
+                        if (d.Stride > 0 && d.Stride % 4 == 0 && bytes is > 0 and <= 32768)
+                            d.Count = (int)(bytes / 4);
+                    }
+                    else if (!d.Structured && dimensions?.Length == 1 &&
+                             dimensions[0] is > 0 and <= 32768 && dimensions[0] % 4 == 0)
+                        d.Count = dimensions[0] / 4;
                     break;
                 case DxbcAsmParser.DCL_THREADGROUP:
                     // `dcl_thread_group 8, 4, 1`: the compute kernel's numthreads.

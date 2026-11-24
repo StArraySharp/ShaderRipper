@@ -27,7 +27,7 @@ namespace ShaderRipper.Game
         /// <summary>The only top-level names an export creates.</summary>
         private static readonly string[] Produced =
         {
-            "Assets", "Disassembly", Marker, ExportCache.CacheFileName, MaterialIndex.FileName,
+            "Assets", "Disassembly", Marker, ExportCache.CacheFileName, MaterialIndex.FileName, GameExport.DuplicateIndexName,
         };
 
         /// <summary>

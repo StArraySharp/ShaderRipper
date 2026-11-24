@@ -155,7 +155,7 @@ namespace ShaderRipper.Emit
 
             if (subShaders.Count == 0)
             {
-                sb.Append("    // No SubShader survived the build for this shader.\n");
+                sb.Append("    // This shader asset contains no SubShader.\n");
             }
             else
             {
@@ -255,15 +255,17 @@ namespace ShaderRipper.Emit
         }
 
         /// <summary>
-        /// A <c>Range</c> property's bounds.
-        /// The asset does not store min/max -- <c>SerializedProperty</c> has only the
-        /// type code and the default value -- so the range is inferred from the
-        /// default.  A hard-coded <c>Range(0, 1)</c> would clip the slider for the
-        /// many properties that ship defaults above 1, so the upper bound grows to
-        /// the default when it is larger.
+        /// A serialized Range stores its default, minimum, and maximum in the first
+        /// three value components. Some embedding callers supply only the default.
         /// </summary>
         private static string RangeType(Data.Property p)
         {
+            if (p.DefValue.Length >= 3)
+            {
+                float min = p.DefValue[1], max = p.DefValue[2];
+                if (float.IsFinite(min) && float.IsFinite(max) && min < max)
+                    return $"Range({min.ToString("R", CultureInfo.InvariantCulture)}, {max.ToString("R", CultureInfo.InvariantCulture)})";
+            }
             float v = p.DefValue[0];
             if (float.IsNaN(v) || float.IsInfinity(v)) return "Range(0, 1)";
             if (v > 1f) return $"Range(0, {N(v)})";
@@ -559,6 +561,8 @@ namespace ShaderRipper.Emit
                 if (Environment.GetEnvironmentVariable("SHADERRIP_SHRINKDBG") == "1")
                     Console.Error.WriteLine($"chain: bodies={chain.Bodies.Count} shrunk={shrunk}");
 
+                if (!shrunk && WriteSharedVariantBodies(sb, chain, synth)) continue;
+
                 var bodyLines = chain.Bodies
                     .Select(b => (b ?? "").Replace("\r\n", "\n").Split('\n'))
                     .ToList();
@@ -605,6 +609,46 @@ namespace ShaderRipper.Emit
                 }
                 sb.Append("            #endif\n");
             }
+        }
+
+        private static bool WriteSharedVariantBodies(StringBuilder sb, VariantChain chain, string synth)
+        {
+            if (chain.Bodies.Count < 4) return false;
+
+            var indices = new Dictionary<string, int>(StringComparer.Ordinal);
+            var bodies = new List<string>();
+            var branches = new int[chain.Bodies.Count];
+            for (int i = 0; i < branches.Length; i++)
+            {
+                string body = chain.Bodies[i] ?? "";
+                if (!indices.TryGetValue(body, out int index))
+                {
+                    index = bodies.Count;
+                    indices[body] = index;
+                    bodies.Add(body);
+                }
+                branches[i] = index;
+            }
+            if (bodies.Count == branches.Length) return false;
+
+            // Keep the original guard order and fallback while emitting each body once.
+            const string selection = "_SHADERRIPPER_VARIANT_BODY";
+            for (int i = 0; i < branches.Length; i++)
+            {
+                string guard = i < chain.Guards.Count && chain.Guards[i].Length > 0 ? chain.Guards[i] : "1";
+                sb.Append(i == 0 ? "            #if " : "            #elif ").Append(guard).Append('\n');
+                sb.Append("            #define ").Append(selection).Append(' ').Append(branches[i]).Append('\n');
+            }
+            sb.Append("            #else\n            #define ").Append(selection).Append(" 0\n            #endif\n");
+            for (int i = 0; i < bodies.Count; i++)
+            {
+                sb.Append(i == 0 ? "            #if " : "            #elif ").Append(selection).Append(" == ").Append(i).Append('\n');
+                if (synth != null)
+                    foreach (var line in synth.Replace("\r\n", "\n").Split('\n')) AppendBodyLine(sb, line);
+                foreach (var line in bodies[i].Replace("\r\n", "\n").Split('\n')) AppendBodyLine(sb, line);
+            }
+            sb.Append("            #endif\n            #undef ").Append(selection).Append('\n');
+            return true;
         }
 
         /// <summary>Does this program text define the given entry point?</summary>
@@ -837,8 +881,6 @@ namespace ShaderRipper.Emit
         private sealed class Buf
         {
             public string Header = "";
-            /// <summary>Register the buffer was declared at, before slots are renumbered.</summary>
-            public int Reg = -1;
             /// <summary>Members keyed by the lane each starts at.</summary>
             public readonly Dictionary<(int row, int col), CbLayout.Member> Rows = new();
             /// <summary>
@@ -900,6 +942,34 @@ namespace ShaderRipper.Emit
             if (UnityIncludes.IsConditional(name)) return false;
             return true;
         }
+
+        private static readonly Regex UnityShadowColumn =
+            new(@"^unity_WorldToShadow_([0-3])_col([0-3])$", RegexOptions.CultureInvariant);
+
+        private static readonly Regex UnityLightingGlobal = new(
+            @"^\s*(?:uniform\s+)?(?:(?:half|float)4\s+(?<member>unity_DynamicLightmap_HDR)|" +
+            @"float4x4\s+(?<member>unity_WorldToShadow)\s*\[\s*4\s*\])\s*;\s*$",
+            RegexOptions.CultureInvariant);
+
+        private static readonly Regex ResourceDeclaration = new(
+            @"^(?<type>\w+(?:\s*<[^;]+>)?)\s+(?<name>[A-Za-z_]\w*)\s*:\s*register\s*\((?<register>[tsu]\d+)\)\s*;$",
+            RegexOptions.CultureInvariant);
+
+        private static readonly HashSet<string> UnityVariableBuffers = new(StringComparer.Ordinal)
+        {
+            "UnityPerCamera", "UnityPerCameraRare", "UnityLighting", "UnityLightingOld", "UnityShadows",
+            "UnityPerDraw", "UnityPerDrawRare", "UnityPerFrame", "UnityFog", "UnityLightmaps",
+            "UnityReflectionProbes", "UnityStereoGlobals", "UnityStereoEyeIndex",
+        };
+
+        private static string UnityVariableGuard(string name) => name switch
+        {
+            "unity_ProbeVolumeParams" or "unity_ProbeVolumeWorldToObject" or "unity_ProbeVolumeSizeInv"
+                or "unity_ProbeVolumeMin" or "unity_ProbeVolumeSH" or "sampler_unity_ProbeVolumeSH"
+                => "!UNITY_LIGHT_PROBE_PROXY_VOLUME",
+            "unity_HalfStereoSeparation" => "!defined(STEREO_CUBEMAP_RENDER_ON)",
+            _ => null,
+        };
 
         /// <summary>
         /// The identifier a global declaration line introduces, or null when the
@@ -998,6 +1068,8 @@ namespace ShaderRipper.Emit
             var perStage = new List<(Stage stage, Dictionary<int, (string name, Dictionary<(int row, int col), CbLayout.Member> rows)> own)>();
             var globals = new List<string>();
             var seenGlobal = new HashSet<string>(StringComparer.Ordinal);
+            var bindings = new Dictionary<string, string>(StringComparer.Ordinal);
+            var resourceAliases = new Dictionary<Stage, Dictionary<string, string>>();
 
             // Comments are lexer noise to the HLSL grammar, so the parse-tree split
             // cannot see them and they would never reach the merged program.  An
@@ -1029,6 +1101,7 @@ namespace ShaderRipper.Emit
                 var items = HlslTree.Split(stage.Hlsl, out _);
 
                 var own = new Dictionary<int, (string, Dictionary<(int row, int col), CbLayout.Member>)>();
+                var ownNames = new HashSet<string>(StringComparer.Ordinal);
                 foreach (var it in items)
                 {
                     if (it.Kind == "func") break;   // declarations end at the entry point
@@ -1044,13 +1117,15 @@ namespace ShaderRipper.Emit
                         {
                             if (it.Register < 0) continue;
                             int reg = it.Register;
+                            string bufferName = it.Name;
+                            while (!ownNames.Add(bufferName)) bufferName += $"_b{reg}";
                             var block = new List<string> { it.Text };
                             var rows = ReadRows(block);
-                            own[reg] = (it.Name, rows);
-                            if (!buffers.TryGetValue(it.Name, out var buf))
+                            own[reg] = (bufferName, rows);
+                            if (!buffers.TryGetValue(bufferName, out var buf))
                             {
-                                buf = new Buf { Header = CbHeader(it.Name, reg), Reg = reg };
-                                buffers[it.Name] = buf;
+                                buf = new Buf { Header = CbHeader(bufferName, reg) };
+                                buffers[bufferName] = buf;
                                 foreach (var r in rows) buf.Rows[r.Key] = r.Value;
                             }
                             else
@@ -1059,8 +1134,8 @@ namespace ShaderRipper.Emit
                                 // Keep whichever header names the buffer; a "CBn" is the
                                 // absence of an answer, not a conflicting one.
                                 if (buf.Header.StartsWith("cbuffer CB", StringComparison.Ordinal) &&
-                                    !it.Name.StartsWith("CB", StringComparison.Ordinal))
-                                    buf.Header = CbHeader(it.Name, reg);
+                                    !bufferName.StartsWith("CB", StringComparison.Ordinal))
+                                    buf.Header = CbHeader(bufferName, reg);
                             }
                             // A program that indexes the buffer at runtime declares it
                             // as `float4 cb2[n]` instead of naming rows.  The merged
@@ -1093,7 +1168,39 @@ namespace ShaderRipper.Emit
                                 continue;
                             }
 
-                            if (seenGlobal.Add(trimmed)) globals.Add(it.Text);
+                            var binding = ResourceDeclaration.Match(trimmed);
+                            if (binding.Success)
+                            {
+                                var identifier = binding.Groups["name"];
+                                string name = identifier.Value;
+                                string type = binding.Groups["type"].Value;
+                                if (type.StartsWith("Sampler", StringComparison.Ordinal) &&
+                                    name.StartsWith("sampler_", StringComparison.Ordinal) &&
+                                    resourceAliases.TryGetValue(stage, out var stageAliases) &&
+                                    stageAliases.TryGetValue(name[8..], out var textureAlias))
+                                {
+                                    string samplerAlias = "sampler_" + textureAlias;
+                                    stageAliases.TryAdd(name, samplerAlias);
+                                    trimmed = trimmed[..identifier.Index] + samplerAlias + trimmed[(identifier.Index + identifier.Length)..];
+                                    binding = ResourceDeclaration.Match(trimmed);
+                                    identifier = binding.Groups["name"];
+                                    name = samplerAlias;
+                                }
+                                if (bindings.TryGetValue(name, out var previous))
+                                {
+                                    if (previous == type) break;
+                                    if (!resourceAliases.TryGetValue(stage, out var aliases))
+                                        resourceAliases[stage] = aliases = new(StringComparer.Ordinal);
+                                    if (aliases.ContainsKey(name)) break;
+                                    string alias = name + "_" + stage.Entry;
+                                    while (!bindings.TryAdd(alias, type)) alias += "_";
+                                    aliases.Add(name, alias);
+                                    globals.Add(trimmed[..identifier.Index] + alias + trimmed[(identifier.Index + identifier.Length)..]);
+                                    break;
+                                }
+                                bindings.Add(name, type);
+                            }
+                            if (seenGlobal.Add(trimmed)) globals.Add(trimmed);
                             break;
                         }
                     }
@@ -1163,7 +1270,8 @@ namespace ShaderRipper.Emit
                 {
                     bool demote = !IsPositional(row.Name) &&
                                   owner.TryGetValue(row.Name, out string ownName) && ownName != kv.Key;
-                    if (demote && row.Name.StartsWith("_", StringComparison.Ordinal))
+                    if (demote && row.Name.StartsWith("_", StringComparison.Ordinal) &&
+                        buffers[owner[row.Name]].Rows.Values.Any(other => other.Name == row.Name && SameMemberShape(row, other)))
                     {
                         // A property duplicated across the stages' buffers: the copy
                         // here would be renamed to a name no property answers, so it
@@ -1194,7 +1302,7 @@ namespace ShaderRipper.Emit
                     var row = kv.Value.Rows[key];
                     if (IsPositional(row.Name)) continue;
                     if (claimed.TryAdd(row.Name, key)) continue;
-                    if (row.Name.StartsWith("_", StringComparison.Ordinal))
+                    if (row.Name.StartsWith("_", StringComparison.Ordinal) && SameMemberShape(row, kv.Value.Rows[claimed[row.Name]]))
                     {
                         renames[row.Name] = row.Name;
                         kv.Value.Rows.Remove(key);
@@ -1219,69 +1327,96 @@ namespace ShaderRipper.Emit
             // Including the file that already declares them is both shorter and
             // correct -- and it is what the original source did.
             bool usingIncludes = UnityIncludes.Enabled;
+            bool helperInclude = usingIncludes && new[] { vs?.Hlsl, ps?.Hlsl }.Any(body => body != null &&
+                Regex.IsMatch(body, @"\b(?:TRANSFORM_TEX|UnityObjectToClipPos|UnityObjectToWorldNormal)\s*\("));
+            var includes = new List<string>();
+            bool shaderVariables = false;
+
+            foreach (var buffer in buffers.Values)
+            {
+                // Two stages may describe the same bytes with differently sized members.
+                // Keep the wider declaration and redirect reads of the narrower ones.
+                foreach (var rename in CbLayout.OverlapRenames(buffer.Rows.Values))
+                {
+                    renames[rename.Key] = rename.Value;
+                    buffer.Rows.Remove(buffer.Rows.First(x => x.Value.Name == rename.Key).Key);
+                }
+            }
 
             // Which cbuffer members the include table can take over.  This is
             // decided before the emit loop because the choice depends on every name
             // the program declares: an include is only usable when it declares
             // nothing the program declares itself.
-            var droppable = new HashSet<(string buf, string name)>();
+            var supplied = new HashSet<(string buf, string name)>();
+            var includeAccesses = new Dictionary<string, string>(StringComparer.Ordinal);
             if (usingIncludes)
             {
+                var candidates = new List<(string buffer, string name, string member)>();
+                var lightingGlobals = new List<(string declaration, string member)>();
                 var programNames = new List<string>(structNames);
-                foreach (var kv in buffers)
-                    foreach (var row in kv.Value.Rows.Values)
+                foreach (var kv in buffers.OrderBy(k => slotOf[k.Key]))
+                    foreach (var row in kv.Value.Rows.Values.OrderBy(x => x.Name, StringComparer.Ordinal))
                     {
-                        if (CanTakeOver(row.Name)) droppable.Add((kv.Key, row.Name));
+                        string member = UnityShadowColumn.IsMatch(row.Name) ? "unity_WorldToShadow" : row.Name;
+                        if (kv.Value.ArrayRows == 0 && CanTakeOver(member))
+                            candidates.Add((kv.Key, row.Name, member));
                         else if (!IsPositional(row.Name)) programNames.Add(row.Name);
                     }
                 foreach (string g in globals)
                 {
+                    var lighting = UnityLightingGlobal.Match(g);
+                    string member = lighting.Groups["member"].Value;
+                    if (lighting.Success && CanTakeOver(member))
+                    {
+                        lightingGlobals.Add((g, member));
+                        continue;
+                    }
                     string n = DeclaredName(g);
                     if (n != null) programNames.Add(n);
                 }
-                UnityIncludes.SetProgramNames(programNames);
+                var headers = globals.Select(g => Regex.Match(g, "^\\s*#\\s*include\\s+\"([^\"]+)\""))
+                                     .Where(m => m.Success).Select(m => m.Groups[1].Value).ToHashSet();
+                foreach (var global in globals.Where(g => Regex.IsMatch(g, "^\\s*#\\s*include\\s+\"Unity(?:CG|ShaderVariables)\\.cginc\"")).ToList())
+                {
+                    globals.Remove(global);
+                    includes.Add(global.Trim());
+                }
+                if (helperInclude && headers.Add("UnityCG.cginc"))
+                    includes.Add("#include \"UnityCG.cginc\"");
+                UnityIncludes.SetProgramNames(programNames, headers);
+
+                // A later buffer may select UnityCG through a different member.
+                // Retry the remaining candidates once the include set is known.
+                foreach (var candidate in candidates)
+                    if (UnityIncludes.NoteMember(candidate.member))
+                        supplied.Add((candidate.buffer, candidate.name));
+                lightingGlobals.RemoveAll(global => UnityIncludes.NoteMember(global.member) && globals.Remove(global.declaration));
+                foreach (var candidate in candidates)
+                {
+                    var key = (candidate.buffer, candidate.name);
+                    if (!supplied.Contains(key) && !UnityIncludes.NoteMember(candidate.member)) continue;
+                    supplied.Add(key);
+                    var col = UnityShadowColumn.Match(candidate.name);
+                    if (col.Success)
+                    {
+                        string element = col.Groups[1].Value, c = col.Groups[2].Value;
+                        includeAccesses[candidate.name] = $"(unity_WorldToShadow[{element}]._m0{c}_m1{c}_m2{c}_m3{c})";
+                    }
+                }
+                foreach (var global in lightingGlobals)
+                    if (UnityIncludes.NoteMember(global.member)) globals.Remove(global.declaration);
+
+                foreach (string include in UnityIncludes.Lines())
+                    if (!headers.Any(header => include.Contains($"\"{header}\"", StringComparison.Ordinal)))
+                        includes.Add(include);
+                shaderVariables = headers.Contains("UnityCG.cginc") || headers.Contains("UnityShaderVariables.cginc") ||
+                    includes.Any(line => line.StartsWith("#include \"UnityCG.cginc\"", StringComparison.Ordinal));
             }
 
             foreach (var kv in buffers.OrderBy(k => slotOf[k.Key]))
             {
-                // Two stages can each contribute a piece of the same row -- one a
-                // whole-footprint member, the other narrower ones sharing it -- and
-                // the union would then declare members over the same bytes, which
-                // fxc rejects ("packoffset overlaps").  The wider member wins, and
-                // every narrower name that overlapped it is rewritten to read
-                // through it in *every* stage body, because those names may appear
-                // in a variant that never goes through this merge.
-                var overlap = CbLayout.OverlapRenames(kv.Value.Rows.Values);
-                foreach (var r in overlap)
-                {
-                    renames[r.Key] = r.Value;
-                    kv.Value.Rows.Remove((kv.Value.Rows.First(x => x.Value.Name == r.Key).Key));
-                }
-                var keptMembers = kv.Value.Rows.Values.OrderBy(m => m.Row).ThenBy(m => m.Col).ToList();
-
-                // A `$Globals` block holds the engine's own globals beside the
-                // material's properties, and leaving them in makes the ShaderLab
-                // compiler reject the file, so they come in through the include
-                // instead.  The check is by member NAME against the engine table, not
-                // by buffer name, and a buffer left empty is dropped whole.
-                //
-                // The Properties block overrules the table: a game may declare a
-                // property that merely shares a name with an engine one, and that
-                // property must keep its declaration.  Only names the property table
-                // does not claim are handed to the include -- except where the include
-                // declares the name unconditionally and the property is only a panel
-                // entry, in which case keeping the member would declare it twice.
-                if (usingIncludes)
-                {
-                    var survivors = new List<CbLayout.Member>(keptMembers.Count);
-                    foreach (var m in keptMembers.OrderBy(x => x.Name, StringComparer.Ordinal))
-                    {
-                        if (!droppable.Contains((kv.Key, m.Name))) { survivors.Add(m); continue; }
-                        if (!UnityIncludes.NoteMember(m.Name)) survivors.Add(m);
-                    }
-                    keptMembers = survivors
-                        .OrderBy(m => m.Row).ThenBy(m => m.Col).ToList();
-                }
+                var keptMembers = kv.Value.Rows.Values.Where(m => !supplied.Contains((kv.Key, m.Name)))
+                    .OrderBy(m => m.Row).ThenBy(m => m.Col).ToList();
 
                 // An array-form block has no named members at all, which is not the
                 // same as an empty one: it still has to be declared.
@@ -1290,14 +1425,22 @@ namespace ShaderRipper.Emit
                 string header = kv.Value.Header.Replace(
                     Regex.Match(kv.Value.Header, @"register\(b\d+\)").Value,
                     $"register(b{slotOf[kv.Key]})");
+                bool probeBuffer = shaderVariables && kv.Key == "UnityProbeVolume";
+                bool guardProbeVolume = probeBuffer && kv.Value.ArrayRows == 0 &&
+                    keptMembers.All(member => UnityVariableGuard(member.Name) == "!UNITY_LIGHT_PROBE_PROXY_VOLUME");
+                if (shaderVariables && (UnityVariableBuffers.Contains(kv.Key) || (probeBuffer && !guardProbeVolume)))
+                    header = CbHeader($"_sr_{kv.Key}_b{slotOf[kv.Key]}", slotOf[kv.Key]);
+                if (guardProbeVolume) outp.Add("#if !UNITY_LIGHT_PROBE_PROXY_VOLUME");
                 // The array form wins for the whole block: it is the only spelling
                 // that can express a runtime row index, and the named members the
                 // other programs use are rewritten to `cbN[row]` below.
                 if (kv.Value.ArrayRows > 0)
                 {
+                    int rows = Math.Max(kv.Value.ArrayRows,
+                        kv.Value.Rows.Values.Select(m => m.Row + m.Rows).DefaultIfEmpty(0).Max());
                     outp.Add(header.Trim());
                     outp.Add("{");
-                    outp.Add($"    float4 cb{slotOf[kv.Key]}[{kv.Value.ArrayRows}];");
+                    outp.Add($"    float4 cb{slotOf[kv.Key]}[{rows}];");
                     outp.Add("};");
                     outp.Add("");
                     continue;
@@ -1307,8 +1450,15 @@ namespace ShaderRipper.Emit
                 // Members sit one level inside the block.  `Wrap` prefixes every
                 // line with the program's own indentation, so the relative offset
                 // added here is what the reader sees.
-                foreach (var m in keptMembers) outp.Add("    " + CbLayout.Line(m).TrimStart());
+                foreach (var m in keptMembers)
+                {
+                    string condition = shaderVariables && !guardProbeVolume ? UnityVariableGuard(m.Name) : null;
+                    if (condition != null) outp.Add("#if " + condition);
+                    outp.Add("    " + CbLayout.Line(m).TrimStart());
+                    if (condition != null) outp.Add("#endif");
+                }
                 outp.Add("};");
+                if (guardProbeVolume) outp.Add("#endif");
                 outp.Add("");
             }
 
@@ -1316,19 +1466,42 @@ namespace ShaderRipper.Emit
             // members are visible to every program in the file.  A shader that only
             // touches `unity_MatrixVP` gets one line; a particle shader that needs
             // the billboard helpers gets that file too.
-            if (usingIncludes && UnityIncludes.Any)
+            if (includes.Count > 0)
             {
-                var head = new List<string>();
-                foreach (string line in UnityIncludes.Lines())
-                    head.Add(line.Trim());
-                head.Add("");
-                head.AddRange(outp);
-                outp = head;
+                includes.Add("");
+                outp.InsertRange(0, includes);
             }
 
             if (globals.Count > 0)
             {
-                outp.AddRange(Reindent(globals, 0));
+                var overlapRegisters = globals.Select(g => ResourceDeclaration.Match(g.Trim()))
+                    .Where(m => m.Success)
+                    .GroupBy(m => m.Groups["register"].Value, StringComparer.Ordinal)
+                    .Where(group => group.Count() > 1).Select(group => group.Key).ToHashSet(StringComparer.Ordinal);
+                foreach (var global in Reindent(globals, 0))
+                {
+                    var resource = ResourceDeclaration.Match(global.Trim());
+                    string name = resource.Success ? resource.Groups["name"].Value : null;
+                    if (shaderVariables && name is ("unity_SpecCube0" or "unity_SpecCube1" or "sampler_unity_SpecCube0"
+                        or "unity_Lightmap" or "unity_LightmapInd" or "sampler_unity_Lightmap"
+                        or "unity_ShadowMask" or "sampler_unity_ShadowMask"
+                        or "unity_DynamicLightmap" or "unity_DynamicDirectionality" or "sampler_unity_DynamicLightmap"))
+                        continue;
+                    string condition = shaderVariables && resource.Success
+                        ? UnityVariableGuard(name) : null;
+                    if (condition != null) outp.Add("#if " + condition);
+                    outp.Add(resource.Success && overlapRegisters.Contains(resource.Groups["register"].Value)
+                        ? RegisterBinding.Replace(global, "") : global);
+                    if (condition != null)
+                    {
+                        if (name == "sampler_unity_ProbeVolumeSH")
+                        {
+                            outp.Add("#else");
+                            outp.Add("#define sampler_unity_ProbeVolumeSH samplerunity_ProbeVolumeSH");
+                        }
+                        outp.Add("#endif");
+                    }
+                }
                 outp.Add("");
             }
 
@@ -1343,17 +1516,21 @@ namespace ShaderRipper.Emit
                 // call their first buffer `b1` and still mean different things
                 // (`CB1` vs `UnityPerDraw`), so walking the merged map would rewrite
                 // one stage's bodies with the other stage's slot.
-                foreach (var kv in own)
-                {
-                    if (kv.Value.name == null) continue;
-                    if (!buffers.TryGetValue(kv.Value.name, out var b)) continue;
-                    if (b.Reg < 0 || b.Reg == slotOf[kv.Value.name]) continue;
-                    fn = Regex.Replace(fn, @"\bcb" + b.Reg + @"\[", $"cb{slotOf[kv.Value.name]}[");
-                }
+                var moved = own.Where(kv => slotOf[kv.Value.name] != kv.Key)
+                    .ToDictionary(kv => kv.Key.ToString(CultureInfo.InvariantCulture), kv => slotOf[kv.Value.name]);
+                if (moved.Count > 0)
+                    fn = Regex.Replace(fn, @"\bcb(\d+)(?=\[)", m =>
+                        moved.TryGetValue(m.Groups[1].Value, out int slot) ? $"cb{slot}" : m.Value);
+                if (resourceAliases.TryGetValue(stage, out var aliases))
+                    foreach (var alias in aliases)
+                        fn = Regex.Replace(fn, @"\b" + Regex.Escape(alias.Key) + @"\b", alias.Value);
+                if (shaderVariables)
+                    fn = Regex.Replace(fn, @"\bsampler_(unity_(?:SpecCube0|Lightmap|ShadowMask|DynamicLightmap))\b", "sampler$1");
                 // Names dropped for overlapping a wider member are rewritten to
                 // read through the member that survived.
                 foreach (var kv in renames)
-                    fn = Regex.Replace(fn, @"\b" + Regex.Escape(kv.Key) + @"\b", kv.Value);
+                    if (kv.Key != kv.Value)
+                        fn = Regex.Replace(fn, @"\b" + Regex.Escape(kv.Key) + @"\b", kv.Value);
                 // The declaration is one per buffer name now, so a body that spells
                 // a member the other stage named has to be renamed to match:
                 // otherwise it references a member the merged block no longer
@@ -1368,9 +1545,11 @@ namespace ShaderRipper.Emit
                     if (kv.Value.ArrayRows > 0)
                     {
                         string cbName = $"cb{slotOf[kv.Key]}";
-                        foreach (var row in mine)
-                            fn = Regex.Replace(fn, @"\b" + Regex.Escape(row.Value.Name) + @"\b",
-                                               $"{cbName}[{row.Key.Item1}]");
+                        foreach (var member in mine.Values)
+                        {
+                            fn = RewriteTextureTransform(fn, member.Name, $"{cbName}[{member.Row}]");
+                            fn = RewriteArrayBackedMember(fn, member, cbName);
+                        }
                         continue;
                     }
                     foreach (var row in mine)
@@ -1383,16 +1562,18 @@ namespace ShaderRipper.Emit
                         // ("invalid subscript 'xyzw'").  The stage's own float4 name
                         // for that row is what gets rewritten, so the row index comes
                         // from the merged member's base.
-                        string target = merged.IsArray && row.Value.Col == 0
+                        bool rowIntoArray = merged.IsArray && !row.Value.IsArray && row.Value.Col == 0;
+                        string target = rowIntoArray
                             ? $"{merged.Name}[{row.Key.Item1 - merged.Row}]"
                             : merged.Name;
+                        fn = RewriteTextureTransform(fn, row.Value.Name, target);
                         // The body may already index the row -- `_5_m0[2]` for the third
                         // row of a matrix, which the emitter writes for a member it could
                         // only describe row by row.  Appending our own `[k]` in front of
                         // that produces `M[0][2]`, and a `float4[4]` declaration has no
                         // second dimension to index ("invalid subscript").  Folding the
                         // two indices into one keeps the declaration the flat array it is.
-                        if (merged.IsArray && row.Value.Col == 0)
+                        if (rowIntoArray)
                         {
                             int baseRow = row.Key.Item1 - merged.Row;
                             fn = Regex.Replace(fn,
@@ -1402,26 +1583,10 @@ namespace ShaderRipper.Emit
                         fn = Regex.Replace(fn, @"\b" + Regex.Escape(row.Value.Name) + @"\b", target);
                     }
                 }
+                foreach (var kv in includeAccesses)
+                    fn = Regex.Replace(fn, @"\b" + Regex.Escape(kv.Key) + @"\b", kv.Value);
                 outp.AddRange(Reindent(fn.Split('\n').ToList(), 0));
                 outp.Add("");
-            }
-
-            // A folded texture transform calls the macro from `UnityCG.cginc`.  The
-            // include is only pulled in when some engine NAME was drawn from it, and
-            // a program built from material properties alone draws on nothing -- so
-            // the include is added here when the body needs it and nothing else
-            // asked for it.
-            //
-            // The same holds for the helpers a translated body spells by name:
-            // `UnityObjectToClipPos` is a macro in that include, not a variable, so
-            // the name table never records it and the member-driven path above
-            // cannot see it.  A body that calls one of them without the include
-            // fails to compile with "undeclared identifier".
-            if (!outp.Any(line => line.Contains("UnityCG.cginc")) &&
-                outp.Any(line => line.Contains("TRANSFORM_TEX(") ||
-                                 Regex.IsMatch(line, @"\bUnityObjectToClipPos\s*\(")))
-            {
-                outp.InsertRange(0, new[] { "#include \"UnityCG.cginc\"", "" });
             }
 
             // Comments the stage bodies carried, put back after the declarations.  They
@@ -1433,6 +1598,55 @@ namespace ShaderRipper.Emit
                 outp.AddRange(carried);
             }
             return outp;
+        }
+
+        private static string RewriteArrayBackedMember(string body, CbLayout.Member member, string buffer)
+        {
+            string symbol = @"\b" + Regex.Escape(member.Name) + @"\b";
+            string firstRow = $"{buffer}[{member.Row}]";
+            if (!member.IsArray)
+            {
+                const string components = "xyzw";
+                int width = TypeComps(member.Type);
+                string lanes = components.Substring(member.Col, width);
+                string bitcast = member.Type.StartsWith("uint", StringComparison.Ordinal) ? "asuint"
+                    : member.Type.StartsWith("int", StringComparison.Ordinal) ? "asint" : "";
+
+                return Regex.Replace(body, symbol + @"(?:\.([xyzw]{1,4}|[rgba]{1,4})\b)?", m =>
+                {
+                    // A swizzle on a packed member is relative to the member's first lane.
+                    string selected = m.Groups[1].Success
+                        ? string.Concat(m.Groups[1].Value.Select(lane =>
+                            lanes[lane is 'r' or 'g' or 'b' or 'a' ? "rgba".IndexOf(lane) : components.IndexOf(lane)]))
+                        : lanes;
+                    string access = selected == components ? firstRow : firstRow + "." + selected;
+                    return bitcast.Length == 0 ? access : $"{bitcast}({access})";
+                });
+            }
+
+            // A whole matrix passed to mul still needs four vectors even when the
+            // other stage forced its backing buffer into the indexed array form.
+            // The buffer stores columns; the HLSL constructor accepts rows.
+            string whole = member.Matrix
+                ? "transpose(float4x4(" + string.Join(", ", Enumerable.Range(member.Row, 4).Select(i => $"{buffer}[{i}]")) + "))"
+                : firstRow;
+            return Regex.Replace(body, symbol + @"(?:\s*\[([^\[\]\r\n]+)\])?", m =>
+            {
+                if (!m.Groups[1].Success) return whole;
+                string index = m.Groups[1].Value.Trim();
+                if (int.TryParse(index, NumberStyles.Integer, CultureInfo.InvariantCulture, out int row))
+                    return $"{buffer}[{member.Row + row}]";
+                return $"{buffer}[{member.Row} + ({index})]";
+            });
+        }
+
+        private static string RewriteTextureTransform(string body, string name, string target)
+        {
+            if (!name.EndsWith("_ST", StringComparison.Ordinal) || !body.Contains("TRANSFORM_TEX(", StringComparison.Ordinal))
+                return body;
+            return Regex.Replace(body, @"\bTRANSFORM_TEX\s*\(([^,\r\n]+),\s*" +
+                Regex.Escape(name[..^3]) + @"\s*\)",
+                m => $"(({m.Groups[1].Value}).xy * {target}.xy + {target}.zw)");
         }
 
         /// <summary>Does this member cover the given lane of the given row?</summary>
@@ -1470,8 +1684,15 @@ namespace ShaderRipper.Emit
 
         private static int TypeComps(string type) => type switch
         {
-            "float" => 1, "float2" => 2, "float3" => 3, "float4" => 4, _ => 1,
+            "float2" or "uint2" or "int2" => 2,
+            "float3" or "uint3" or "int3" => 3,
+            "float4" or "uint4" or "int4" => 4,
+            _ => 1,
         };
+
+        private static bool SameMemberShape(CbLayout.Member left, CbLayout.Member right) =>
+            left.Type == right.Type && left.Rows == right.Rows &&
+            left.IsArray == right.IsArray && left.Matrix == right.Matrix;
 
         private static string CbHeader(string name, int slot) =>
             $"cbuffer {name} : register(b{slot})";
@@ -1758,6 +1979,9 @@ namespace ShaderRipper.Emit
                 bool isPositional = IsPositional(kv.Value.Name);
                 if (havePositional && !isPositional) { into[kv.Key] = kv.Value; continue; }
                 if (havePositional == isPositional && kv.Value.Rows > have.Rows)
+                    into[kv.Key] = kv.Value;
+                else if (!have.IsArray && !kv.Value.IsArray && have.Name == kv.Value.Name &&
+                         TypeComps(kv.Value.Type) > TypeComps(have.Type))
                     into[kv.Key] = kv.Value;
             }
         }

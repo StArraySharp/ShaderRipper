@@ -5,8 +5,9 @@ using System.Linq;
 using ShaderRipper.Ast;
 using ShaderRipper.Data;
 using ShaderRipper.Emit;
+using ShaderRipper.Game;
 
-namespace ShaderRipper.Game
+namespace ShaderRipper.Plugin.Compute
 {
     /// <summary>
     /// ComputeShader -&gt; <c>.compute</c>.
@@ -24,8 +25,7 @@ namespace ShaderRipper.Game
     internal static class ComputeExport
     {
         /// <summary>
-        /// Write one compute shader.  Returns the number of kernels emitted; 0 means
-        /// nothing was written (no variant this build can read).
+        /// Write one compute shader using the first variant with readable kernels.
         /// </summary>
         /// <param name="asset">The parsed ComputeShader.</param>
         /// <param name="name">The shader's own name, for log lines and notes.</param>
@@ -37,21 +37,9 @@ namespace ShaderRipper.Game
         /// way a pass does with <c>--orig-asm</c>.
         /// </param>
         /// <param name="s">Counters to add to.</param>
-        public static int Export(ComputeShaderAsset asset, string name, string rel, string outDir,
-                                 bool shaderLab, bool origAsm, GameExport.Stats s)
+        public static void Export(ComputeShaderAsset asset, string name, string rel, string outDir,
+                                  bool shaderLab, bool origAsm, GameExport.Stats s)
         {
-            // A compute shader is written as `.compute`, and it is the only place the
-            // extension is decided: the claiming pass derived a `.shader` path, which
-            // is what keeps compute and shader names from colliding.
-            rel = rel.EndsWith(".shader", StringComparison.OrdinalIgnoreCase)
-                ? rel[..^".shader".Length] + ".compute"
-                : rel + ".compute";
-            // One platform per file, chosen the way the Shader route chooses but
-            // narrower: a compute kernel's program is DXBC or nothing, so a variant
-            // whose backend produces a payload this build cannot translate is only a
-            // fallback.  Which one actually works is answered by trying them: a
-            // ComputeShader's `targetRenderer` does not use the Shader's platform
-            // numbering, so picking by id alone exported the wrong slot.
             // A ComputeShader's `targetRenderer` does not use the Shader's platform
             // numbering, so an id cannot be trusted to say what the payload is.  The
             // variants are therefore tried in asset order and the first one whose
@@ -59,12 +47,11 @@ namespace ShaderRipper.Game
             foreach (var candidate in asset.Variants)
             {
                 var attempt = TryExport(asset, name, rel, outDir, shaderLab, origAsm, s, candidate);
-                if (attempt != 0) return attempt;
+                if (attempt != 0) return;
             }
 
             s.Skipped++;
             s.Notes.Add($"{name}: no compute variant this build can translate");
-            return 0;
         }
 
         /// <summary>
@@ -103,11 +90,20 @@ namespace ShaderRipper.Game
                 Directory.CreateDirectory(dir);
                 foreach (var k in kernels)
                     if (k.Asm != null)
-                        File.WriteAllText(Path.Combine(dir, k.Name + ".orig.asm"), k.Asm);
+                    {
+                        string stem = Path.Combine(dir, SafeName(k.Name));
+                        File.WriteAllText(stem + ".orig.asm", k.Asm);
+                        // The same container the pass route writes: the program as
+                        // shipped, with the RDEF Unity strips rebuilt from the
+                        // reflection the kernel's declarations came from.
+                        File.WriteAllBytes(stem + ".orig.dxbc",
+                                           k.Reflection.Complete(k.Code, "cs", k.Profile) ?? k.Code);
+                    }
             }
 
             if (shaderLab)      // the same switch the .shader route uses: write the deliverable
             {
+                GameExport.WarnIfForeign(full, name);
                 File.WriteAllText(full, Wrap(name, kernels, asset, chosen));
                 s.Emitted++;
                 Log.Info(name, rel, Plugins.PlatformCatalog.Get(chosen.Platform).Name);
@@ -121,8 +117,61 @@ namespace ShaderRipper.Game
             public int[] ThreadGroup = Array.Empty<int>();
             public string Hlsl = "";
             public string Asm;
+            /// <summary>The program's own container, what <c>--orig-asm</c> writes out.</summary>
+            public byte[] Code;
+            /// <summary>The profile the program was compiled for (<c>cs_5_0</c>).</summary>
+            public string Profile = "";
+            /// <summary>What the kernel declares, for the container's rebuilt RDEF.</summary>
+            public DxbcReflection Reflection = new();
+            public bool HasNamedBuffers;
             /// <summary>How many keyword variants the build made of this kernel.</summary>
             public int VariantCount = 1;
+        }
+
+        /// <summary>
+        /// The kernel's reflection with the asset's own member names in place of the
+        /// positional ones.
+        ///
+        /// A compute program carries no parameter blob, so the emitter sees
+        /// `CB0 { float4 cb0[N]; }` and names it that way; the ComputeShader asset does
+        /// carry the members, which is what <see cref="ComputeBufferReflection"/>
+        /// rewrites the body with.  The container's RDEF has to describe the same
+        /// buffer the file does, or a reader would name the rows differently from the
+        /// code that reads them.
+        /// </summary>
+        private static DxbcReflection KernelReflection(HlslEmitter.Result emitted,
+                                                       IReadOnlyDictionary<int, AssetConstantBuffer> buffers)
+        {
+            foreach (var (register, asset) in buffers)
+            {
+                var cb = emitted.Reflection.Buffers.FirstOrDefault(b => b.Register == register);
+                if (cb == null || asset.Members.Count == 0) continue;
+
+                var members = new List<DxbcReflection.Member>();
+                foreach (var m in asset.Members.OrderBy(x => x.Offset))
+                {
+                    string scalar = m.Type switch { 0 => "float", 2 => "int", 5 => "uint", _ => null };
+                    if (scalar == null || string.IsNullOrEmpty(m.Name)) continue;
+                    bool array = m.ArraySize > 0;
+                    int rows = m.RowCount > 1 ? m.RowCount : 1;
+                    int width = Math.Clamp(m.Dim, 1, 4);
+                    members.Add(new DxbcReflection.Member
+                    {
+                        Name = m.Name,
+                        Type = array || rows > 1 ? scalar + "4" : scalar + (width > 1 ? width.ToString() : ""),
+                        Offset = m.Offset,
+                        Size = array ? m.ArraySize * 16 : rows > 1 ? rows * 16 : width * 4,
+                        Rows = array ? m.ArraySize : rows,
+                        IsArray = array || rows > 1,
+                        Matrix = rows > 1,
+                    });
+                }
+                if (members.Count == 0) continue;
+                cb.Members.Clear();
+                cb.Members.AddRange(members);
+                DxbcReflection.FillGaps(cb);
+            }
+            return emitted.Reflection;
         }
 
         private static ComputeKernelText TranslateKernel(string shaderName, ComputeKernel kernel, GameExport.Stats s)
@@ -139,16 +188,8 @@ namespace ShaderRipper.Game
             // Every failure here is silent; the caller counts what came back.
             foreach (var program in kernel.Programs)
             {
-                string asm = BlobTool.Disassemble(program);
+                string asm = BlobTool.Disassemble(program.Code);
                 if (asm == null) continue;
-
-                if (Environment.GetEnvironmentVariable("SHADERRIP_CDBG") == "1")
-                {
-                    string dbg = Path.Combine(Path.GetTempPath(),
-                                              $"shaderripper_{SafeName(kernel.Name)}.orig.asm");
-                    File.WriteAllText(dbg, asm);
-                    Log.Note($"compute disassembly -> {dbg}");
-                }
 
                 try
                 {
@@ -159,6 +200,7 @@ namespace ShaderRipper.Game
                     if (module.Code.Count == 0 || module.Stage is not "cs") continue;
 
                     var r = HlslEmitter.Emit(module, standalone: true);
+                    var (hlsl, restored) = ComputeBufferReflection.Apply(r.Hlsl, program.ConstantBuffers);
                     s.Programs++;
                     s.Disassembled++;
                     s.Translated++;
@@ -171,8 +213,12 @@ namespace ShaderRipper.Game
                         // disassembly says 64,1,1 -- the compiled value is authoritative.
                         ThreadGroup = module.ThreadGroup.Length == 3 ? module.ThreadGroup
                                                                      : kernel.ThreadGroupSize,
-                        Hlsl = r.Hlsl,
+                        Hlsl = hlsl,
                         Asm = asm,
+                        Code = program.Code,
+                        Profile = r.Profile,
+                        Reflection = KernelReflection(r, program.ConstantBuffers),
+                        HasNamedBuffers = restored,
                         VariantCount = kernel.Programs.Count,
                     };
                 }
@@ -199,11 +245,8 @@ namespace ShaderRipper.Game
         /// are concatenated with their own <c>[numthreads]</c> attribute and the pragma
         /// block up top.
         ///
-        /// The declarations are the UNION of every kernel's, not one kernel's: each
-        /// compiled program carries only the resources IT reads, so a shader whose
-        /// `main` uses t0-t2 and whose `batchMain` uses t4 and t9 would otherwise
-        /// declare half its buffers and fail to compile on the other half.  Duplicates
-        /// are dropped by name, so a resource every kernel shares appears once.
+        /// Positional declarations can be shared. Reflected buffers are scoped to
+        /// their kernel because different kernels can bind different layouts at b0.
         /// </summary>
         private static string Wrap(string name, List<ComputeKernelText> kernels,
                                    ComputeShaderAsset asset, ComputeVariant variant)
@@ -222,9 +265,32 @@ namespace ShaderRipper.Game
             // Unity's compute pipeline dispatches by kernel name, and the name only
             // exists for it if a `#pragma kernel` line declares it.  One line per
             // kernel, before any body.
-            foreach (var k in kernels)
-                sb.Append("#pragma kernel ").Append(SafeName(k.Name)).Append('\n');
+            bool separateKernels = kernels.Count > 1 && kernels.Any(k => k.HasNamedBuffers);
+            string kernelDefine = "SHADERRIPPER_KERNEL_";
+            if (separateKernels)
+                while (asset.LocalKeywords.Concat(asset.GlobalKeywords)
+                            .Any(keyword => keyword.StartsWith(kernelDefine, StringComparison.Ordinal)))
+                    kernelDefine += "_";
+            for (int i = 0; i < kernels.Count; i++)
+            {
+                sb.Append("#pragma kernel ").Append(SafeName(kernels[i].Name));
+                if (separateKernels) sb.Append(' ').Append(kernelDefine).Append(i);
+                sb.Append('\n');
+            }
             sb.Append('\n');
+
+            if (separateKernels)
+            {
+                for (int i = 0; i < kernels.Count; i++)
+                {
+                    var kernel = kernels[i];
+                    sb.Append("#if defined(").Append(kernelDefine).Append(i).Append(")\n");
+                    sb.Append(kernel.Hlsl.Replace("void CSMain(",
+                        Threads(kernel) + "\nvoid " + SafeName(kernel.Name) + "(", StringComparison.Ordinal));
+                    sb.Append("\n#endif\n\n");
+                }
+                return sb.ToString();
+            }
 
             // Split every body first: the shared declarations are the union of the
             // non-function items, and the functions are what each kernel contributes.

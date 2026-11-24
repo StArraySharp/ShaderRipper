@@ -1,5 +1,7 @@
 using NUnit.Framework;
+using ShaderRipper.Ast;
 using ShaderRipper.Emit;
+using ShaderRipper.Resolve;
 
 namespace ShaderRipper.Tests;
 
@@ -19,6 +21,207 @@ public class ShaderLabMergeConstantBuffers
             new ShaderLab.Stage { Entry = "frag", Hlsl = ps });
         Assert.That(merged, Is.Not.Null);
         return string.Join("\n", merged);
+    }
+
+    [Test]
+    public void RecordedBufferBindingDisplacesAnInferredBindingAtAnotherSlot()
+    {
+        var module = Module.Read("""
+ps_5_0
+dcl_constantbuffer CB1[8], immediateIndexed
+dcl_constantbuffer CB3[8], immediateIndexed
+dcl_output o0.xyzw
+add o0, cb1[5].xyzw, cb3[5].xyzw
+ret
+""");
+        module.Cb = CbResolver.Resolve(module, new[] { "UnityPerCamera", "_ProjectionParams" }, null,
+            assetBindings: new Dictionary<int, string> { [1] = "UnityPerCamera" });
+
+        var program = HlslEmitter.Emit(module, standalone: true);
+        Assert.That(program.Hlsl, Does.Contain("cbuffer UnityPerCamera : register(b1)")
+            .And.Contain("cbuffer CB3 : register(b3)")
+            .And.Contain("_ProjectionParams.xyzw + _cb3_row5.xyzw"));
+        Assert.That(program.Reflection.Buffers.Single(cb => cb.Register == 3).Members,
+            Has.None.Matches<ShaderRipper.Data.DxbcReflection.Member>(member => member.Name == "_ProjectionParams"));
+    }
+
+    [Test]
+    public void StandaloneProgramKeepsReadsFromRepeatedMemberNamesInTwoBuffers()
+    {
+        var module = Module.Read("""
+ps_5_0
+dcl_constantbuffer CB0[4], immediateIndexed
+dcl_constantbuffer CB1[2], immediateIndexed
+dcl_output o0.xyzw
+add o0, cb0[3].xyzw, cb1[1].xyzw
+ret
+""");
+        module.Cb = CbResolver.Resolve(module, Array.Empty<string>(), null);
+        module.Cb.CbName[0] = "$Globals";
+        module.Cb.CbName[1] = "$Globals";
+        module.Cb.RowExpr[(0, 3)] = "_Tint";
+        module.Cb.RowExpr[(1, 1)] = "_Tint";
+
+        var program = HlslEmitter.Emit(module, standalone: true);
+        Assert.That(program.Hlsl, Does.Contain("float4 _Tint : packoffset(c3.x);")
+            .And.Contain("float4 _Tint_cb1 : packoffset(c1.x);")
+            .And.Contain("_Tint.xyzw + _Tint_cb1.xyzw"));
+        Assert.That(program.Reflection.Buffers.Single(cb => cb.Register == 1).Members,
+            Has.Some.Matches<ShaderRipper.Data.DxbcReflection.Member>(member =>
+                member.Name == "_Tint_cb1" && member.Offset == 16));
+    }
+
+    [Test]
+    public void ArrayRegistersAreRemappedUsingTheOriginalSlotOfEachStage()
+    {
+        const string vs = """
+cbuffer Material : register(b4)
+{
+    float4 cb4[3];
+};
+float4 vert() : SV_Position { return cb4[0]; }
+""";
+        const string ps = """
+cbuffer Other : register(b4)
+{
+    float4 cb4[3];
+};
+cbuffer Material : register(b5)
+{
+    float4 cb5[3];
+};
+float4 frag() : SV_Target { return cb4[1] + cb5[2]; }
+""";
+        Assert.That(Merged(vs, ps), Does.Contain("return cb5[1] + cb4[2];"));
+    }
+
+    [Test]
+    public void ArrayBackedPackedMembersKeepTheirLanesAndTypes()
+    {
+        const string vs = """
+cbuffer Material : register(b4)
+{
+    float4 cb4[3];
+};
+float4 vert() : SV_Position { return cb4[0]; }
+""";
+        const string ps = """
+cbuffer Material : register(b5)
+{
+    float ScaleX : packoffset(c2.x);
+    uint ScaleY : packoffset(c2.y);
+    float2 Offset : packoffset(c2.z);
+};
+float4 frag() : SV_Target { return float4(float2(ScaleX, ScaleY) + Offset.gr, Offset); }
+""";
+        Assert.That(Merged(vs, ps),
+            Does.Contain("float4(float2(cb4[2].x, asuint(cb4[2].y)) + cb4[2].wz, cb4[2].zw)"));
+    }
+
+    [Test]
+    public void ArrayBackedMatricesKeepTheirWholeValueAndIndividualRegisters()
+    {
+        const string vs = """
+cbuffer Material : register(b4)
+{
+    float4 cb4[5];
+};
+float4 vert() : SV_Position { return cb4[0]; }
+""";
+        const string ps = """
+cbuffer Material : register(b5)
+{
+    float4x4 Projector : packoffset(c4.x);
+};
+float4 frag() : SV_Target { return mul(Projector, float4(1, 2, 3, 0)) + Projector[2]; }
+""";
+        Assert.That(Merged(vs, ps), Does.Contain("float4 cb4[8];")
+            .And.Contain("mul(transpose(float4x4(cb4[4], cb4[5], cb4[6], cb4[7])), float4(1, 2, 3, 0)) + cb4[6]"));
+    }
+
+    [Test]
+    public void DifferentResourceTypesAtOneRegisterKeepTheirOwnSamplerAssociation()
+    {
+        const string vs = """
+ByteAddressBuffer t0 : register(t0);
+float4 vert() : SV_Position { return asfloat(t0.Load4(0)); }
+""";
+        const string ps = """
+Texture3D t0 : register(t0);
+SamplerState sampler_t0 : register(s0);
+float4 frag() : SV_Target { return t0.Sample(sampler_t0, float3(0, 0, 0)); }
+""";
+        Assert.That(Merged(vs, ps), Does.Contain("ByteAddressBuffer t0;")
+            .And.Contain("Texture3D t0_frag;")
+            .And.Contain("t0_frag.Sample(sampler_t0_frag"));
+    }
+
+    [Test]
+    public void ProbeVolumeFallbackIsGuardedWhenTheUnityHeaderIsIncluded()
+    {
+        const string vs = """
+float4 vert(float4 p : POSITION) : SV_Position { return UnityObjectToClipPos(p); }
+""";
+        const string ps = """
+cbuffer UnityProbeVolume : register(b1)
+{
+    float4 unity_ProbeVolumeParams : packoffset(c0.x);
+};
+Texture3D unity_ProbeVolumeSH : register(t0);
+SamplerState sampler_unity_ProbeVolumeSH : register(s0);
+float4 frag() : SV_Target { return unity_ProbeVolumeSH.Sample(sampler_unity_ProbeVolumeSH, unity_ProbeVolumeParams.xyz); }
+""";
+        string text = Merged(vs, ps);
+        Assert.That(text, Does.StartWith("#include \"UnityCG.cginc\"")
+            .And.Contain("#if !UNITY_LIGHT_PROBE_PROXY_VOLUME\ncbuffer UnityProbeVolume")
+            .And.Contain("#define sampler_unity_ProbeVolumeSH samplerunity_ProbeVolumeSH"));
+    }
+
+    [TestCase(true)]
+    [TestCase(false)]
+    public void UnityCgSuppliesLightmapHdrAndTheShadowMatrixColumns(bool explicitInclude)
+    {
+        const string vs = """
+cbuffer VGlobals : register(b1)
+{
+    float4 unity_WorldToShadow_2_col1 : packoffset(c0.x);
+};
+float4 vert() : SV_Position { return unity_WorldToShadow_2_col1; }
+""";
+        const string ps = """
+float4 vertex;
+cbuffer PGlobals : register(b0)
+{
+    float4 unity_DynamicLightmap_HDR : packoffset(c0.x);
+};
+float4 frag() : SV_Target { return unity_DynamicLightmap_HDR; }
+""";
+
+        string text = Merged(explicitInclude ? "#include \"UnityCG.cginc\"\n" + vs : vs, ps);
+        Assert.That(text, Does.Contain("#include \"UnityCG.cginc\"")
+            .And.Contain("unity_WorldToShadow[2]._m01_m11_m21_m31")
+            .And.Contain("return unity_DynamicLightmap_HDR;")
+            .And.Not.Contain("float4 unity_DynamicLightmap_HDR")
+            .And.Not.Contain("unity_WorldToShadow_2_col1"));
+    }
+
+    [Test]
+    public void UnityCgSuppliesStandaloneLightingGlobals()
+    {
+        const string vs = """
+float4x4 unity_WorldToShadow[4];
+float4 vert() : SV_Position { return unity_WorldToShadow[1][0]; }
+""";
+        const string ps = """
+uniform half4 unity_DynamicLightmap_HDR;
+float4 frag() : SV_Target { return unity_DynamicLightmap_HDR; }
+""";
+
+        Assert.That(Merged(vs, ps), Does.Contain("#include \"UnityCG.cginc\"")
+            .And.Contain("return unity_WorldToShadow[1][0];")
+            .And.Contain("return unity_DynamicLightmap_HDR;")
+            .And.Not.Contain("float4x4 unity_WorldToShadow")
+            .And.Not.Contain("half4 unity_DynamicLightmap_HDR"));
     }
 
     [Test]

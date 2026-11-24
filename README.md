@@ -89,17 +89,18 @@ which lists plugin names (the `Name` shown by `--plugins`) rather than assembly 
 the loader sorts topologically and reports a missing dependency or a cycle instead of
 registering silently out of order.
 
-The release carries the two plugins that ship with this repository already unpacked
+The release carries the plugins that ship with this repository already unpacked
 into that directory, so `--plugins` lists them without any option:
 
 | Directory | What it adds |
 |---|---|
 | `Plugins/ShaderRipper.Plugin.SpirV/` | the `vulkan` backend (SMOL-V SPIR-V translated with SPIRV-Cross) |
+| `Plugins/ShaderRipper.Plugin.Compute/` | Unity `ComputeShader` discovery and `.compute` export for DXBC kernels |
 | `Plugins/ShaderRipper.Plugin.AutomatedTesting/` | `--test-manifest` and `--gen-test-project` |
 
-Both are class libraries in the solution but nothing references them; being in the
-solution only keeps them compiling. Drop a directory out (or pass `--no-plugins`) and
-the tool behaves exactly as it would without them.
+The CLI and desktop app load these class libraries from `Plugins` at startup. To
+disable one plugin, remove its directory. The CLI also accepts `--no-plugins` to
+disable all external plugins, including ComputeShader discovery and export.
 
 | Capability | Interface | Called |
 |---|---|---|
@@ -290,7 +291,8 @@ Output is always an AssetRipper-style tree that can be copied over an ExportedPr
     ├── Shader/X.shader       shaders the table does not list (Unity's own, Always Included, …)
     ├── Shader/X.compute      compute shaders: one #pragma kernel + [numthreads] entry point each
     └── …/X/                  --programs or --orig-asm only: per-program HLSL / original disassembly,
-                              beside X.shader
+                              beside X.shader; --orig-asm on a d3d backend also writes the DXBC
+                              container with the RDEF Unity strips restored
 ```
 
 ### Re-running an export
@@ -327,7 +329,7 @@ For more readable output, prefer game data that includes **GLES3 / OpenGLCore** 
 | `--out <dir>` | Output directory; default `<input>_Ripped` (for `--file`, `_Ripped` beside the first input) |
 | `--shaderlab` | Write `<Name>.shader` (the deliverable); without it the run only counts, no `.shader` is written |
 | `--programs` | Also write every program's HLSL into a `<Name>/` folder |
-| `--orig-asm` | Also write the original disassembly (`.orig.asm`) or GLSL (`.orig.glsl`) into that folder; independent of `--programs` |
+| `--orig-asm` | Also write the original disassembly (`.orig.asm`) or GLSL (`.orig.glsl`) into that folder; on a d3d backend also the program's DXBC container (`.orig.dxbc`) with the RDEF Unity strips filled back in, which is where HLSLcc and fxc read constant-buffer and resource names from; independent of `--programs` |
 | `--embed-original` | Put the original program text inside the `.shader` as a `// ==== BEGIN ORIGINAL …` comment block, so the recovered body and the bytes it came from stay in one file |
 | `--jobs <N>` | Translation threads, default logical cores; `--jobs 1` is the serial run |
 | `--only <text>` | Only shaders whose name contains the text |

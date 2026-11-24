@@ -2,6 +2,9 @@ using System;
 using System.Collections.Generic;
 using System.IO;
 using System.Linq;
+using System.Security.Cryptography;
+using System.Text.Json;
+using System.Text.Json.Serialization;
 using System.Text.RegularExpressions;
 using ShaderRipper.Data;
 using ShaderRipper.Emit;
@@ -22,9 +25,34 @@ namespace ShaderRipper.Game
     /// </summary>
     internal static class GameExport
     {
+        internal const string DuplicateIndexName = "shader-copies.json";
+
+        private static readonly JsonSerializerOptions ShaderContentOptions = new()
+        {
+            IncludeFields = true,
+            NumberHandling = JsonNumberHandling.AllowNamedFloatingPointLiterals,
+        };
+
+        private static (string metadata, string programs) ShaderContent(Shader shader, string name)
+        {
+            var metadata = JsonSerializer.SerializeToUtf8Bytes(new
+            {
+                Name = name,
+                shader.ParsedForm,
+                shader.Platforms,
+                shader.Offsets,
+                shader.CompressedLengths,
+                shader.DecompressedLengths,
+                shader.RawPayloads,
+            }, ShaderContentOptions);
+            return (Convert.ToHexString(SHA256.HashData(metadata)),
+                    Convert.ToHexString(SHA256.HashData(shader.CompressedBlob)));
+        }
+
         public sealed class Stats
         {
             public int Files, Shaders, Programs, Disassembled, Translated, Skipped, Failed;
+            public int DecodedContainers;
             /// <summary>Shaders actually written to disk (a shader whose ShaderLab
             /// fails the well-formedness check is counted as processed but not
             /// emitted, so this can be lower than <see cref="Shaders"/>).</summary>
@@ -54,7 +82,7 @@ namespace ShaderRipper.Game
         {
             public Shader Sh;
             public string Name;
-            /// <summary>Output path of the `.shader`, relative to the output root.</summary>
+            /// <summary>Output path of the asset, relative to the output root.</summary>
             public string Rel;
             /// <summary>Folder holding this shader's per-program files.</summary>
             public string DirName;
@@ -210,7 +238,7 @@ namespace ShaderRipper.Game
                                 bool programs = false, IReadOnlyList<string> files = null,
                                 bool overwrite = false, int jobs = 1,
                                 System.Threading.CancellationToken cancel = default,
-                                int? platform = null, bool incremental = true)
+                                int? platform = null, bool incremental = true, bool dedupContent = false)
         {
             var s = new Stats();
             ExportDir.Prepare(outDir, overwrite);
@@ -236,8 +264,9 @@ namespace ShaderRipper.Game
             // The material index needs them after the shader paths are known, and a
             // material's shader reference is a path id inside the file it came from.
             var opened = new List<(Data.SerializedFile file, string sourceName)>();
-            foreach (var (inName, inBytes, inPath) in Inputs(dataDir, files))
+            foreach (var (inName, inBytes, inPath) in Inputs(dataDir, files, s, jobs, cancel))
             {
+                if (cancel.IsCancellationRequested) break;
                 SerializedFile sf;
                 try
                 {
@@ -260,6 +289,7 @@ namespace ShaderRipper.Game
                     continue;
                 }
                 s.Files++;
+                sf.Raw = null; // Parsed assets and material references do not use the original file bytes.
 
                 // Kept for the material index: a material's `m_Shader` is a path id
                 // resolved against the file it was read from.
@@ -307,14 +337,39 @@ namespace ShaderRipper.Game
                 }
             }
 
+            if (s.DecodedContainers > 0) s.Notes.Add($"Containers decoded by plugins: {s.DecodedContainers}");
+
             IEnumerable<(Shader sh, string name)> export = found;
-            if (dedup)
+            var copies = new Dictionary<Shader, Shader>();
+            if (dedupContent)
+            {
+                var canonical = new Dictionary<(string metadata, string programs), Shader>();
+                var distinct = new List<(Shader sh, string name)>();
+                foreach (var item in found.OrderByDescending(t => HasFixedPath(t.sh, resMap)).ThenBy(t => t.sh.PathId))
+                {
+                    if (item.sh.PluginAsset != null)
+                    {
+                        distinct.Add(item);
+                        continue;
+                    }
+                    var key = ShaderContent(item.sh, item.name);
+                    if (canonical.TryGetValue(key, out var keptShader)) copies.Add(item.sh, keptShader);
+                    else
+                    {
+                        canonical.Add(key, item.sh);
+                        distinct.Add(item);
+                    }
+                }
+                export = distinct;
+                s.Notes.Add(Localization.Strings.F("DedupSummary", found.Count, distinct.Count, copies.Count));
+            }
+            else if (dedup)
             {
                 // The same shader can ship in several data files; keep one per
                 // output path.  A copy with a fixed container path wins (it lands
                 // on the path the asset itself names), then the lowest path id so
                 // the winner never depends on enumeration order.
-                var groups = found.GroupBy(t => OutKey(t.sh, t.name, resMap), StringComparer.Ordinal)
+                var groups = found.GroupBy(t => (t.sh.OutputExtension, t.name.ToLowerInvariant()))
                                   .ToList();
                 var winners = groups
                                    .Select(g => g.OrderByDescending(t => HasFixedPath(t.sh, resMap))
@@ -375,24 +430,25 @@ namespace ShaderRipper.Game
                     // `Assets/Shader/CameraFilterPackLegacy_Color_GrayScale.shader`.
                     // Only when THAT is taken too does a numeric suffix appear.
                     string flat = SafeOf(sh, name);
-                    rel = CleanRel("Assets/Shader/" + flat, flat);
+                    string extension = sh.OutputExtension;
+                    rel = CleanRel("Assets/Shader/" + flat, flat, extension);
+                    string stem = rel[..^extension.Length];
                     int n = 1;
                     while (!claimed.Add(rel))
-                    {
-                        string stem = rel.EndsWith(".shader", StringComparison.OrdinalIgnoreCase)
-                            ? rel[..^".shader".Length] : rel;
-                        rel = stem + "_" + n++ + ".shader";
-                    }
+                        rel = stem + "_" + n++ + extension;
                     s.Notes.Add(Localization.Strings.F("PathTaken", name, rel));
                     Log.Warn(name, Localization.Strings.F("PathTaken", name, rel));
                 }
+                string sourceKey = ExportCache.SourceKey(sh.InputPath, sh.PathId);
+                if (sourceKey != null && sh.PluginAsset != null)
+                    sourceKey += "|" + sh.PluginAsset.GetType().Module.ModuleVersionId;
                 seats[i] = new Seat
                 {
                     Sh = sh,
                     Name = name,
                     Rel = rel,
                     DirName = Safe(name, used),
-                    SourceKey = ExportCache.SourceKey(sh.InputPath, sh.PathId),
+                    SourceKey = sourceKey,
                 };
             }
 
@@ -403,14 +459,10 @@ namespace ShaderRipper.Game
             bool reusable = incremental && shaderLab && !programs && !origAsm && platform == null;
             var cache = reusable
                 ? ExportCache.Load(outDir, ExportCache.ProfileOf(
-                      $"jobs={jobs}", $"dedup={dedup}", $"builtin={builtin}", $"only={only}"))
+                      $"jobs={jobs}", $"dedup={dedup}", $"dedup-content={dedupContent}", $"builtin={builtin}", $"only={only}"))
                 : null;
             var fresh = new List<Seat>(seats.Length);
             var kept = new List<string>(seats.Length);
-
-            // The key a cache entry is filed under: a compute shader's file is a
-            // `.compute`, so that is the path its state has to be remembered by.
-            static string KeyOf(Seat s) => s.Sh.IsCompute ? ComputePath(s.Rel) : s.Rel;
 
             if (jobs > 1)
             {
@@ -428,7 +480,7 @@ namespace ShaderRipper.Game
                         // A cancelled run stops taking new work; what is in flight
                         // finishes, so every file on disk is a whole shader.
                         if (cancel.IsCancellationRequested) return;
-                        if (cache != null && cache.IsCurrent(KeyOf(seats[i]), seats[i].SourceKey, outDir))
+                        if (cache != null && cache.IsCurrent(seats[i].Rel, seats[i].SourceKey, outDir))
                         {
                             reused[i] = true;
                             return;
@@ -437,7 +489,7 @@ namespace ShaderRipper.Game
                         });
                 for (int i = 0; i < seats.Length; i++)
                 {
-                        if (reused[i]) { s.Unchanged++; kept.Add(KeyOf(seats[i])); continue; }
+                        if (reused[i]) { s.Unchanged++; kept.Add(seats[i].Rel); continue; }
                         if (per[i] != null) Merge(s, per[i]);
                         fresh.Add(seats[i]);
                 }
@@ -449,11 +501,11 @@ namespace ShaderRipper.Game
                 {
                     if (cancel.IsCancellationRequested) break;
                     s.Shaders++;
-                    if (cache != null && cache.IsCurrent(KeyOf(seat), seat.SourceKey, outDir))
+                    if (cache != null && cache.IsCurrent(seat.Rel, seat.SourceKey, outDir))
                     {
                         s.Unchanged++;
-                        kept.Add(KeyOf(seat));
-                        Log.Info(seat.Name, KeyOf(seat), Localization.Strings.Get("LogUnchanged"));
+                        kept.Add(seat.Rel);
+                        Log.Info(seat.Name, seat.Rel, Localization.Strings.Get("LogUnchanged"));
                         continue;
                     }
                     Merge(s, ExportSeat(seat, outDir, resMap, shaderLab, programs, origAsm, platform));
@@ -463,8 +515,8 @@ namespace ShaderRipper.Game
 
             if (cache != null)
             {
-                foreach (var seat in fresh) cache.Record(KeyOf(seat), seat.SourceKey, outDir);
-                cache.Prune(outDir, fresh.Select(KeyOf).Concat(kept));
+                foreach (var seat in fresh) cache.Record(seat.Rel, seat.SourceKey, outDir);
+                cache.Prune(outDir, fresh.Select(seat => seat.Rel).Concat(kept));
                 cache.Save();
             }
 
@@ -477,6 +529,20 @@ namespace ShaderRipper.Game
             {
                 ExportDir.Finish(outDir, s, programs ? s.Programs : 0);
 
+                Dictionary<Shader, string> canonicalPaths = null;
+                if (dedupContent)
+                {
+                    canonicalPaths = seats.ToDictionary(seat => seat.Sh, seat => seat.Rel);
+                    var index = copies.Select(pair => new
+                    {
+                        source = pair.Key.InputPath,
+                        node = pair.Key.SourceFile,
+                        pathId = pair.Key.PathId,
+                        shader = canonicalPaths[pair.Value],
+                    });
+                    File.WriteAllText(Path.Combine(outDir, DuplicateIndexName), JsonSerializer.Serialize(index));
+                }
+
                 // The material index: what a render test needs and a .shader file
                 // cannot carry -- which shader each material binds and every property
                 // value the game saved on it.  Written after the shader paths are
@@ -486,7 +552,10 @@ namespace ShaderRipper.Game
                 {
                     var shaderPath = new Dictionary<(long pathId, string source), string>();
                     foreach (var seat in seats)
-                        shaderPath[(seat.Sh.PathId, seat.Sh.SourceFile ?? "")] = seat.Rel;
+                        if (seat.Sh.PluginAsset == null)
+                            shaderPath[(seat.Sh.PathId, seat.Sh.SourceFile ?? "")] = seat.Rel;
+                    foreach (var (copy, canonical) in copies)
+                        shaderPath[(copy.PathId, copy.SourceFile ?? "")] = canonicalPaths[canonical];
                     materials = MaterialIndex.Collect(
                         opened, shaderPath,
                         (fileId, pathId) => ResourcePath(resMap, opened, fileId, pathId));
@@ -767,7 +836,7 @@ namespace ShaderRipper.Game
             if (resMap != null && sh.SourceFile != null &&
                 resMap.TryGetValue((Path.GetFileName(sh.SourceFile), sh.PathId), out var mapped) &&
                 !string.IsNullOrEmpty(mapped))
-                return CleanRel("Assets/Resources/" + mapped.Replace('\\', '/'), flat);
+                return CleanRel("Assets/Resources/" + mapped.Replace('\\', '/'), flat, sh.OutputExtension);
 
             // A bundle node path is project-relative and already starts at
             // "assets/" in the cases Unity writes; anything else is a bare
@@ -776,35 +845,22 @@ namespace ShaderRipper.Game
             {
                 string rel = sh.ContainerPath.Replace('\\', '/').TrimStart('/');
                 if (rel.StartsWith("assets/", StringComparison.OrdinalIgnoreCase))
-                    return CleanRel(rel, flat);
+                    return CleanRel(rel, flat, sh.OutputExtension);
             }
-            return CleanRel("Assets/Shader/" + flat, flat);
+            return CleanRel("Assets/Shader/" + flat, flat, sh.OutputExtension);
         }
 
         /// <summary>
-        /// The key dedup groups by: the shader's own name, case-insensitive.
-        ///
-        /// Grouping by output path is not enough: the same shader ships in
-        /// <c>resources.assets</c> (where the Resources map names its project path)
-        /// and inside a bundle (where only the shader's own name is known), so the two
-        /// copies resolve to different files and a path-keyed dedup keeps both.  The
-        /// shader name is the identity Unity itself uses.
-        /// </summary>
-        private static string OutKey(Shader sh, string name,
-            Dictionary<(string file, long pathId), string> resMap) =>
-            (name ?? "").ToLowerInvariant();
-
-        /// <summary>
-        /// A container path as a safe relative path: forced to .shader, slashes
+        /// A container path as a safe relative path with the asset's extension, slashes
         /// normalised, illegal characters replaced, no leading separators or dots
         /// (a "../.." in an asset path must not escape the output directory).
         /// </summary>
-        private static string CleanRel(string raw, string fallbackName)
+        private static string CleanRel(string raw, string fallbackName, string extension)
         {
             string rel = (raw ?? "").Replace('\\', '/').TrimStart('/');
             foreach (string part in rel.Split('/'))
                 if (part == "..") { rel = fallbackName; break; }
-            if (!rel.EndsWith(".shader", StringComparison.OrdinalIgnoreCase)) rel += ".shader";
+            if (!rel.EndsWith(extension, StringComparison.OrdinalIgnoreCase)) rel += extension;
             var parts = rel.Split('/');
             for (int i = 0; i < parts.Length; i++)
             {
@@ -826,8 +882,10 @@ namespace ShaderRipper.Game
         /// builds often ship nothing but bundles.
         /// </summary>
         private static IEnumerable<(string name, byte[] bytes, string path)> Inputs(
-            string dataDir, IReadOnlyList<string> files)
+            string dataDir, IReadOnlyList<string> files, Stats stats, int jobs,
+            System.Threading.CancellationToken cancel)
         {
+            var providers = Plugins.PluginContext.Registry?.ContainerProviders;
             if (files != null && files.Count > 0)
             {
                 foreach (string raw in ExpandFiles(files))
@@ -845,6 +903,10 @@ namespace ShaderRipper.Game
                         case InputKind.Zip:
                             foreach (var (name, data) in ZipEntries(raw))
                                 yield return ($"{Path.GetFileName(raw)}/{name}", data, raw);
+                            break;
+
+                        case InputKind.Unknown when TryReadContainer(raw, providers, stats, out var decoded):
+                            foreach (var (name, data) in decoded) yield return (name, data, raw);
                             break;
 
                         default:
@@ -865,9 +927,79 @@ namespace ShaderRipper.Game
             // The walk starts at the given directory *and* at its parent when the
             // given path is a "_Data" directory, which is exactly what a person
             // points at (they have the data directory open, not the game root).
+            var seenDirs = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
             foreach (var root in ScanRoots(dataDir))
-                foreach (var (name, bytes, path) in ScanTree(root))
+                foreach (var (name, bytes, path) in ScanTree(root, seenDirs, providers, stats, jobs, cancel))
                     yield return (name, bytes, path);
+        }
+
+        private static bool TryReadContainer(string path,
+            IReadOnlyList<Plugins.Containers.IContainerProvider> providers, Stats stats,
+            out List<(string name, byte[] data)> payloads)
+        {
+            payloads = null;
+            if (providers == null || providers.Count == 0) return false;
+
+            Plugins.Containers.ContainerRequest request;
+            try
+            {
+                using var stream = File.OpenRead(path);
+                var head = new byte[(int)Math.Min(stream.Length, Plugins.Containers.ContainerRequest.HeadSize)];
+                stream.ReadExactly(head);
+                request = new() { Path = path, Head = head, Length = stream.Length };
+            }
+            catch (IOException) { return false; }
+            catch (UnauthorizedAccessException) { return false; }
+
+            void Failure(string name, Exception error)
+            {
+                stats.Failed++;
+                stats.Notes.Add($"{name}: {error.Message}");
+            }
+
+            foreach (var provider in providers)
+            {
+                if (!Plugins.PluginCall.Try(provider.GetType().Name + ".CanHandle",
+                    () => { lock (provider) return provider.CanHandle(request); }, false, stats.Notes)) continue;
+
+                payloads = new();
+                try
+                {
+                    var containers = new List<(string name, byte[] data)>();
+                    lock (provider)
+                        foreach (var payload in provider.Read(request))
+                        {
+                            using var entry = payload;
+                            var stream = entry.Content ?? throw new InvalidDataException("Missing decoded stream.");
+                            byte[] data;
+                            if (stream is MemoryStream memory && memory.Position == 0 &&
+                                memory.TryGetBuffer(out var segment) && segment.Offset == 0 &&
+                                segment.Count == segment.Array.Length)
+                                data = segment.Array;
+                            else
+                            {
+                                using var copy = new MemoryStream();
+                                stream.CopyTo(copy);
+                                data = copy.ToArray();
+                            }
+                            string name = string.IsNullOrEmpty(entry.Name) ? Path.GetFileName(path) : entry.Name;
+                            containers.Add((name, data));
+                        }
+                    foreach (var (name, data) in containers)
+                    {
+                        if (Bundle.IsBundleBytes(data))
+                            payloads.AddRange(Bundle.SerializedFiles(data, name, onError: Failure));
+                        else if (data.Length >= 40 && LooksLikeSerializedHeader(data, data.Length))
+                            payloads.Add((name, data));
+                        else
+                            Failure(name, new InvalidDataException("Decoded payload is not a Unity bundle or serialized file."));
+                    }
+                    stats.DecodedContainers++;
+                }
+                catch (Exception e) { Failure(path, e); }
+                return true;
+            }
+            return false;
         }
 
         /// <summary>
@@ -902,29 +1034,54 @@ namespace ShaderRipper.Game
         /// files and packs whole UnityFS containers into bundle nodes.  Resource
         /// payloads and player binaries are skipped by name before the header is read.
         /// </summary>
-        private static IEnumerable<(string name, byte[] bytes, string path)> ScanTree(string root)
+        private static IEnumerable<(string name, byte[] bytes, string path)> ScanTree(string root,
+            HashSet<string> seenDirs, IReadOnlyList<Plugins.Containers.IContainerProvider> providers, Stats stats,
+            int jobs, System.Threading.CancellationToken cancel)
         {
             if (!Directory.Exists(root)) yield break;
 
-            var seenDirs = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
-            foreach (var (dir, files) in Walk(root, seenDirs, 0))
+            // Bound the number of in-flight bundles and return them in scan order.
+            var inputs = Walk(root, seenDirs).SelectMany(d => d.files)
+                                            .Where(f => !IsPayloadName(Path.GetFileName(f)));
+            int workers = Math.Clamp(jobs, 1, 8);
+            foreach (var batch in inputs.Chunk(workers * 2))
             {
-                foreach (string f in files)
+                if (cancel.IsCancellationRequested) yield break;
+                var results = new (Stats stats, List<(string name, byte[] bytes, string path)> files)[batch.Length];
+                void Read(int i)
                 {
-                    string baseName = Path.GetFileName(f);
-                    if (IsPayloadName(baseName)) continue;
-
-                    switch (Sniff(f))
+                    string path = batch[i];
+                    string name = Path.GetFileName(path);
+                    var local = new Stats();
+                    var files = new List<(string name, byte[] bytes, string path)>();
+                    results[i] = (local, files);
+                    switch (Sniff(path))
                     {
                         case InputKind.Bundle:
-                            foreach (var (path, data) in Bundle.SerializedFiles(f))
-                                yield return ($"{baseName}/{path}", data, f);
+                            foreach (var (node, data) in Bundle.SerializedFiles(path))
+                                files.Add(($"{name}/{node}", data, path));
                             break;
 
                         case InputKind.Serialized:
-                            yield return (baseName, null, f);
+                            files.Add((name, null, path));
+                            break;
+                        case InputKind.Unknown when TryReadContainer(path, providers, local, out var decoded):
+                            foreach (var (node, data) in decoded) files.Add((node, data, path));
                             break;
                     }
+                }
+                if (workers == 1)
+                    for (int i = 0; i < batch.Length; i++) Read(i);
+                else
+                    System.Threading.Tasks.Parallel.For(0, batch.Length,
+                        new System.Threading.Tasks.ParallelOptions { MaxDegreeOfParallelism = workers }, Read);
+
+                foreach (var (local, files) in results)
+                {
+                    stats.Failed += local.Failed;
+                    stats.DecodedContainers += local.DecodedContainers;
+                    stats.Notes.AddRange(local.Notes);
+                    foreach (var file in files) yield return file;
                 }
             }
         }
@@ -933,15 +1090,11 @@ namespace ShaderRipper.Game
         /// Directories under <paramref name="root"/>, depth-first, without following
         /// the same directory twice.
         ///
-        /// A crate that happens to contain a symlink loop must not turn the export
-        /// into an infinite walk, and a game's install directory can be large
-        /// enough that "scan everything" needs a ceiling.
+        /// Skip directory links so scanning a build cannot loop or leave its tree.
         /// </summary>
         private static IEnumerable<(string dir, string[] files)> Walk(
-            string root, HashSet<string> seen, int depth)
+            string root, HashSet<string> seen)
         {
-            if (depth > 8) yield break;
-
             string full;
             try { full = Path.GetFullPath(root); }
             catch { yield break; }
@@ -960,12 +1113,13 @@ namespace ShaderRipper.Game
             string[] subs;
             try
             {
-                subs = Directory.GetDirectories(full)
+                subs = Directory.GetDirectories(full, "*", new EnumerationOptions
+                                { AttributesToSkip = FileAttributes.ReparsePoint, IgnoreInaccessible = true })
                                 .OrderBy(d => d, StringComparer.Ordinal).ToArray();
             }
             catch { yield break; }
             foreach (string sub in subs)
-                foreach (var hit in Walk(sub, seen, depth + 1))
+                foreach (var hit in Walk(sub, seen))
                     yield return hit;
         }
 
@@ -1215,9 +1369,9 @@ namespace ShaderRipper.Game
                                          bool shaderLab, bool programs, bool origAsm,
                                          int? platform, Stats s)
         {
-            if (sh.IsCompute)
+            if (sh.PluginAsset is { } asset)
             {
-                ExportCompute(sh, name, rel, outDir, shaderLab, origAsm, s);
+                asset.Export(name, rel, outDir, shaderLab, origAsm, s);
                 return;
             }
 
@@ -1390,32 +1544,6 @@ namespace ShaderRipper.Game
         }
 
         /// <summary>
-        /// The path a ComputeShader's file actually lands on.
-        ///
-        /// The claiming pass derives a `.shader` path for every object, which is what
-        /// keeps a compute shader and a shader with the same name from colliding; the
-        /// extension changes only at the point the file is written.
-        /// </summary>
-        internal static string ComputePath(string rel) =>
-            rel.EndsWith(".shader", StringComparison.OrdinalIgnoreCase)
-                ? rel[..^".shader".Length] + ".compute"
-                : rel + ".compute";
-
-        /// <summary>
-        /// Write one ComputeShader as a <c>.compute</c> file.
-        ///
-        /// The naming and directory rules are the Shader route's (claiming already
-        /// happened), only the extension and the wrapper differ.
-        /// </summary>
-        private static void ExportCompute(Shader sh, string name, string rel, string outDir,
-                                          bool shaderLab, bool origAsm, Stats s)
-        {
-            string full = Path.Combine(outDir, ComputePath(rel).Replace('/', Path.DirectorySeparatorChar));
-            if (shaderLab) WarnIfForeign(full, name);
-            ComputeExport.Export(sh.Compute, name, rel, outDir, shaderLab, origAsm, s);
-        }
-
-        /// <summary>
         /// Warn when an export is about to replace a file this tool did not write.
         ///
         /// The test is deliberately forgiving: anything containing the tool's name is
@@ -1425,7 +1553,7 @@ namespace ShaderRipper.Game
         /// warning.  Not a refusal: the user may well be re-running into their own
         /// project on purpose, and `--overwrite` is the switch that means "I know".
         /// </summary>
-        private static void WarnIfForeign(string path, string name)
+        internal static void WarnIfForeign(string path, string name)
         {
             try
             {
@@ -1874,6 +2002,7 @@ namespace ShaderRipper.Game
             // Notes are per program but the file shows them per pass, and the pass a
             // slot belongs to is only known once the slot has been decoded.
             var cbNotes = new Dictionary<Pass, List<string>>();
+            var untranslatedStages = new HashSet<string>(StringComparer.Ordinal);
 
             foreach (var slot in slots)
             {
@@ -1882,15 +2011,44 @@ namespace ShaderRipper.Game
 
                 var container = new byte[slot.DxbcSize];
                 Array.Copy(decoded, slot.DxbcOffset, container, 0, slot.DxbcSize);
+                spOf.TryGetValue(slot.BlobIndex, out var sub);
+                void KeepOriginal(string stage, string disassembly = null)
+                {
+                    if (!origAsm || dir == null) return;
+                    Directory.CreateDirectory(dir);
+                    File.WriteAllBytes(Path.Combine(dir, $"{slot.BlobIndex}_{stage}.orig.dxbc"), container);
+                    if (disassembly != null)
+                        File.WriteAllText(Path.Combine(dir, $"{slot.BlobIndex}_{stage}.orig.asm"), disassembly);
+                }
 
                 string asm = BlobTool.Disassemble(container);
-                if (asm == null) { s.Skipped++; continue; }
+                if (asm == null)
+                {
+                    KeepOriginal(sub?.Stage?.ToLowerInvariant() ?? "unknown");
+                    s.Skipped++;
+                    continue;
+                }
                 s.Disassembled++;
 
                 var module = Ast.Module.Read(asm);
-                if (module.Code.Count == 0) { s.Skipped++; continue; }
+                string stage = string.IsNullOrEmpty(module.Stage) ? "unknown" : module.Stage;
+                // ShaderLab assembly here has only vertex and pixel entry points.
+                // Hull, domain and geometry bytecode can still be exported intact.
+                if (module.Stage is not ("vs" or "ps" or "cs"))
+                {
+                    KeepOriginal(stage, asm);
+                    if (untranslatedStages.Add(stage))
+                        s.Notes.Add($"{name}/{info.Name}: {stage} stage uses original DXBC only.");
+                    s.Skipped++;
+                    continue;
+                }
+                if (module.Code.Count == 0)
+                {
+                    KeepOriginal(stage, asm);
+                    s.Skipped++;
+                    continue;
+                }
 
-                spOf.TryGetValue(slot.BlobIndex, out var sub);
                 List<Pass>? owners = null;
                 passOf.TryGetValue(slot.BlobIndex, out owners);
                 var pass = owners is { Count: > 0 } ? owners[0] : null;
@@ -1908,9 +2066,9 @@ namespace ShaderRipper.Game
                 Dictionary<int, string> blobTexNames = null;
                 if (blobTex.Count > 0)
                 {
-                    int programRegs = module.Decls
+                    var programRegs = module.Decls
                         .Where(d => d.Kind != null && d.Kind.StartsWith("texture"))
-                        .Select(d => d.Register).Distinct().Count();
+                        .Select(d => d.Register).ToHashSet();
 
                     var candidates = blobTex
                         .Select(kv => new { Slot = kv.Key, Names = kv.Value })
@@ -1921,7 +2079,7 @@ namespace ShaderRipper.Game
                     if (sub != null && sub.ParameterBlobIndex >= 0)
                     {
                         var ownC = candidates.FirstOrDefault(c => c.Slot == sub.ParameterBlobIndex);
-                        if (ownC != null && ownC.Names.Keys.Max() < Math.Max(programRegs, 1))
+                        if (ownC != null && ownC.Names.Keys.Any(programRegs.Contains))
                             blobTexNames = ownC.Names;
                     }
 
@@ -1930,19 +2088,26 @@ namespace ShaderRipper.Game
                         // Otherwise the most complete table whose registers all exist in
                         // this program; ties go to the lowest slot for determinism.
                         var fitting = candidates
-                            .Where(c => c.Names.Count <= programRegs)
+                            .Where(c => c.Names.Keys.All(programRegs.Contains))
                             .OrderByDescending(c => c.Names.Count)
                             .ThenBy(c => c.Slot)
                             .FirstOrDefault();
-                        blobTexNames = fitting?.Names
-                            ?? candidates.OrderByDescending(c => c.Names.Count)
-                                         .ThenBy(c => c.Slot).First().Names;
+                        blobTexNames = fitting?.Names;
                     }
 
                     if (Environment.GetEnvironmentVariable("SHADERRIP_TEXDBG") == "1")
                         Console.Error.WriteLine($"[tex] {name} blk={slot.BlobIndex} stage={module.Stage} " +
                             $"pbi={sub?.ParameterBlobIndex ?? -1} regs={programRegs} slots={blobTex.Count} " +
-                            "-> " + string.Join(",", blobTexNames.OrderBy(x => x.Key).Select(x => $"t{x.Key}={x.Value}")));
+                            "-> " + string.Join(",", (blobTexNames ?? new()).OrderBy(x => x.Key).Select(x => $"t{x.Key}={x.Value}")));
+                }
+                byte[] originalRdef = DxbcContainer.Chunk(container, "RDEF");
+                var originalNames = DxbcReflection.ReadTextureNames(originalRdef);
+                if (originalNames.Count > 0)
+                {
+                    if (blobTexNames != null)
+                        foreach (var (register, bindingName) in blobTexNames)
+                            originalNames.TryAdd(register, bindingName);
+                    blobTexNames = originalNames;
                 }
                 module.Cb = NameConstantBuffers(module, name, pass, sub, props, paramCbs, allParamCbs,
                                                matrixRows, glslTexNames, blobTexNames);
@@ -1967,17 +2132,41 @@ namespace ShaderRipper.Game
                 if (programs || origAsm)
                 {
                     Directory.CreateDirectory(dir);
+                    // The standalone form is what compiles outside Unity; the RDEF
+                    // below is described by the same declaration pass, so one emit
+                    // feeds both.
+                    var emitted = HlslEmitter.Emit(module, standalone: true);
+
                     // The translation is only written with --programs; --orig-asm
                     // alone keeps just the disassembly it compares against.
                     if (programs)
                         File.WriteAllText(Path.Combine(dir, $"{slot.BlobIndex}_{module.Stage}.hlsl"),
-                                          HlslEmitter.Emit(module, standalone: true).Hlsl);
+                                          emitted.Hlsl);
 
                     // The original disassembly, kept beside the translation so the two
                     // can be compared instruction for instruction.  It is the same text
                     // the translator read.
                     if (origAsm)
+                    {
                         File.WriteAllText(Path.Combine(dir, $"{slot.BlobIndex}_{module.Stage}.orig.asm"), asm);
+                        // The body as the game ships it, with the RDEF Unity strips
+                        // filled back in: HLSLcc and fxc's disassembler read constant
+                        // buffers and resources by name from that chunk, and a Unity
+                        // container leaves them anonymous.  The names come from the
+                        // same parameter blobs the translation used, so no second
+                        // compile is involved.
+                        emitted.Reflection.ApplyAssetBuffers(sub);
+                        byte[] completed = originalRdef != null ? container
+                            : emitted.Reflection.Complete(container, module.Stage, module.Profile);
+                        // A program with nothing declared (an error shader with a bare
+                        // body) has no reflection to write, which is not a failure;
+                        // anything else that comes back empty is worth a note.
+                        if (completed == null && emitted.Reflection.Any)
+                            s.Notes.Add($"{name}: no RDEF for DXBC {slot.BlobIndex}_{module.Stage}, " +
+                                        "the exported container stays reflection-stripped");
+                        File.WriteAllBytes(Path.Combine(dir, $"{slot.BlobIndex}_{module.Stage}.orig.dxbc"),
+                                           completed ?? container);
+                    }
                 }
 
                 if (pass == null) continue;
@@ -2870,32 +3059,45 @@ namespace ShaderRipper.Game
             // points at the pragma instead of at the missing body.
             var anyVs = pb.Vs.Values.FirstOrDefault();
             var anyPs = pb.Ps.Values.FirstOrDefault();
+            var mergedBodies = new Dictionary<(string vertex, string fragment), string>();
             foreach (var k in pb.Keys)
             {
                 bool hadVs = pb.Vs.TryGetValue(k, out var v);
                 bool hadPs = pb.Ps.TryGetValue(k, out var pv);
                 if (!hadVs && !hadPs) continue;
-                if (!hadVs) v = anyVs;
-                if (!hadPs) pv = anyPs;
+                if (!hadVs) v = SharedStage(pb.Vs.Values, pv.kw, anyVs);
+                if (!hadPs) pv = SharedStage(pb.Ps.Values, v.kw, anyPs);
                 if (v.hlsl == null && pv.hlsl == null) continue;
-                var merged = Emit.ShaderLab.Merge(
-                    v.hlsl != null ? new Emit.ShaderLab.Stage { Hlsl = v.hlsl, Entry = "vert" } : null,
-                    pv.hlsl != null ? new Emit.ShaderLab.Stage { Hlsl = pv.hlsl, Entry = "frag" } : null);
-                if (merged == null) continue;
-                // A one-branch chain has no other variant to distinguish from, so
-                // its guard would wrap the only body in a condition a material can
-                // switch off -- and USC's preprocess, which runs with no keywords
-                // set, then strips the body and reports "did not find shader kernel".
-                // The pragma stays (Unity needs it to set up the keyword), the guard
-                // goes.
-                string guard = chain.Bodies.Count == 0
-                    ? ""
-                    : VariantPlan.Guard(groups2, hadVs ? v.kw : pv.kw, alwaysOn);
+                var pair = (v.hlsl, pv.hlsl);
+                if (!mergedBodies.TryGetValue(pair, out string body))
+                {
+                    var merged = Emit.ShaderLab.Merge(
+                        v.hlsl != null ? new Emit.ShaderLab.Stage { Hlsl = v.hlsl, Entry = "vert" } : null,
+                        pv.hlsl != null ? new Emit.ShaderLab.Stage { Hlsl = pv.hlsl, Entry = "frag" } : null);
+                    if (merged == null) continue;
+                    body = string.Join("\n", merged);
+                    mergedBodies[pair] = body;
+                }
+                string guard = VariantPlan.Guard(groups2, hadVs ? v.kw : pv.kw, alwaysOn);
                 chain.Guards.Add(guard);
-                chain.Bodies.Add(string.Join("\n", merged));
+                chain.Bodies.Add(body);
                 chain.Keywords.Add(new HashSet<string>(hadVs ? v.kw : pv.kw, StringComparer.Ordinal));
             }
             pt.Chains = chain.Bodies.Count > 0 ? new List<Emit.ShaderLab.VariantChain> { chain } : null;
+        }
+
+        private static (List<string> kw, string hlsl) SharedStage(
+            IEnumerable<(List<string> kw, string hlsl)> stages, List<string> keywords,
+            (List<string> kw, string hlsl) fallback)
+        {
+            int best = -1;
+            foreach (var candidate in stages)
+                if (candidate.kw.Count > best && candidate.kw.All(keywords.Contains))
+                {
+                    best = candidate.kw.Count;
+                    fallback = candidate;
+                }
+            return fallback;
         }
 
         /// <summary>
@@ -3010,7 +3212,8 @@ namespace ShaderRipper.Game
 
             var r = Resolve.CbResolver.Resolve(
                 m, nameTable, props, own, -1, BestGlobals(sub), null,
-                allParamCbs, true, null, sub?.TextureParams, matrixRows, glslTexNames, blobTexNames);
+                allParamCbs, true, null, sub?.TextureParams, matrixRows, glslTexNames, blobTexNames,
+                sub?.ConstantBufferBindings);
 
             if (Environment.GetEnvironmentVariable("SHADERRIP_CBDBG") == "1")
                 Console.Error.WriteLine($"[cb] {shaderName}/{sub?.BlobIndex}: "

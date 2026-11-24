@@ -2,6 +2,7 @@ using System;
 using System.Collections.Generic;
 using System.IO;
 using System.Text;
+using ShaderRipper.Plugins;
 
 namespace ShaderRipper.Data
 {
@@ -24,16 +25,8 @@ namespace ShaderRipper.Data
         public byte[] Raw;
         public TypeNode Schema;
         public TypeNode MaterialSchema;
-        public TypeNode ComputeSchema;
         public readonly List<Shader> Shaders = new List<Shader>();
         public readonly List<MaterialAsset> Materials = new List<MaterialAsset>();
-
-        /// <summary>
-        /// <c>ComputeShader</c> objects (ClassID 72).  They are not Shaders and are
-        /// not in <see cref="Shaders"/>: the entry point is a kernel, the output form
-        /// is <c>.compute</c>, and nothing about a pass applies.
-        /// </summary>
-        public readonly List<ComputeShaderAsset> ComputeShaders = new List<ComputeShaderAsset>();
 
         /// <summary>m_Externals entries: index+1 == the PPtr m_FileID that names it.</summary>
         public readonly List<string> Externals = new List<string>();
@@ -90,7 +83,6 @@ namespace ShaderRipper.Data
 
             sf.Schema = tpkClass?.Invoke(sf.UnityVersion, 48);
             sf.MaterialSchema = tpkClass?.Invoke(sf.UnityVersion, 21);
-            sf.ComputeSchema = tpkClass?.Invoke(sf.UnityVersion, 72);
             // `typeCount` comes from the file too.  Cap it against the metadata that
             // is actually left: a type entry is at least 20 bytes (classId plus the
             // 16-byte hash), so anything larger is bad data and would allocate an
@@ -137,6 +129,8 @@ namespace ShaderRipper.Data
                 sf.Objects.Add((pathId, typeId, off, byteSize));
             }
 
+            var plugins = PluginContext.Registry;
+            Dictionary<int, TypeNode> pluginSchemas = plugins == null ? null : new();
             foreach (var e in entries)
             {
                 // `typeId` indexes the type table; a value outside it means the entry
@@ -169,32 +163,24 @@ namespace ShaderRipper.Data
                             Console.Error.WriteLine($"  [!] AssetBundle pathId={e.pathId}: {ex.Message}");
                     }
                 }
-                else if (classIds[e.typeId] == 72 && sf.ComputeSchema != null)
+                else if (plugins?.ShaderAssetReaderFor(classIds[e.typeId]) is { } read)
                 {
-                    try
-                    {
-                        var compute = ComputeShaderReader.Parse(sf, sf.ComputeSchema, e.pathId, e.off, e.size);
-                        if (compute != null)
+                    int classId = classIds[e.typeId];
+                    if (!pluginSchemas.TryGetValue(classId, out var schema))
+                        pluginSchemas.Add(classId, schema = tpkClass?.Invoke(sf.UnityVersion, classId));
+                    if (schema == null) continue;
+
+                    var asset = PluginCall.Try($"shader asset class {classId}",
+                        () => read(b, checked((int)e.off), checked((int)e.size), schema), null, null);
+                    if (asset != null)
+                        sf.Shaders.Add(new Shader
                         {
-                            // A compute shader travels in the same list as a Shader so
-                            // the naming, dedup and claim pipeline applies unchanged;
-                            // `IsCompute` is what routes it to the `.compute` writer.
-                            sf.ComputeShaders.Add(compute);
-                            sf.Shaders.Add(new Shader
-                            {
-                                PathId = e.pathId,
-                                Offset = e.off,
-                                Size = e.size,
-                                Name = compute.Name,
-                                Compute = compute,
-                            });
-                        }
-                    }
-                    catch (Exception ex)
-                    {
-                        if (Environment.GetEnvironmentVariable("SHADERRIP_TYPEDBG") == "1")
-                            Console.Error.WriteLine($"  [!] ComputeShader pathId={e.pathId}: {ex.Message}");
-                    }
+                            PathId = e.pathId,
+                            Offset = e.off,
+                            Size = e.size,
+                            Name = asset.Name,
+                            PluginAsset = asset,
+                        });
                 }
             }
             // The trailing sections describe cross-file references: script types,
@@ -769,8 +755,19 @@ namespace ShaderRipper.Data
                     if (sp.TryGetValue("m_KeywordIndices", out var kiv))
                         foreach (var kv in AsList(kiv))
                             try { prog.KeywordIndices.Add(Convert.ToInt32(kv)); } catch { }
-                    ReadConstantBuffers(sp, idxToName, prog.ConstantBuffers);
-                    ReadConstantBuffers(pvd, idxToName, prog.ConstantBuffers);
+                    else
+                        foreach (string field in new[] { "m_GlobalKeywordIndices", "m_LocalKeywordIndices" })
+                            if (sp.TryGetValue(field, out var indices))
+                            {
+                                prog.PassKeywords ??= new List<string>();
+                                foreach (var item in AsList(indices))
+                                    if (int.TryParse(item?.ToString(), out int index) &&
+                                        idxToName.TryGetValue(index, out string keyword) &&
+                                        !prog.PassKeywords.Contains(keyword))
+                                        prog.PassKeywords.Add(keyword);
+                            }
+                    ReadConstantBuffers(sp, idxToName, prog);
+                    ReadConstantBuffers(pvd, idxToName, prog);
                     ReadTextureParams(sp, idxToName, prog.TextureParams);
                     ReadTextureParams(pvd, idxToName, prog.TextureParams);
                     o.SubPrograms.Add(prog);
@@ -781,21 +778,31 @@ namespace ShaderRipper.Data
         }
 
         /// <summary>
-        /// Read <c>m_Parameters.m_ConstantBuffers</c> (or <c>m_CommonParameters</c>)
-        /// off a program node into <paramref name="into"/>.  Each member carries a
-        /// name index into the pass's name table and its byte offset
-        /// (<c>m_Index</c>), which is exactly what the emitter needs to name a
-        /// <c>$Globals</c> row instead of guessing it from the code.
+        /// Read constant-buffer layouts and bindings into <paramref name="program"/>.
+        /// A member's <c>m_Index</c> is a byte offset, while a binding's is a register.
         /// </summary>
-        private static void ReadConstantBuffers(Dictionary<string, object> node,
-                                                Dictionary<int, string> idxToName,
-                                                List<AssetConstantBuffer> into)
+        internal static void ReadConstantBuffers(Dictionary<string, object> node,
+                                                 Dictionary<int, string> idxToName,
+                                                 SubProgram program)
         {
-            object pars = null;
-            if (!node.TryGetValue("m_Parameters", out pars) &&
-                !node.TryGetValue("m_CommonParameters", out pars)) return;
-            if (pars is not Dictionary<string, object> pd) return;
+            // Older subprograms serialize these tables directly on the program node.
+            var pd = node.TryGetValue("m_Parameters", out var pars) && pars is Dictionary<string, object> local
+                ? local
+                : node.TryGetValue("m_CommonParameters", out pars) && pars is Dictionary<string, object> common
+                    ? common : node;
+
+            if (pd.TryGetValue("m_ConstantBufferBindings", out var bindings))
+                foreach (var item in AsList(bindings))
+                    if (item is Dictionary<string, object> binding)
+                    {
+                        string name = NameAt(binding, idxToName);
+                        int register = Int(binding, "m_Index");
+                        if (!string.IsNullOrEmpty(name) && register >= 0)
+                            program.ConstantBufferBindings.TryAdd(register, name);
+                    }
+
             if (!pd.TryGetValue("m_ConstantBuffers", out var cbs)) return;
+            var into = program.ConstantBuffers;
 
             foreach (var item in AsList(cbs))
             {
@@ -817,7 +824,7 @@ namespace ShaderRipper.Data
                                 Offset = Int(m, "m_Index"),
                                 Type = Int(m, "m_Type"),
                                 RowCount = Int(m, "m_RowCount"),
-                                ArraySize = Math.Max(1, Int(m, "m_ArraySize")),
+                                ArraySize = Math.Max(0, Int(m, "m_ArraySize")),
                                 IsMatrix = true,
                             });
                 if (cb.TryGetValue("m_VectorParams", out var vp))
@@ -829,7 +836,7 @@ namespace ShaderRipper.Data
                                 Offset = Int(m, "m_Index"),
                                 Type = Int(m, "m_Type"),
                                 Dim = Int(m, "m_Dim"),
-                                ArraySize = Math.Max(1, Int(m, "m_ArraySize")),
+                                ArraySize = Math.Max(0, Int(m, "m_ArraySize")),
                             });
                 if (!string.IsNullOrEmpty(buf.Name) && buf.Name != "cb#0")
                 {
@@ -862,16 +869,17 @@ namespace ShaderRipper.Data
                                               List<(string Name, int Index, int Sampler)> into)
         {
             if (node == null) return;
-            if (!node.TryGetValue("m_Parameters", out var pars) &&
-                !node.TryGetValue("m_CommonParameters", out pars)) return;
-            if (pars is not Dictionary<string, object> pd) return;
+            var pd = node.TryGetValue("m_Parameters", out var pars) && pars is Dictionary<string, object> local
+                ? local
+                : node.TryGetValue("m_CommonParameters", out pars) && pars is Dictionary<string, object> common
+                    ? common : node;
             if (!pd.TryGetValue("m_TextureParams", out var tps)) return;
 
             foreach (var item in AsList(tps))
             {
                 if (item is not Dictionary<string, object> t) continue;
                 string nm = NameAt(t, idxToName);
-                if (string.IsNullOrEmpty(nm)) continue;
+                if (string.IsNullOrEmpty(nm) || !t.ContainsKey("m_Index")) continue;
                 int idx = Int(t, "m_Index");
                 int samp = Int(t, "m_SamplerIndex");
                 if (into.Exists(x => x.Index == idx)) continue;

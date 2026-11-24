@@ -22,6 +22,7 @@ src/*.Old/
 scripts/usc_check.log
 
 tools/starrail/
+/tools/pack-zip.ps1
 
 #其他
 __pycache__/

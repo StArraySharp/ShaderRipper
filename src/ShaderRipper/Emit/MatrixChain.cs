@@ -995,7 +995,7 @@ internal static class MatrixChain
         if (f.Count == 2)
         {
             weight = RowOf(f[0]) != null ? f[1] : f[0];
-            if (RowOf(weight) != null) return false;
+            if (!Split(weight, out _, out _) && !IsNumeric(Unwrap(weight))) return false;
         }
 
         // The accumulator's lanes are the product's first ones, in order.
@@ -1100,6 +1100,7 @@ internal static class MatrixChain
             p.Base[row.Row] = bas;
             p.Lane[row.Row] = lane;
         }
+        else if (!IsNumeric(Unwrap(scalar))) return false;
         p.Comp[row.Row] = scalar;
         rows[row.Row] = true;
         return true;

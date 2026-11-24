@@ -288,7 +288,7 @@ namespace ShaderRipper
                               opt.Has("--orig-asm"), !opt.Has("--no-dedup"), opt.Has("--builtin"),
                               opt.Has("--programs"), Overwrite(opt),
                               Jobs(opt.Value("--jobs")), platform,
-                              !opt.Has("--no-incremental"));
+                              !opt.Has("--no-incremental"), opt.Has("--dedup-content"));
         }
 
         /// <summary>
@@ -322,10 +322,10 @@ namespace ShaderRipper
                                       bool origAsm = false, bool dedup = true, bool builtin = false,
                                       bool programs = false,
                                       bool overwrite = false, int jobs = 1, int? platform = null,
-                                      bool incremental = true) =>
+                                      bool incremental = true, bool dedupContent = false) =>
             RunExport(() => ShaderRipper.Game.GameExport.Run(
                 dataDir, outDir, only, shaderLab, origAsm, dedup, builtin, programs,
-                null, overwrite, jobs, default, platform, incremental), only);
+                null, overwrite, jobs, default, platform, incremental, dedupContent), only);
 
         /// <summary>
         /// Run an export and report it.
@@ -402,7 +402,7 @@ namespace ShaderRipper
                 !opt.Has("--no-dedup"), opt.Has("--builtin"),
                 opt.Has("--programs"), values,
                 Overwrite(opt), Jobs(opt.Value("--jobs")), default, platform,
-                !opt.Has("--no-incremental")));
+                !opt.Has("--no-incremental"), opt.Has("--dedup-content")));
             return s;
         }
 
@@ -641,19 +641,10 @@ namespace ShaderRipper
                         continue;
                     total++;
 
-                    if (sh.IsCompute)
+                    if (sh.PluginAsset is { } asset)
                     {
-                        // A compute shader has no passes, properties or keywords in
-                        // the ShaderLab sense; what a reader wants to know is which
-                        // kernels it declares and which backends it shipped for.
-                        var cv = sh.Compute;
                         Console.WriteLine("  " + n);
-                        Console.WriteLine($"    compute: type={sh.PathId} kernels={cv.KernelNames.Count} " +
-                                          $"variants={cv.Variants.Count}");
-                        foreach (var kv in cv.Variants)
-                            Console.WriteLine($"      backend={Platforms.Get(kv.Platform).Name}({kv.Platform}) " +
-                                              $"level={kv.Level} kernels={kv.Kernels.Count}");
-                        foreach (string k in cv.KernelNames) Console.WriteLine("      kernel " + k);
+                        asset.Dump(Console.Out, sh.PathId);
                         continue;
                     }
 

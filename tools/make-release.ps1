@@ -62,7 +62,7 @@ try {
     # <exe>/Plugins/<project name>/, which is where the host looks by default.  Only
     # the ones kept in this repository are listed: the example under examples/ is a
     # template, and tools/ holds local research tools that are not distributed.
-    $Plugins = @('ShaderRipper.Plugin.SpirV', 'ShaderRipper.Plugin.AutomatedTesting')
+    $Plugins = @('ShaderRipper.Plugin.SpirV', 'ShaderRipper.Plugin.Compute', 'ShaderRipper.Plugin.AutomatedTesting')
 
     $appProject = if ($Target -eq 'gui') {
         'src/ShaderRipper.Gui/ShaderRipper.Gui.csproj'
@@ -98,9 +98,7 @@ try {
         Get-ChildItem $out -Recurse -File -Include '*.pdb' | Remove-Item -Force
 
         # The plugins that ship with this repository go into <exe>/Plugins/<name>/, the
-        # directory the host reads by default.  A release without them would list no
-        # Vulkan backend and no test commands, and the reader of the README would have to
-        # build three projects by hand to get what the table there promises.
+        # directory the host reads by default.
         #
         # Each is published separately so its own dependencies land beside it instead of
         # being merged into the host's output: that is what lets a plugin carry a native

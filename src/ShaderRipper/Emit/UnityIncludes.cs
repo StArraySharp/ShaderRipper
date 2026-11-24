@@ -271,6 +271,8 @@ namespace ShaderRipper.Emit
         /// <summary>Names already supplied by an include chosen for this program.</summary>
         [ThreadStatic]
         private static HashSet<string> _covered;
+        [ThreadStatic]
+        private static HashSet<string> _existing;
 
         /// <summary>The current thread's dropped-include set, created on first use.</summary>
         private static Dictionary<string, SortedSet<string>> Dropped =>
@@ -279,15 +281,19 @@ namespace ShaderRipper.Emit
         private static HashSet<string> Covered =>
             _covered ??= new HashSet<string>(StringComparer.Ordinal);
 
+        private static bool InUnityCg(string file) => file is "UnityCG.cginc" or
+            "UnityShaderVariables.cginc" or "UnityShaderUtilities.cginc" or "UnityInstancing.cginc";
+
         /// <summary>
         /// Tell the resolver which names the program is about to declare on its
         /// own.  An include that declares any of them cannot be added: Unity
         /// rejects a second declaration of a texture or a global.
         /// </summary>
-        public static void SetProgramNames(IEnumerable<string> names)
+        public static void SetProgramNames(IEnumerable<string> names, IEnumerable<string> existingIncludes = null)
         {
             var set = new HashSet<string>(StringComparer.Ordinal);
             _programNames = set;
+            _existing = existingIncludes?.ToHashSet(StringComparer.Ordinal);
             if (names == null) return;
             foreach (string n in names)
             {
@@ -305,6 +311,7 @@ namespace ShaderRipper.Emit
             Dropped.Clear();
             Covered.Clear();
             _programNames = null;
+            _existing = null;
         }
 
         /// <summary>
@@ -326,6 +333,9 @@ namespace ShaderRipper.Emit
             foreach (string file in candidates.OrderBy(f => SafeCount(f)).ThenBy(f => f, StringComparer.Ordinal))
             {
                 if (Dropped.ContainsKey(file)) return file;    // already added
+                // These providers emit one shared UnityCG include. A declaration in
+                // another header of that family is already present in the program.
+                if (InUnityCg(file) && Dropped.Keys.Any(InUnityCg)) return file;
                 if (Conflicts(file, bas)) continue;
                 return file;
             }
@@ -367,6 +377,13 @@ namespace ShaderRipper.Emit
 
         public static bool NoteMember(string name)
         {
+            Ensure();
+            int cut = name.IndexOfAny(new[] { '[', '.' });
+            string member = cut > 0 ? name[..cut] : name;
+            if (_existing != null && _providers != null && _providers.TryGetValue(member, out var providers) &&
+                providers.Any(f => _existing.Contains(f) || InUnityCg(f) && _existing.Contains("UnityCG.cginc")))
+                return true;
+
             string file = ChooseProvider(name);
             if (file == null) return false;
             if (!Dropped.TryGetValue(file, out var set))

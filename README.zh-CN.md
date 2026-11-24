@@ -79,15 +79,16 @@ ShaderRipper.exe --game "游戏名_Data" --shaderlab out --no-plugins
 `IShaderRipperPlugin.DependsOn` 决定——它列的是插件名（`Name`，即 `--plugins` 里显示的
 那个），加载器按依赖做拓扑排序；依赖缺失或出现环都会报告，而不是静默地乱序注册。
 
-发行包里已经把这个仓库自带的两个插件解好放在该目录，`--plugins` 不加任何选项就能看到：
+发行包已将随附插件放入该目录，运行 `--plugins` 即可查看：
 
 | 目录 | 提供什么 |
 |---|---|
 | `Plugins/ShaderRipper.Plugin.SpirV/` | `vulkan` 后端（SMOL-V 压缩的 SPIR-V，经 SPIRV-Cross 翻译） |
+| `Plugins/ShaderRipper.Plugin.Compute/` | 识别 Unity `ComputeShader`，将 DXBC kernel 导出为 `.compute` |
 | `Plugins/ShaderRipper.Plugin.AutomatedTesting/` | `--test-manifest` 与 `--gen-test-project` |
 
-两者都是解决方案里的类库，但没有任何项目引用它们；放进解决方案只是为了保持编译。
-删掉某个目录（或加 `--no-plugins`），工具的行为就和没有它们时完全一致。
+CLI 和桌面版启动时都会从 `Plugins` 加载随附插件。移除对应目录可禁用单个插件。
+CLI 的 `--no-plugins` 会禁用全部外部插件，包括 `ComputeShader` 的识别和导出。
 
 | 能力 | 接口 | 调用时机 |
 |---|---|---|
@@ -264,7 +265,8 @@ Windows / Linux 构建格式一致，APK 从 zip 内读取。
     ├── Resources/…/X.shader   Resources.Load 路径（由 globalgamemanagers 的 m_Container 还原）
     ├── Shader/X.shader        表里没有的 shader（Unity 自带、Always Included 等）
     ├── Shader/X.compute       计算着色器：每个 kernel 一条 #pragma kernel + 一个 [numthreads] 入口
-    └── …/X/                   仅 --programs 或 --orig-asm：每个程序的 HLSL / 原始反汇编，就在 X.shader 旁边
+    └── …/X/                   仅 --programs 或 --orig-asm：每个程序的 HLSL / 原始反汇编，就在 X.shader 旁边；
+                               d3d 后端加 --orig-asm 还会写出补回 RDEF 的 DXBC 容器（.orig.dxbc）
 ```
 
 ### 重复导出到同一目录
@@ -297,7 +299,7 @@ Windows / Linux 构建格式一致，APK 从 zip 内读取。
 | `--out <目录>` | 输出目录；缺省 `<输入>_Ripped`（`--file` 时是首个输入所在目录下的 `_Ripped`） |
 | `--shaderlab` | 写出 `<名字>.shader`（交付物）；不加就只统计、不落 `.shader` |
 | `--programs` | 额外把每个程序的 HLSL 写进 `<名字>/` 子目录 |
-| `--orig-asm` | 额外把原始反汇编（`.orig.asm`）或原 GLSL（`.orig.glsl`）写进 `<名字>/` 子目录；与 `--programs` 互不隐含 |
+| `--orig-asm` | 额外把原始反汇编（`.orig.asm`）或原 GLSL（`.orig.glsl`）写进 `<名字>/` 子目录；d3d 后端还会写出该程序的 DXBC 容器（`.orig.dxbc`），并补回 Unity 剥掉的 RDEF——HLSLcc 与 fxc 的常量缓冲/资源名字就来自这一块；与 `--programs` 互不隐含 |
 | `--embed-original` | 把原始程序文本作为 `// ==== BEGIN ORIGINAL …` 注释块写进 `.shader` 内部，恢复出的正文和它的来源留在同一个文件里 |
 | `--jobs <N>` | 并发线程数，默认逻辑核数；`--jobs 1` 为串行 |
 | `--only <文本>` | 只处理名字含该文本的 shader |

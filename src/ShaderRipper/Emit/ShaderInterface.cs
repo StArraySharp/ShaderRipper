@@ -130,7 +130,8 @@ namespace ShaderRipper.Emit
                     AddTo(PsInReg, e.Register, f);
                 }
 
-            V2fFields.AddRange(order.OrderBy(f => f.Semantic == "SV_POSITION" ? 0 : 1).ThenBy(f => f.Index));
+            V2fFields.AddRange(order.OrderBy(f => f.Semantic == "SV_POSITION" ? 0 :
+                RasterizerInput(f.Semantic) ? 2 : 1).ThenBy(f => f.Index));
         }
 
         private static bool IsSystemName(string n) =>
@@ -188,6 +189,9 @@ namespace ShaderRipper.Emit
 
         private static string NormSemantic(string s) =>
             string.IsNullOrEmpty(s) ? "" : s.Replace("_", "").ToUpperInvariant();
+
+        private static bool RasterizerInput(string semantic) => NormSemantic(semantic) is
+            "SVISFRONTFACE" or "SVPRIMITIVEID" or "SVSAMPLEINDEX" or "SVCOVERAGE";
 
         /// <summary>
         /// The complete semantic annotation, index included.  The disassembler can
@@ -254,8 +258,9 @@ namespace ShaderRipper.Emit
             {
                 string note = f.OrigIndex >= 0 && f.OrigIndex != f.Index
                     ? $"  // compiled as {f.Base}{f.OrigIndex}" : "";
-                string type = IntegralSemantics.Contains(NormSemantic(f.Semantic))
-                    ? "uint" : f.Type;
+                string semantic = NormSemantic(f.Semantic);
+                string type = semantic == "SVISFRONTFACE" ? "bool" :
+                    IntegralSemantics.Contains(semantic) ? "uint" : f.Type;
                 sb.AppendLine($"\t{type,-7} {f.Name,-12} : {f.Semantic};{note}");
             }
             sb.AppendLine("};");
@@ -301,7 +306,7 @@ namespace ShaderRipper.Emit
 
                 if (fields.Count == 1 && LaneStart(fields[0]) == 0 && LaneCount(fields[0]) >= need)
                 {
-                    yield return $"\t{fields[0].Type,-6} v{kv.Key} = {structVar}.{fields[0].Name};";
+                    yield return $"\t{fields[0].Type,-6} v{kv.Key} = {FieldValue(fields[0], structVar)};";
                     continue;
                 }
 
@@ -315,7 +320,7 @@ namespace ShaderRipper.Emit
                         int len = LaneCount(f);
                         if (i < start || i >= start + len) continue;
                         src = f.Comps == 1 && len == 1
-                            ? $"{structVar}.{f.Name}"
+                            ? FieldValue(f, structVar)
                             : $"{structVar}.{f.Name}.{"xyzw"[i - start]}";
                         break;
                     }
@@ -324,6 +329,13 @@ namespace ShaderRipper.Emit
                 string ty = need <= 1 ? "float" : "float" + need;
                 yield return $"\t{ty,-6} v{kv.Key} = {ty}({string.Join(", ", lanes)});";
             }
+        }
+
+        private static string FieldValue(Field field, string variable)
+        {
+            string value = $"{variable}.{field.Name}";
+            return NormSemantic(field.Semantic) == "SVISFRONTFACE"
+                ? $"asfloat({value} ? 0xffffffffu : 0u)" : value;
         }
 
         /// <summary>Copies the oN locals back into the output struct, per lane group.</summary>

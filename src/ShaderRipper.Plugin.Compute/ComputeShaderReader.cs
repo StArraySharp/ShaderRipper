@@ -1,8 +1,9 @@
 using System;
 using System.Collections.Generic;
 using System.Linq;
+using ShaderRipper.Data;
 
-namespace ShaderRipper.Data
+namespace ShaderRipper.Plugin.Compute
 {
     /// <summary>
     /// Reads a <c>ComputeShader</c> (ClassID 72) out of a serialized object.
@@ -21,12 +22,10 @@ namespace ShaderRipper.Data
         /// tree does not have the shape the class always has, so a caller can skip a
         /// single object instead of losing the file.
         /// </summary>
-        public static ComputeShaderAsset Parse(SerializedFile sf, TypeNode schema,
-                                               long pathId, long off, uint size)
+        public static ComputeShaderAsset Parse(byte[] data, int offset, int size, TypeNode schema)
         {
-            if (schema == null) return null;
             var asset = new ComputeShaderAsset();
-            var sr = new SchemaReader(sf.Raw, (int)off, (int)(off + size), schema);
+            var sr = new SchemaReader(data, offset, checked(offset + size), schema);
 
             foreach (var c in schema.Children)
             {
@@ -74,10 +73,12 @@ namespace ShaderRipper.Data
                 Platform = Int(d, "targetRenderer"),
                 Level = Int(d, "targetLevel"),
             };
+            d.TryGetValue("constantBuffers", out var buffers);
+            var constantBuffers = Values(buffers).Select(ReadConstantBuffer).ToArray();
             if (d.TryGetValue("kernels", out var kernels))
                 foreach (var k in Values(kernels))
                 {
-                    var kernel = ReadKernel(k);
+                    var kernel = ReadKernel(k, constantBuffers);
                     if (kernel == null) continue;
                     variant.Kernels.Add(kernel);
                     CollectKeywords(k, variant);
@@ -85,7 +86,25 @@ namespace ShaderRipper.Data
             return variant;
         }
 
-        private static ComputeKernel ReadKernel(object raw)
+        private static AssetConstantBuffer ReadConstantBuffer(object raw)
+        {
+            if (raw is not Dictionary<string, object> d) return null;
+            var buffer = new AssetConstantBuffer { Name = Str(d, "name"), Size = Int(d, "byteSize") };
+            if (d.TryGetValue("params", out var parameters))
+                foreach (var rawMember in Values(parameters))
+                {
+                    if (rawMember is not Dictionary<string, object> member) return null;
+                    buffer.Members.Add(new AssetCbMember
+                    {
+                        Name = Str(member, "name"), Offset = Int(member, "offset", -1),
+                        Type = Int(member, "type", -1), Dim = Int(member, "colCount"),
+                        RowCount = Int(member, "rowCount"), ArraySize = Int(member, "arraySize", -1),
+                    });
+                }
+            return buffer;
+        }
+
+        private static ComputeKernel ReadKernel(object raw, AssetConstantBuffer[] constantBuffers)
         {
             if (raw is not Dictionary<string, object> d) return null;
             var kernel = new ComputeKernel { Name = Str(d, "name") };
@@ -99,37 +118,64 @@ namespace ShaderRipper.Data
             // A kernel either carries one program (`code`) or, when it was
             // compiled under keywords, one per unique variant.  Both shapes exist
             // in shipped builds, so both are read.
-            if (d.TryGetValue("code", out var code))
-            {
-                var bytes = Bytes(code);
-                if (bytes.Length > 0)
-                {
-                    kernel.Programs.Add(bytes);
-                    kernel.KeywordIndices.Add(new List<int>());
-                }
-            }
-
+            AddProgram(d, constantBuffers, kernel.Programs);
             if (d.TryGetValue("uniqueVariants", out var uvs))
                 foreach (var uv in Values(uvs))
-                {
-                    if (uv is not Dictionary<string, object> uvd) continue;
-                    if (!uvd.TryGetValue("code", out var vc)) continue;
-                    var bytes = Bytes(vc);
-                    if (bytes.Length == 0) continue;
-                    kernel.Programs.Add(bytes);
-                    kernel.KeywordIndices.Add(ReadKeywordIndices(uvd));
-                }
+                    if (uv is Dictionary<string, object> program)
+                        AddProgram(program, constantBuffers, kernel.Programs);
+            if (d.TryGetValue("variantMap", out var variantMap))
+                foreach (var entry in Values(variantMap))
+                    if (entry is Dictionary<string, object> pair &&
+                        pair.TryGetValue("second", out var second) && second is Dictionary<string, object> program)
+                        AddProgram(program, constantBuffers, kernel.Programs);
 
             if (kernel.Programs.Count == 0) return null;
             return kernel;
         }
 
-        private static List<int> ReadKeywordIndices(Dictionary<string, object> v)
+        private static void AddProgram(Dictionary<string, object> variant, AssetConstantBuffer[] buffers,
+                                       List<ComputeProgram> programs)
         {
-            var list = new List<int>();
-            if (v.TryGetValue("cbVariantIndices", out var ci))
-                foreach (var x in Values(ci)) list.Add(Convert.ToInt32(x));
-            return list;
+            if (!variant.TryGetValue("code", out var rawCode)) return;
+            var code = Bytes(rawCode);
+            if (code.Length == 0) return;
+
+            var bound = new Dictionary<int, AssetConstantBuffer>();
+            programs.Add(new ComputeProgram(code, bound));
+            if (!variant.TryGetValue("cbs", out var rawBindings)) return;
+
+            var bindings = Values(rawBindings);
+            variant.TryGetValue("cbVariantIndices", out var rawIndices);
+            var indices = Values(rawIndices);
+            if (indices.Count != 0 && indices.Count != bindings.Count) return;
+
+            var registers = new HashSet<int>();
+            for (int i = 0; i < bindings.Count; i++)
+            {
+                if (bindings[i] is not Dictionary<string, object> binding) continue;
+                int reg = Int(binding, "bindPoint", -1);
+                if (reg < 0) continue;
+                if (!registers.Add(reg))
+                {
+                    bound.Remove(reg);
+                    continue;
+                }
+                string name = Str(binding, "name");
+                if (name.Length == 0) continue;
+                AssetConstantBuffer buffer;
+                if (indices.Count > 0)
+                {
+                    int index = Int(indices[i], -1);
+                    buffer = (uint)index < (uint)buffers.Length ? buffers[index] : null;
+                }
+                else
+                {
+                    // Older Unity versions stored the binding name without a layout index.
+                    var matches = buffers.Where(b => b?.Name == name).Take(2).ToArray();
+                    buffer = matches.Length == 1 ? matches[0] : null;
+                }
+                if (buffer?.Name == name) bound.Add(reg, buffer);
+            }
         }
 
         /// <summary>Keywords the variant declares, gathered onto the variant.</summary>
@@ -180,14 +226,14 @@ namespace ShaderRipper.Data
         private static string Str(Dictionary<string, object> d, string k) =>
             d.TryGetValue(k, out var v) && v is string s ? s : "";
 
-        private static int Int(Dictionary<string, object> d, string k)
+        private static int Int(Dictionary<string, object> d, string k, int fallback = 0) =>
+            d.TryGetValue(k, out var value) ? Int(value, fallback) : fallback;
+
+        private static int Int(object value, int fallback) => value switch
         {
-            if (!d.TryGetValue(k, out var v) || v == null) return 0;
-            return v switch
-            {
-                int i => i, uint u => (int)u, short s => s, byte b => b, long l => (int)l,
-                _ => 0,
-            };
-        }
+            int i => i, uint u when u <= int.MaxValue => (int)u, short s => s,
+            byte b => b, long l when l is >= int.MinValue and <= int.MaxValue => (int)l,
+            _ => fallback,
+        };
     }
 }

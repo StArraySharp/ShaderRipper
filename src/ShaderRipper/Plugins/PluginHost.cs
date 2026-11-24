@@ -3,6 +3,8 @@ using System.Collections.Generic;
 using System.IO;
 using System.Linq;
 using System.Reflection;
+using System.Reflection.Metadata;
+using System.Reflection.PortableExecutable;
 using System.Runtime.Loader;
 
 namespace ShaderRipper.Plugins
@@ -190,30 +192,19 @@ namespace ShaderRipper.Plugins
         /// <summary>
         /// True when the file is a .NET assembly rather than a native library.
         ///
-        /// Both arrive as <c>*.dll</c> in a plugin directory.  An assembly starts with
-        /// <c>MZ</c> and carries the <c>BSJB</c> metadata signature; a native library is
-        /// a PE file without it.  Reading a native one as an assembly throws
-        /// <c>BadImageFormatException</c>, which used to surface as a startup warning
-        /// that looked like a broken plugin even though nothing was wrong.
+        /// Read the metadata location from the PE headers so assembly discovery
+        /// works even when the metadata follows a large code section.
         /// </summary>
-        private static bool LooksLikeManagedAssembly(string path)
+        internal static bool LooksLikeManagedAssembly(string path)
         {
             try
             {
                 using var fs = new FileStream(path, FileMode.Open, FileAccess.Read,
                                               FileShare.ReadWrite);
-                int size = (int)Math.Min(fs.Length, 8192);
-                if (size < 64) return false;
-
-                var head = new byte[size];
-                int read = fs.Read(head, 0, size);
-                if (read < 64 || head[0] != 'M' || head[1] != 'Z') return false;
-
-                for (int i = 0; i + 4 <= read; i++)
-                    if (head[i] == 'B' && head[i + 1] == 'S' &&
-                        head[i + 2] == 'J' && head[i + 3] == 'B') return true;
-                return false;
+                using var pe = new PEReader(fs);
+                return pe.HasMetadata && pe.GetMetadataReader().IsAssembly;
             }
+            catch (BadImageFormatException) { return false; }
             catch (IOException) { return false; }
             catch (UnauthorizedAccessException) { return false; }
         }

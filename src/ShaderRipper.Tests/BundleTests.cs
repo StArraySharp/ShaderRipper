@@ -22,6 +22,7 @@ public class BundleTests
         public uint Version = 8;
         public bool PadTo16 = true;
         public bool BlocksInfoAtEnd;
+        public bool LzmaBlock;
         public List<(string path, byte[] data)> Nodes = new();
 
         public byte[] Build()
@@ -34,6 +35,16 @@ public class BundleTests
                 nodeStream.Write(data, 0, data.Length);
             }
             byte[] blockData = nodeStream.ToArray();
+            byte[] stored = blockData;
+            if (LzmaBlock)
+            {
+                var encoder = new SevenZip.Compression.LZMA.Encoder();
+                using var source = new MemoryStream(blockData);
+                using var compressed = new MemoryStream();
+                encoder.WriteCoderProperties(compressed);
+                encoder.Code(source, compressed, source.Length, -1, null);
+                stored = compressed.ToArray();
+            }
 
             // One block, stored uncompressed: raw == compressed.  That is the case
             // where a misaligned read cannot be detected by trying to decode.
@@ -41,8 +52,8 @@ public class BundleTests
             info.Write(new byte[16], 0, 16);                       // hash, unused
             WriteBE(info, 1);                                      // one block
             WriteBE(info, (uint)blockData.Length);
-            WriteBE(info, (uint)blockData.Length);
-            WriteBE16(info, 0x40);                                 // compression flags
+            WriteBE(info, (uint)stored.Length);
+            WriteBE16(info, LzmaBlock ? (ushort)0x41 : (ushort)0x40);
             WriteBE(info, (uint)table.Count);
             foreach (var (off, len, path) in table)
             {
@@ -71,7 +82,7 @@ public class BundleTests
             {
                 // Table last: header, then the block data, then the table.
                 if (PadTo16) Pad16(head);
-                head.Write(blockData, 0, blockData.Length);
+                head.Write(stored, 0, stored.Length);
                 if (PadTo16) Pad16(head);
                 head.Write(blockInfo, 0, blockInfo.Length);
             }
@@ -86,7 +97,7 @@ public class BundleTests
                 long dataAt = PadTo16 ? (head.Position + 15) & ~15L : head.Position;
                 head.SetLength(dataAt);
                 head.Write(new byte[dataAt - head.Position], 0, (int)(dataAt - head.Position));
-                head.Write(blockData, 0, blockData.Length);
+                head.Write(stored, 0, stored.Length);
             }
 
             var result = head.ToArray();
@@ -123,6 +134,15 @@ public class BundleTests
             s.Write(bytes, 0, bytes.Length);
             s.WriteByte(0);
         }
+    }
+
+    [Test]
+    public void ReadsLzmaDataBlocksWithUnityFsPropertiesOnly()
+    {
+        byte[] data = Enumerable.Repeat((byte)0xA5, 8192).ToArray();
+        var builder = new Builder { LzmaBlock = true };
+        builder.Nodes.Add(("CAB-test", data));
+        Assert.That(Bundle.Read(builder.Build()).Single().Data, Is.EqualTo(data));
     }
 
     private static byte[] Payload(string marker)

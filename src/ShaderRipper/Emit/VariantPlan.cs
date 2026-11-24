@@ -9,8 +9,7 @@ namespace ShaderRipper.Emit
     /// Turns the per-stage sub-program list into ShaderLab variant blocks.
     ///
     /// Unity compiles one sub-program per shader-keyword combination and records
-    /// the combination in <c>m_KeywordIndices</c>, which indexes the pass's name
-    /// table.  The build therefore tells us, exactly, which keyword states exist
+    /// the combination as keyword indices. The build tells us which states exist
     /// -- but not how they were split across <c>#pragma multi_compile</c> lines.
     /// That split is recovered from which keywords can be on at the same time:
     /// two keywords that never co-occur in any variant are the alternatives of
@@ -39,16 +38,22 @@ namespace ShaderRipper.Emit
         /// </summary>
         public static List<string> KeywordsOf(SubProgram sp, Dictionary<int, string> indexToName)
         {
+            if (sp?.PassKeywords != null) return sp.PassKeywords.Where(IsVariantKeyword).ToList();
             var res = new List<string>();
             // A host that supplies no per-program reflection arrives here with no
             // SubProgram at all; that means "no keyword variant", not a crash.
             if (sp?.KeywordIndices == null) return res;
             foreach (int i in sp.KeywordIndices)
-                if (indexToName != null && indexToName.TryGetValue(i, out var n) && !string.IsNullOrEmpty(n)
+                if (indexToName != null && indexToName.TryGetValue(i, out var n) && IsVariantKeyword(n)
                     && !res.Contains(n))
                     res.Add(n);
             return res;
         }
+
+        // Unity injects these defines from the pass type before compiling HLSL.
+        private static bool IsVariantKeyword(string name) => !string.IsNullOrEmpty(name) && name is not
+            ("UNITY_PASS_FORWARDBASE" or "UNITY_PASS_FORWARDADD" or "UNITY_PASS_DEFERRED" or
+             "UNITY_PASS_SHADOWCASTER" or "UNITY_PASS_META" or "UNITY_PASS_PREPASSBASE" or "UNITY_PASS_PREPASSFINAL");
 
         public static string Key(IEnumerable<string> keywords) =>
             string.Join(",", keywords.OrderBy(x => x, StringComparer.Ordinal));
@@ -130,13 +135,7 @@ namespace ShaderRipper.Emit
         /// A <c>multi_compile</c> line only ever defines a single value, so the
         /// on-branch names that value instead of OR-ing the whole group.
         ///
-        /// A group that is on in every compiled variant has no off state to guard
-        /// against -- its term would be true for every preprocessor state the build
-        /// can reach, and spelling it out makes the chain's `#if` reject the very
-        /// states the pragma still allows (a material can force the keyword off at
-        /// runtime).  Those terms are dropped, which is also what lets
-        /// <c>ShaderLab.CoversAllStates</c> see that the remaining guards already
-        /// partition the space and the `#else` fallback can go.
+        /// A single keyword present in every variant cannot distinguish branches.
         /// </summary>
         public static string Guard(List<Group> groups, ICollection<string> keywords,
                                    ISet<string> alwaysOn = null)
@@ -144,13 +143,8 @@ namespace ShaderRipper.Emit
             var terms = new List<string>();
             foreach (var g in groups)
             {
-                // A group that is on in every compiled variant has no off state to
-                // guard against, so it contributes no term at all -- not even when
-                // the branch has it on.  Spelling `defined(X)` there makes the guard
-                // reject the states the pragma still allows (a material can force the
-                // keyword off at runtime), and the whole chain then matches nothing,
-                // which Unity reports as "did not find shader kernel".
-                if (alwaysOn != null && Members(g).Any(alwaysOn.Contains))
+                // Alternatives distinguish branches even when the group is always active.
+                if (g.Alternatives.Count == 0 && alwaysOn?.Contains(g.Name) == true)
                     continue;
 
                 var on = Members(g).Where(keywords.Contains).Select(k => $"defined({k})").ToList();

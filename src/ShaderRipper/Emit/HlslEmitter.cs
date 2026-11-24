@@ -32,6 +32,12 @@ namespace ShaderRipper.Emit
             public int Todo;
             public int Blocks;
             public List<string> Missing = new();
+            /// <summary>
+            /// What the file declares -- constant buffers with their members,
+            /// textures and samplers at their registers -- so a DXBC consumer can be
+            /// handed the reflection the game's container no longer carries.
+            /// </summary>
+            public readonly Data.DxbcReflection Reflection = new();
         }
 
         private readonly Module _m;
@@ -142,10 +148,10 @@ namespace ShaderRipper.Emit
             // Instructions that read the operand's BITS, so a mask has to carry
             // 0xFFFFFFFF there rather than the number -1.
             static bool ReadsBits(Instruction ins) => ins.Opcode is
-                "iadd" or "isub" or "imul" or "imin" or "imax" or "imad" or "ineg"
+                "iadd" or "isub" or "imul" or "umul" or "imin" or "imax" or "imad" or "ineg"
                 or "umin" or "umax" or "iumin" or "iumax"
                 or "ieq" or "ine" or "ilt" or "ige" or "uge" or "ult"
-                or "ushr" or "ishl" or "itof" or "ftoi" or "ftou" or "utof"
+                or "ushr" or "ishr" or "ishl" or "itof" or "ftoi" or "ftou" or "utof"
                 or "udiv" or "ubfe" or "ibfe" or "bfi" or "bfrev"
                 or "countbits" or "firstbit_hi" or "firstbit_lo";
 
@@ -184,9 +190,11 @@ namespace ShaderRipper.Emit
             {
                 reach.Add(new Dictionary<(int reg, char lane), int>(cur));
                 if (ins.Args.Count == 0) continue;
+                foreach (var dest in ins.Args.Take(DestinationCount(ins)))
+                    if (dest.Kind == RegKind.R)
+                        foreach (char lane in MaskOf(dest)) cur.Remove((dest.Index, lane));
                 var d0 = ins.Args[0];
                 if (d0.Kind != RegKind.R) continue;
-                foreach (char lane in MaskOf(d0)) cur.Remove((d0.Index, lane));
                 if (ProducesMask(ins, lanes, MaskOf))
                     foreach (char lane in MaskOf(d0)) cur[(d0.Index, lane)] = reach.Count - 1;
             }
@@ -215,7 +223,7 @@ namespace ShaderRipper.Emit
                         // counted as "boolean only" -- and the lane was emitted as
                         // 1.0f, which `asint` then reads as 0x3F800000.
                         bool read = false;
-                        for (int i = 1; i < ins.Args.Count; i++)
+                        for (int i = DestinationCount(ins); i < ins.Args.Count; i++)
                         {
                             var a = ins.Args[i];
                             if (a.Kind != RegKind.R || a.Index != dst.Index) continue;
@@ -231,9 +239,8 @@ namespace ShaderRipper.Emit
                                 needsBits = true;
                         }
 
-                        if (ins.Args.Count > 0 && ins.Args[0].Kind == RegKind.R &&
-                            ins.Args[0].Index == dst.Index &&
-                            MaskOf(ins.Args[0]).Contains(lane))
+                        if (ins.Args.Take(DestinationCount(ins)).Any(dest =>
+                            dest.Kind == RegKind.R && dest.Index == dst.Index && MaskOf(dest).Contains(lane)))
                             break;                  // the value dies here
                     }
                     if (boolOnly) info.BoolLanes.Add((dst.Index, lane));
@@ -370,8 +377,9 @@ namespace ShaderRipper.Emit
         /// </summary>
         private static readonly HashSet<string> IntWrites = new(StringComparer.Ordinal)
         {
-            "iadd", "isub", "imul", "imad", "ineg",
-            "imin", "imax", "umin", "umax", "udiv", "ushr", "ishl",
+            "iadd", "isub", "imul", "umul", "imad", "ineg",
+            "imin", "imax", "umin", "umax", "udiv", "ushr", "ishr", "ishl",
+            "ubfe", "ibfe", "bfi",
             "ftoi", "ftou",
         };
 
@@ -381,9 +389,16 @@ namespace ShaderRipper.Emit
         /// </summary>
         private static readonly HashSet<string> IntReads = new(StringComparer.Ordinal)
         {
-            "iadd", "isub", "imul", "imad", "ineg",
-            "imin", "imax", "umin", "umax", "udiv", "ushr", "ishl",
+            "iadd", "isub", "imul", "umul", "imad", "ineg",
+            "imin", "imax", "umin", "umax", "udiv", "ushr", "ishr", "ishl",
+            "ubfe", "ibfe", "bfi",
         };
+
+        private static int DestinationCount(Instruction ins) =>
+            ins.Opcode is "udiv" or "sincos" || IsExtendedMultiply(ins) ? 2 : 1;
+
+        private static bool IsExtendedMultiply(Instruction ins) =>
+            ins.Args.Count == 4 && ins.Opcode is "imul" or "umul";
 
         /// <summary>
         /// The constant-buffer lanes this program only ever reads as integers.
@@ -403,9 +418,9 @@ namespace ShaderRipper.Emit
                 if (ins.Args.Count < 2) continue;
                 bool conv = ins.Opcode is "itof" or "utof";
                 bool integer = conv || IntReads.Contains(ins.Opcode) || IntCompare.ContainsKey(ins.Opcode);
-                string kind = ins.Opcode is "utof" or "uge" or "ult" or "udiv" or "ushr"
+                string kind = ins.Opcode is "utof" or "uge" or "ult" or "udiv" or "umul" or "ushr"
                               || ins.Opcode is "umin" or "umax" ? "uint" : "int";
-                for (int k = 1; k < ins.Args.Count; k++)
+                for (int k = DestinationCount(ins); k < ins.Args.Count; k++)
                 {
                     var o = ins.Args[k];
                     if (o == null || o.Kind != RegKind.Cb) continue;
@@ -450,9 +465,12 @@ namespace ShaderRipper.Emit
                 var ins = code[pc];
                 if (ins.Args.Count == 0) continue;
                 var a = ins.Args;
-                if (a[0]?.Kind == RegKind.R)
+                int destinations = Math.Min(DestinationCount(ins), a.Count);
+                for (int k = 0; k < destinations; k++)
                 {
-                    string mask = DestMask(a[0]);
+                    var dst = a[k];
+                    if (dst?.Kind != RegKind.R) continue;
+                    string mask = DestMask(dst);
                     if (mask.Length == 0) mask = "xyzw";
                     int save = _pc;
                     _pc = pc;
@@ -463,17 +481,17 @@ namespace ShaderRipper.Emit
                     // every read.
                     int carry = !integer && ins.Opcode == "mov" ? IntMoveCarry(ins, live) : 0;
                     _pc = save;
-                    if (integer || carry != 0) _intRegs.Add(a[0].Index);
+                    if (integer || carry != 0) _intRegs.Add(dst.Index);
                     for (int c = 0; c < 4; c++)
                     {
                         int bit = 1 << c;
                         if (mask.IndexOf("xyzw"[c]) < 0) continue;
-                        if (integer || (carry & bit) != 0) live[a[0].Index] |= bit;
-                        else live[a[0].Index] &= ~bit;
+                        if (integer || (carry & bit) != 0) live[dst.Index] |= bit;
+                        else live[dst.Index] &= ~bit;
                     }
                 }
                 if (IntReads.Contains(ins.Opcode)) continue;
-                for (int k = 1; k < a.Count; k++)
+                for (int k = destinations; k < a.Count; k++)
                     if (a[k]?.Kind == RegKind.R) _intFloatRead[a[k].Index] = true;
             }
         }
@@ -521,13 +539,8 @@ namespace ShaderRipper.Emit
             if (sw.Length == 0) sw = "xyzw";
             bool single = sw.All(c => c == sw[0]);
 
-            // A one-letter swizzle reads one lane; `xyzw` reads the whole register and
-            // only matches a full-width destination.  Anything in between is a
-            // projection, and `Expr` is the only thing that knows how to spell it.
-            string lanes;
-            if (single) lanes = sw[..1];
-            else if (sw == "xyzw" && DestMaskLen(_m.Code[_pc].Args[0]) == 4) lanes = "xyzw";
-            else return null;
+            if (sw.Any(c => !"xyzw".Contains(c))) return null;
+            string lanes = single ? sw[..1] : sw;
 
             var sync = _intNow;
             if (sync == null || sync.Length <= o.Index) return null;
@@ -627,9 +640,11 @@ namespace ShaderRipper.Emit
         /// Emit an integer result.  Writes the shadow, and the float copy only when
         /// something reads the register as a float.
         /// </summary>
-        private void IntResult(Instruction ins, string expr, bool unsigned = false)
+        private void IntResult(Instruction ins, string expr, bool unsigned = false) =>
+            IntResult(ins.Args[0], expr);
+
+        private void IntResult(Operand dst, string expr)
         {
-            var dst = ins.Args[0];
             if (dst.Kind != RegKind.R || dst.Negate || dst.Abs)
             {
                 Line($"{Expr(dst)} = asfloat({expr});");
@@ -667,7 +682,8 @@ namespace ShaderRipper.Emit
             ?? IntReinterpret(o, false);
 
         private string AsUInt(Operand o) =>
-            IntDirect(o) ?? IntShadow(o, true) ?? LitUInt(o) ?? MaskAsInt(o, true)
+            (o?.Kind == RegKind.VSv ? Expr(o) : IntShadow(o, true))
+            ?? LitUInt(o) ?? MaskAsInt(o, true)
             ?? IntReinterpret(o, true);
 
         /// <summary>
@@ -708,7 +724,7 @@ namespace ShaderRipper.Emit
             if (o == null) return null;
             // An int member is already an integer: `-_AbsoluteInset` is a negate
             // in the right domain, and wrapping it would add a conversion.
-            if (CbIsInt(o)) return Expr(o);
+            if (CbIsInt(o)) return unsigned ? $"asuint({Expr(o)})" : $"asint({Expr(o)})";
             if (!o.Negate)
                 return unsigned ? $"asuint({Expr(o)})" : $"asint({Expr(o)})";
             var plain = Clone(o, o.Swizzle);
@@ -779,9 +795,8 @@ namespace ShaderRipper.Emit
         private static string LiteralIntOf(Operand o, uint[] bits, float[] lit)
         {
             string sw = (o.Swizzle ?? "").TrimStart('.');
+            if (sw.Length == 0) sw = (bits?.Length ?? lit?.Length) > 1 ? "xyzw" : "x";
             int n = sw.Length;
-            if (n == 0 || n == 4)
-                return Gen(bits, lit, 0);
 
             if (sw.All(c => c == sw[0]))
                 return Gen(bits, lit, "xyzw".IndexOf(sw[0]) is int idx && idx >= 0 ? idx : 0);
@@ -793,7 +808,7 @@ namespace ShaderRipper.Emit
                 if (idx < 0) return Gen(bits, lit, 0);
                 parts.Add(Gen(bits, lit, idx));
             }
-            return parts.Count == 1 ? parts[0] : $"int{n}({string.Join(", ", parts)})";
+            return parts.All(part => part == parts[0]) ? parts[0] : $"int{n}({string.Join(", ", parts)})";
 
             static string Gen(uint[] bits, float[] lit, int lane)
             {
@@ -813,8 +828,7 @@ namespace ShaderRipper.Emit
             if (o == null || o.Kind != RegKind.Literal) return null;
             // Same lane selection as LitInt: `l(0, 0, 2, 1).zw` names two constants.
             string sw = (o.Swizzle ?? "").TrimStart('.');
-            if (sw.Length is 0 or 4)
-                return Gen(o, 0);
+            if (sw.Length == 0) sw = (o.LitBits?.Length ?? o.Lit?.Length) > 1 ? "xyzw" : "x";
             if (sw.All(c => c == sw[0]))
                 return Gen(o, "xyzw".IndexOf(sw[0]) is int i && i >= 0 ? i : 0);
 
@@ -824,7 +838,7 @@ namespace ShaderRipper.Emit
                 int idx = "xyzw".IndexOf(c);
                 parts.Add(Gen(o, idx < 0 ? 0 : idx));
             }
-            return parts.Count == 1 ? parts[0] : $"uint{parts.Count}({string.Join(", ", parts)})";
+            return parts.All(part => part == parts[0]) ? parts[0] : $"uint{parts.Count}({string.Join(", ", parts)})";
 
             static string Gen(Operand o, int lane)
             {
@@ -1039,7 +1053,7 @@ namespace ShaderRipper.Emit
         {
             _m = m;
             _standalone = standalone;
-            _lay = CbLayout.Build(m, m.Cb, IntCbLanes(m));
+            _lay = CbLayout.Build(m, m.Cb, IntCbLanes(m), standalone);
             var masks = AnalyseMasks(m);
             _boolLanes = masks.BoolLanes;
             _boolDefs = masks.BoolDefs;
@@ -2044,12 +2058,79 @@ namespace ShaderRipper.Emit
                 if (_lay.IsArray(reg))
                 {
                     _sb.Append($"    float4 cb{reg}[{extent}];\n}};\n\n");
+                    // The buffer kept the raw array shape, so its reflection is one
+                    // member: the same array the file declares.
+                    var array = new Data.DxbcReflection.ConstantBuffer
+                    {
+                        Name = name, Register = reg, Size = 16 * Math.Max(extent, 1),
+                    };
+                    array.Members.Add(new Data.DxbcReflection.Member
+                    {
+                        Name = $"cb{reg}", Type = "float4", Offset = 0,
+                        Size = 16 * Math.Max(extent, 1), Rows = Math.Max(extent, 1), IsArray = true,
+                    });
+                    _r.Reflection.Buffers.Add(array);
                     continue;
                 }
-                foreach (var mem in _lay.For(reg))
+                var members = _lay.For(reg);
+                foreach (var mem in members)
                     _sb.Append(CbLayout.Line(mem)).Append('\n');
                 _sb.Append("};\n\n");
+                RecordBuffer(name, reg, extent, members);
             }
+        }
+
+        /// <summary>
+        /// Record a constant buffer as reflection: one member per declared row, in row
+        /// order, with the rows nothing named filled in (see
+        /// <see cref="Data.DxbcReflection.FillGaps"/>).
+        /// </summary>
+        private void RecordBuffer(string name, int reg, int extent,
+                                  IReadOnlyList<CbLayout.Member> members)
+        {
+            var refl = new Data.DxbcReflection.ConstantBuffer
+            {
+                Name = name, Register = reg, Size = 16 * Math.Max(extent, 1),
+            };
+            foreach (var m in members)
+            {
+                if (m.IsArray)
+                {
+                    int rows = Math.Max(m.Rows, 1);
+                    refl.Members.Add(new Data.DxbcReflection.Member
+                    {
+                        Name = m.Name, Type = m.Type, Offset = m.Row * 16, Size = rows * 16,
+                        Rows = rows, IsArray = true,
+                    });
+                    continue;
+                }
+                if (m.Matrix)
+                {
+                    // The file declares `float4x4`, so reflection says the same thing:
+                    // a 4x4 matrix, not an array of four matrices.
+                    refl.Members.Add(new Data.DxbcReflection.Member
+                    {
+                        Name = m.Name, Type = "float4x4", Offset = m.Row * 16, Size = 64, Matrix = true,
+                    });
+                    continue;
+                }
+                refl.Members.Add(new Data.DxbcReflection.Member
+                {
+                    Name = m.Name, Type = m.Type, Offset = m.Row * 16 + m.Col * 4,
+                    Size = 4 * TypeComponents(m.Type),
+                });
+            }
+            Data.DxbcReflection.FillGaps(refl);
+            _r.Reflection.Buffers.Add(refl);
+        }
+
+        /// <summary>Components a declared type name carries (<c>float3</c> is 3).</summary>
+        private static int TypeComponents(string type)
+        {
+            if (string.IsNullOrEmpty(type)) return 4;
+            if (type is "float" or "int" or "uint" or "bool" or "half") return 1;
+            char last = type[type.Length - 1];
+            return last >= '2' && last <= '4' ? last - '0' : 4;
         }
 
         /// <summary>
@@ -2062,6 +2143,37 @@ namespace ShaderRipper.Emit
         /// </summary>
         private static bool RawBuffer(Decl d) =>
             d.Raw != null && d.Raw.Contains("_raw", StringComparison.OrdinalIgnoreCase);
+
+        /// <summary>Record one <c>dcl_resource</c> as a bound resource for the RDEF.</summary>
+        private void RecordTexture(string name, Decl d, bool byteAddress)
+        {
+            _r.Reflection.Bindings.Add(new Data.DxbcReflection.Binding
+            {
+                Name = name,
+                Register = d.Register,
+                Kind = Data.DxbcReflection.BindingKind.Texture,
+                // The declarations use this project's own dimension numbers (a 2D
+                // array and a 2D MS array are both 5); reflection wants the
+                // D3D_SRV_DIMENSION the container was compiled against.  A buffer is
+                // BUFFER whichever way it is viewed, which is why 7 maps to 1.
+                Dimension = d.Dimension switch
+                {
+                    1 => 2,                                     // TEXTURE1D
+                    3 => 8,                                     // TEXTURE3D
+                    4 => 9,                                     // TEXTURECUBE
+                    5 => d.Ms ? 7 : 5,                          // 2DMS_ARRAY / 2D_ARRAY
+                    7 => 1,                                     // BUFFER
+                    _ => d.Ms ? 6 : 4,                          // TEXTURE2D(MS)
+                },
+                Samples = d.Ms ? Math.Max(d.Samples, 0) : 0,
+                ByteAddress = byteAddress,
+            });
+        }
+
+        private readonly Dictionary<int, string> _samplerNames = new();
+
+        private string SamplerName(int register) => _samplerNames.TryGetValue(register, out string name)
+            ? name : $"sampler_s{register}";
 
         private void DeclareResources()
         {
@@ -2086,6 +2198,7 @@ namespace ShaderRipper.Emit
                     // `ByteAddressBuffer` takes the byte address directly, so the
                     // address arithmetic stays exactly as the original wrote it.
                     _sb.Append($"ByteAddressBuffer {name} : register(t{d.Register});\n");
+                    RecordTexture(name, d, byteAddress: true);
                     continue;
                 }
                 // `dcl_resource_raw t0` is an untyped buffer: `ld_raw` reads it by
@@ -2096,6 +2209,7 @@ namespace ShaderRipper.Emit
                 if (RawBuffer(d))
                 {
                     _sb.Append($"ByteAddressBuffer {name} : register(t{d.Register});\n");
+                    RecordTexture(name, d, byteAddress: true);
                     continue;
                 }
                 string ty = d.Dimension switch
@@ -2115,24 +2229,42 @@ namespace ShaderRipper.Emit
                     _ => d.Ms ? $"Texture2DMS<float4, {Math.Max(d.Samples, 1)}>" : "Texture2D",
                 };
                 _sb.Append($"{ty} {name} : register(t{d.Register});\n");
+                RecordTexture(name, d, byteAddress: false);
             }
             // A comparison sampler is a different type in HLSL than a filtering one,
             // and SampleCmp only exists on it.  Which registers need the comparison
             // form is known from the instruction list, so the declaration is right
             // the first time rather than patched afterwards.
-            var compareSamplers = new HashSet<int>();
-            foreach (var ins in _m.Code)
-                if (ins.Opcode is "sample_c" or "sample_c_lz" && ins.Args.Count > 2)
-                    compareSamplers.Add(ins.Args[2].Index);
-
-            foreach (var d in textures)
+            var samplerUses = _m.Code.Where(ins => ins.Args.Count > 3 &&
+                ins.Args[2].Kind == RegKind.T && ins.Args[3].Kind == RegKind.S)
+                .GroupBy(ins => ins.Args[3].Index).OrderBy(group => group.Key);
+            var usedSamplerNames = new HashSet<string>(StringComparer.Ordinal);
+            foreach (var group in samplerUses)
             {
-                // A structured buffer is not sampled; a SamplerState for it would be
-                // an unused binding.
-                if (d.Structured) continue;
-                _sb.Append(compareSamplers.Contains(d.Register)
-                    ? $"SamplerComparisonState sampler_{TexName(d.Register)} : register(s{d.Register});\n"
-                    : $"SamplerState sampler_{TexName(d.Register)} : register(s{d.Register});\n");
+                int register = group.Key;
+                int texture = _m.Cb != null && _m.Cb.SamplerTexture.TryGetValue(register, out int associated)
+                    ? associated : group.Select(ins => ins.Args[2].Index)
+                        .OrderByDescending(index => !usedSamplerNames.Contains($"sampler_{TexName(index)}"))
+                        .ThenByDescending(index => index == register)
+                        .ThenByDescending(index => _m.Cb?.TexName.ContainsKey(index) == true)
+                        .ThenBy(index => index).First();
+                string sampler = $"sampler_{TexName(texture)}";
+                bool comparison = group.Any(ins => ins.Opcode is "sample_c" or "sample_c_lz");
+                if (!usedSamplerNames.Add(sampler))
+                {
+                    // Unity can associate only one named sampler with a texture.
+                    // A second register has no recorded filter or wrap state in DXBC.
+                    string mode = comparison ? "LinearClampCompare" : "LinearRepeat";
+                    sampler = $"sampler_{mode}_s{register}";
+                    while (!usedSamplerNames.Add(sampler)) sampler += "_";
+                }
+                _samplerNames.Add(register, sampler);
+                string type = comparison ? "SamplerComparisonState" : "SamplerState";
+                _sb.Append($"{type} {sampler} : register(s{register});\n");
+                _r.Reflection.Bindings.Add(new Data.DxbcReflection.Binding
+                {
+                    Name = sampler, Register = register, Kind = Data.DxbcReflection.BindingKind.Sampler,
+                });
             }
             if (textures.Count > 0) _sb.Append('\n');
 
@@ -2157,6 +2289,7 @@ namespace ShaderRipper.Emit
                            {
                                3 => "RWTexture3D<float4>",
                                5 => "RWTexture2DArray<float4>",
+                               7 => "RWBuffer<float4>",
                                _ => "RWTexture2D<float4>",
                            };
                 // No explicit `register(uN)`: Unity's compiler renumbers UAVs itself
@@ -2171,6 +2304,9 @@ namespace ShaderRipper.Emit
                 _sb.Append($"{uty} {UavName(d.Register)};\n");
             }
             if (uavs.Count > 0) _sb.Append('\n');
+
+            foreach (var d in _m.Decls.Where(d => d.Kind == "groupshared" && d.Count > 0))
+                _sb.Append($"groupshared uint g{d.Register}[{d.Count}];\n");
 
             // dcl_immediateConstantBuffer is a literal table in the program (a blur
             // kernel, a dither matrix).  Its values are in the declaration, so the
@@ -2395,10 +2531,9 @@ namespace ShaderRipper.Emit
             // Integer work gets an integer variable to live in; see PlanIntRegisters.
             PlanIntRegisters(_m);
             foreach (int i in _intRegs.OrderBy(x => x)) Line($"int4 i{i} = 0;");
-            foreach (var d in _m.Decls.Where(d => d.Kind == "output")
-                                      .GroupBy(d => d.Register).Select(g => g.First())
-                                      .OrderBy(d => d.Register))
-                Line($"float4 o{d.Register} = 0.0;");
+            var outputs = _m.Decls.Where(d => d.Kind == "output").Select(d => d.Register)
+                .Concat(_iface.VsOutReg.Keys).Distinct().OrderBy(reg => reg);
+            foreach (int reg in outputs) Line($"float4 o{reg} = 0.0;");
             foreach (string s in _specialOut)
                 Line(s == "oMask" ? "uint oMask = 0u;" : "float oDepth = 0.0;");
             Line("");
@@ -2993,6 +3128,12 @@ namespace ShaderRipper.Emit
                 case "continue":
                     Line("continue;");
                     return true;
+                case "sync_g" when _m.Stage == "cs":
+                    Line("GroupMemoryBarrier();");
+                    return true;
+                case "sync_g_t" when _m.Stage == "cs":
+                    Line("GroupMemoryBarrierWithGroupSync();");
+                    return true;
                 default:
                     return false;
             }
@@ -3003,9 +3144,12 @@ namespace ShaderRipper.Emit
         private static readonly HashSet<string> Componentwise = new(StringComparer.Ordinal)
         {
             "add", "sub", "mul", "div", "mad", "min", "max", "mov", "movc",
-            "iadd", "imul", "imad", "iumin", "iumax", "imin", "imax",
+            "iadd", "isub", "imul", "imad", "ineg", "iumin", "iumax", "imin", "imax", "umin", "umax",
             "ieq", "ine", "ilt", "ige", "ult", "uge", "eq", "ne", "lt", "le", "gt", "ge",
-            "and", "or", "xor", "ishl", "ishr", "ushr",
+            "and", "or", "xor", "not", "ishl", "ishr", "ushr", "itof", "utof", "ftoi", "ftou",
+            "ubfe", "ibfe", "bfi",
+            "rcp", "deriv_rtx", "deriv_rty", "deriv_rtx_coarse", "deriv_rty_coarse",
+            "deriv_rtx_fine", "deriv_rty_fine",
         };
 
         /// <summary>
@@ -3291,6 +3435,8 @@ namespace ShaderRipper.Emit
             // Instructions that carry no operand are the block punctuation; they
             // have to be handled before any destination is looked at.
             if (a.Count == 0) return EmitNoOperand(ins.Opcode);
+            if (ins.Opcode == "udiv") return UnsignedDivide(a);
+            if (IsExtendedMultiply(ins)) return ExtendedMultiply(a, signed: ins.Opcode == "imul");
 
             // A `null` destination is normally a discard mask: there is nothing to
             // assign.  `sincos` is the exception -- `sincos null, r3.yw, src` means
@@ -3299,7 +3445,7 @@ namespace ShaderRipper.Emit
             // entirely, leaving the next instruction reading a lane nothing wrote.
             if (a[0].Kind == RegKind.Null && ins.Opcode != "sincos") return true;
 
-            if (Componentwise.Contains(ins.Opcode))
+            if (Componentwise.Contains(ins.Opcode) || Unary.ContainsKey(ins.Opcode))
             {
                 string m = DestMask(a[0]);
                 if (m.Length > 0)
@@ -3312,7 +3458,7 @@ namespace ShaderRipper.Emit
             // value became dead code -- which is how two cbuffer reads disappeared
             // from a rebuilt program.
             if (ins.Opcode is "store_uav_typed" or "store_structured" or "atomic_iadd" or "store_raw")
-                return EmitUavStore(ins.Opcode, a);
+                return a[0].Kind == RegKind.G ? StoreGroupShared(ins.Opcode, a) : EmitUavStore(ins.Opcode, a);
 
             string d = Expr(a[0]);
             if (d == null) return false;
@@ -3327,7 +3473,7 @@ namespace ShaderRipper.Emit
                     {
                         var st = new SwitchState { Subject = $"_sw{_switchSeq++}" };
                         _switches.Push(st);
-                        Line($"uint {st.Subject} = AsUInt(a[0]);");
+                        Line($"uint {st.Subject} = {AsUInt(a[0])};");
                         Line($"switch ({st.Subject})");
                         Line("{");
                         _indent++; _r.Blocks++;
@@ -3350,7 +3496,7 @@ namespace ShaderRipper.Emit
                                 : BitConverter.SingleToUInt32Bits(v).ToString(CultureInfo.InvariantCulture) + "u";
                         }
                         else if (a.Count > 0)
-                            label = $"AsUInt(a[0])";
+                            label = AsUInt(a[0]);
                         Line($"case {label}:");
                     }
                     return true;
@@ -3419,11 +3565,13 @@ namespace ShaderRipper.Emit
                     return true;
 
                 case "add": Line($"{d} = {Expr(a[1])} + {Expr(a[2])};"); return true;
+                case "dadd": return DoubleAdd(ins, a, d);
                 case "sub": Line($"{d} = {Expr(a[1])} - {Expr(a[2])};"); return true;
                 case "mul": Line($"{d} = {Expr(a[1])} * {Expr(a[2])};"); return true;
                 case "div": Line($"{d} = {Expr(a[1])} / {Expr(a[2])};"); return true;
                 case "mad":
                     {
+                        if (a.Count < 4) return false;
                         // A texture transform is one `mad`: `uv * _Tex_ST.xy + _Tex_ST.zw`.
                         string tt = TransformTex(a);
                         if (tt != null) { Line($"{d} = {tt};"); return true; }
@@ -3433,7 +3581,7 @@ namespace ShaderRipper.Emit
                 case "dp2": Line($"{d} = dot({Expr(a[1], 2)}, {Expr(a[2], 2)});"); return true;
                 case "dp3": Line($"{d} = dot({Expr(a[1], 3)}, {Expr(a[2], 3)});"); return true;
                 case "dp4": Line($"{d} = dot({Expr(a[1])}, {Expr(a[2])});"); return true;
-                case "rcp": Line($"{d} = 1.0 / {Scalar(a[1])};"); return true;
+                case "rcp": Line($"{d} = 1.0 / {Expr(a[1], DestWidth(a[0]))};"); return true;
                 case "sincos":
                     // DXBC's sincos has TWO destinations plus the source:
                     //   sincos dst_sin, dst_cos, src
@@ -3585,8 +3733,12 @@ namespace ShaderRipper.Emit
                     // operands are integers.  A literal keeps its BIT pattern here
                     // (`ieq l(1.0), r0` compares 0x3F800000), so it is printed as an
                     // integer instead of going through a pointless `asint(0.0f)`.
-                    Line($"{d} = ({LitInt(a[1]) ?? AsInt(a[1])} {IntCompare[ins.Opcode]} "
-                         + $"{LitInt(a[2]) ?? AsInt(a[2])}) ? {MaskFor(a[0])} : 0.0;");
+                    {
+                        bool unsigned = ins.Opcode is "uge" or "ult";
+                        string left = unsigned ? AsUInt(a[1]) : AsInt(a[1]);
+                        string right = unsigned ? AsUInt(a[2]) : AsInt(a[2]);
+                        Line($"{d} = ({left} {IntCompare[ins.Opcode]} {right}) ? {MaskFor(a[0])} : 0.0;");
+                    }
                     return true;
                 case "imad":
                     // `imad dst, src0, src1, src2` is a three-operand multiply-add, and
@@ -3602,42 +3754,14 @@ namespace ShaderRipper.Emit
                 case "ineg":
                     IntResult(ins, $"-{AsInt(a[1])}");
                     return true;
-                case "udiv":
-                    {
-                        // `udiv dst, dstHigh, src0, src1` -- FOUR operands.  The
-                        // second is the high half of the result and is `null` in
-                        // every 32-bit program, so reading src0/src1 as a[1]/a[2]
-                        // divided the NULL high half by the dividend: the result
-                        // was a constant, fxc folded the whole shader away, and
-                        // what survived was one texture fetch (a black screen that
-                        // still compiled).
-                        Operand num = a.Count > 2 ? a[2] : null;
-                        Operand den = a.Count > 3 ? a[3] : null;
-                        if (num == null || den == null) return false;
-
-                        bool zeroNumerator = num.Kind == RegKind.Null ||
-                                             (num.Lit != null && num.Lit.All(v => v == 0f));
-                        if (zeroNumerator)
-                        {
-                            IntResult(ins, $"{AsUInt(den)} == 0u ? 0xffffffffu : 0u", unsigned: true);
-                            return true;
-                        }
-
-                        // fxc proves the divisor is zero from the constant paths
-                        // above and rejects the whole file (X4010) even when a
-                        // ternary guards the division -- it type-checks both arms.
-                        // Pinning the divisor to at least 1 is what actually
-                        // silences it, and the ternary keeps D3D's answer for a
-                        // real divide by zero (0xffffffff).
-                        IntResult(ins, $"{AsUInt(den)} == 0u ? 0xffffffffu "
-                                     + $": {AsUInt(num)} / max({AsUInt(den)}, 1u)", unsigned: true);
-                    }
-                    return true;
                 case "ushr":
-                    IntResult(ins, $"{AsUInt(a[1])} >> {AsUInt(a[2])}", unsigned: true);
+                    IntResult(ins, $"{AsUInt(a[1])} >> ({AsUInt(a[2])} & 31u)", unsigned: true);
+                    return true;
+                case "ishr":
+                    IntResult(ins, $"{AsInt(a[1])} >> ({AsUInt(a[2])} & 31u)");
                     return true;
                 case "ishl":
-                    IntResult(ins, $"{AsInt(a[1])} << {AsInt(a[2])}");
+                    IntResult(ins, $"{AsInt(a[1])} << ({AsUInt(a[2])} & 31u)");
                     return true;
                 case "itof":
                     {
@@ -3657,23 +3781,7 @@ namespace ShaderRipper.Emit
                             {
                                 1 => "float", 2 => "float2", 3 => "float3", _ => "float4",
                             };
-                            // An integer that already lives in its `int4` companion is
-                            // converted straight from it (`float(i1.x)`); there is no
-                            // float copy of it to reinterpret.  A constant buffer slot
-                            // declared `int` needs no reinterpretation either -- the
-                            // conversion is the implicit one.
-                            string shadow = IntShadow(a[1], false);
-                            string src;
-                            if (shadow == null)
-                                src = CbIsInt(a[1]) ? Expr(a[1], w) : $"asint({Expr(a[1], w)})";
-                            else if (w > 1 && !shadow.EndsWith(".xyzw", StringComparison.Ordinal))
-                                // `itof r3.yw, r1.wwww`: the destination is two lanes and
-                                // the shadow is one, so it has to be splatted -- a
-                                // constructor takes one argument per component.
-                                src = string.Join(", ", Enumerable.Repeat(shadow, w));
-                            else
-                                src = shadow;
-                            mask = $"{cast}({src})";
+                            mask = $"({cast})({AsInt(a[1])})";
                         }
                         Line($"{d} = {mask};");
                     }
@@ -3734,14 +3842,14 @@ namespace ShaderRipper.Emit
                 // every mip the shader picks.
                 case "sample_b":
                     if (a.Count < 5) return Sample(a, d, "Sample");
-                    Line($"{d} = {TexName(a[2].Index)}.SampleBias(sampler_{TexName(a[2].Index)}, "
+                    Line($"{d} = {TexName(a[2].Index)}.SampleBias({SamplerName(a[3].Index)}, "
                          + $"{Coord(a[1], a[2].Index)}, {Scalar(a[4])});");
                     return true;
                 case "sample_l":
-                    Line($"{d} = {TexName(a[2].Index)}.SampleLevel(sampler_{TexName(a[2].Index)}, {Coord(a[1], a[2].Index)}, {Scalar(a[4])});");
+                    Line($"{d} = {TexName(a[2].Index)}.SampleLevel({SamplerName(a[3].Index)}, {Coord(a[1], a[2].Index)}, {Scalar(a[4])});");
                     return true;
                 case "sample_d":
-                    Line($"{d} = {TexName(a[2].Index)}.SampleGrad(sampler_{TexName(a[2].Index)}, {Coord(a[1], a[2].Index)}, "
+                    Line($"{d} = {TexName(a[2].Index)}.SampleGrad({SamplerName(a[3].Index)}, {Coord(a[1], a[2].Index)}, "
                          + $"{Coord(a[4], a[2].Index)}, {Coord(a[5], a[2].Index)});");
                     return true;
 
@@ -3750,26 +3858,10 @@ namespace ShaderRipper.Emit
                 // texture; the coordinate register holds float bits, so each
                 // component is read back with asint.  Zeroing the unused
                 // components is what the DXBC form does implicitly.
-                // Bit-field insert: `bfi dst, width, offset, value, insert` replaces
-                // `width` bits of `value` starting at `offset` with the low bits of
-                // `insert`.  HLSL has no intrinsic for it, so it is spelled out in
-                // uint.  Width and offset are immediates in every occurrence seen,
-                // which lets the mask be folded here instead of at runtime; a
-                // register width falls back to the TODO line rather than guessing.
                 case "bfi":
-                    {
-                        if (a.Count < 5) return false;
-                        if (a[1].Lit is not { Length: > 0 } wl || a[2].Lit is not { Length: > 0 } ol)
-                            return false;
-                        uint width = wl[0] < 0f ? 0u : (uint)wl[0];
-                        uint offset = ol[0] < 0f ? 0u : (uint)ol[0];
-                        uint mask = width >= 32u ? uint.MaxValue
-                                  : ((1u << (int)width) - 1u) << (int)offset;
-                        uint notMask = ~mask;
-                        Line($"{d} = asfloat((AsUInt(a[3]) & {notMask}u) "
-                             + $"| ((AsUInt(a[4]) << {offset}u) & {mask}u));");
-                    }
-                    return true;
+                case "ubfe":
+                case "ibfe":
+                    return BitField(ins.Opcode, a);
 
                 case "ld":
                     {
@@ -3791,7 +3883,7 @@ namespace ShaderRipper.Emit
                 case "gather":
                     {
                         int tex = a[2].Index;
-                        Line($"{d} = {TexName(tex)}.Gather(sampler_{TexName(tex)}, {Coord(a[1], tex)});");
+                        Line($"{d} = {TexName(tex)}.Gather({SamplerName(a[3].Index)}, {Coord(a[1], tex)});");
                     }
                     return true;
 
@@ -3802,11 +3894,11 @@ namespace ShaderRipper.Emit
                 // method name wrong is X4532 ("cannot map expression to vs/ps
                 // instruction"), not a silent difference.
                 case "sample_c":
-                    Line($"{d} = {TexName(a[2].Index)}.SampleCmp(sampler_{TexName(a[2].Index)}, "
+                    Line($"{d} = {TexName(a[2].Index)}.SampleCmp({SamplerName(a[3].Index)}, "
                          + $"{Coord(a[1], a[2].Index)}, {Scalar(a[4])});");
                     return true;
                 case "sample_c_lz":
-                    Line($"{d} = {TexName(a[2].Index)}.SampleCmpLevelZero(sampler_{TexName(a[2].Index)}, "
+                    Line($"{d} = {TexName(a[2].Index)}.SampleCmpLevelZero({SamplerName(a[3].Index)}, "
                          + $"{Coord(a[1], a[2].Index)}, {Scalar(a[4])});");
                     return true;
 
@@ -3876,6 +3968,8 @@ namespace ShaderRipper.Emit
                 case "resinfo_indexable":
                 case "resinfo":
                     return ResInfo(a, d);
+                case "bufinfo":
+                    return BufferInfo(a, d);
 
                 // Sample count of a multisampled resource: `sampleinfo_uint r0.z,
                 // t0.x`.  HLSL has no intrinsic for it -- a Texture2DMS reports the
@@ -3901,27 +3995,7 @@ namespace ShaderRipper.Emit
                     {
                         int w2 = DestWidth(a[0]);
                         string cast = w2 switch { 1 => "float", 2 => "float2", 3 => "float3", _ => "float4" };
-                        Line($"{d} = {cast}(AsUInt(a[1]));");
-                    }
-                    return true;
-
-                // Bit-field extract: (value >> offset) & ((1 << width) - 1).
-                // DXBC operand order is `ubfe dst, width, offset, value`; HLSL has no
-                // intrinsic, so the shift and the mask are written out.
-                //
-                // The destination is a float register holding an integer bit
-                // pattern, so the result goes back through asfloat -- without it
-                // every later asuint() would read the numeric value's bits instead.
-                case "ubfe":
-                    {
-                        string cnt = Scalar(a[1]);
-                        string off = Scalar(a[2]);
-                        string src = Expr(a[3]);
-                        // (1 << width) - 1 as an unsigned mask.  A width of 32 is not
-                        // representable in a shift of a 32-bit int, so it is handled
-                        // as the all-ones case.
-                        Line($"{d} = asfloat((asuint({src}) >> asuint({off})) & "
-                             + $"({cnt} >= 32u ? 0xFFFFFFFFu : ((1u << asuint({cnt})) - 1u)));");
+                        Line($"{d} = ({cast})({AsUInt(a[1])});");
                     }
                     return true;
 
@@ -3940,10 +4014,142 @@ namespace ShaderRipper.Emit
             }
         }
 
+        private static string UIntType(Operand dst) => "uint" + Comps(dst);
+
+        private string UIntSource(Operand src, Operand dst)
+        {
+            string mask = DestMask(dst);
+            return AsUInt(RemapForMask(src, mask.Length == 0 ? "xyzw" : mask));
+        }
+
+        private bool UnsignedDivide(List<Operand> args)
+        {
+            if (args.Count != 4) return false;
+            Line("{");
+            _indent++;
+            for (int i = 0; i < 2; i++)
+            {
+                var dst = args[i];
+                if (dst.Kind == RegKind.Null) continue;
+                string num = UIntSource(args[2], dst);
+                string den = UIntSource(args[3], dst);
+                string op = i == 0 ? "/" : "%";
+                string type = UIntType(dst);
+                Line($"{type} _divisor{i} = {den};");
+                // Guard the operator too, because fxc diagnoses a constant zero
+                // divisor even in an unselected branch.
+                Line($"{type} _divResult{i} = _divisor{i} == 0u ? 0xffffffffu : ({num}) {op} max(_divisor{i}, 1u);");
+            }
+            // Both results are computed from the old registers, even if either
+            // destination aliases the dividend or divisor.
+            for (int i = 0; i < 2; i++)
+                if (args[i].Kind != RegKind.Null)
+                    IntResult(args[i], $"_divResult{i}");
+            _indent--;
+            Line("}");
+            return true;
+        }
+
+        private bool ExtendedMultiply(List<Operand> args, bool signed)
+        {
+            var hi = args[0];
+            var lo = args[1];
+            Line("{");
+            _indent++;
+            if (hi.Kind != RegKind.Null)
+            {
+                string type = UIntType(hi);
+                Line($"{type} _mulL = {UIntSource(args[2], hi)};");
+                Line($"{type} _mulR = {UIntSource(args[3], hi)};");
+                // Compose the high word with four 16-bit products and their carries.
+                Line($"{type} _mulLo = (_mulL & 65535u) * (_mulR & 65535u);");
+                Line($"{type} _mulMid = (_mulL >> 16u) * (_mulR & 65535u) + (_mulLo >> 16u);");
+                Line($"{type} _mulCarry = (_mulL & 65535u) * (_mulR >> 16u) + (_mulMid & 65535u);");
+                Line($"{type} _mulHigh = (_mulL >> 16u) * (_mulR >> 16u) + (_mulMid >> 16u) + (_mulCarry >> 16u);");
+                if (signed)
+                    Line("_mulHigh -= (asint(_mulL) < 0 ? _mulR : 0u) + (asint(_mulR) < 0 ? _mulL : 0u);");
+            }
+            if (lo.Kind != RegKind.Null)
+                Line($"{UIntType(lo)} _mulLow = ({UIntSource(args[2], lo)}) * ({UIntSource(args[3], lo)});");
+            if (hi.Kind != RegKind.Null) IntResult(hi, "_mulHigh");
+            if (lo.Kind != RegKind.Null) IntResult(lo, "_mulLow");
+            _indent--;
+            Line("}");
+            return true;
+        }
+
+        private bool BitField(string opcode, List<Operand> args)
+        {
+            if (args.Count != (opcode == "bfi" ? 5 : 4)) return false;
+            var dst = args[0];
+            string type = UIntType(dst);
+            Line("{");
+            _indent++;
+            Line($"{type} _bitWidth = {AsUInt(args[1])} & 31u;");
+            Line($"{type} _bitOffset = {AsUInt(args[2])} & 31u;");
+            string value = AsUInt(args[3]);
+            if (opcode == "bfi")
+            {
+                Line($"{type} _bitMask = ((1u << _bitWidth) - 1u) << _bitOffset;");
+                IntResult(dst, $"((({value}) << _bitOffset) & _bitMask) | (({AsUInt(args[4])}) & ~_bitMask)");
+            }
+            else if (opcode == "ibfe")
+            {
+                Line($"{type} _bitLength = min(_bitWidth, 32u - _bitOffset);");
+                Line($"{type} _bitLeft = (32u - _bitLength - _bitOffset) & 31u;");
+                Line($"{type} _bitRight = (32u - _bitLength) & 31u;");
+                IntResult(dst, $"_bitWidth == 0u ? 0 : (asint(({value}) << _bitLeft) >> _bitRight)");
+            }
+            else
+                IntResult(dst, $"(({value}) >> _bitOffset) & ((1u << _bitWidth) - 1u)");
+            _indent--;
+            Line("}");
+            return true;
+        }
+
+        private bool DoubleAdd(Instruction ins, List<Operand> args, string destination)
+        {
+            if (args.Count != 3 || args.Skip(1).Any(o => Core(o) == null ||
+                o.Swizzle is not (null or ".xyzw" or ".xyxy" or ".zwxy" or ".zwzw"))) return false;
+            string mask = DestMask(args[0]);
+            if (mask is not ("" or "xy" or "zw")) return false;
+
+            string Read(Operand operand, int lane)
+            {
+                string swizzle = operand.Swizzle ?? ".xyzw";
+                var lo = Clone(operand, "." + swizzle[lane + 1]);
+                var hi = Clone(operand, "." + swizzle[lane + 2]);
+                lo.Negate = hi.Negate = lo.Abs = hi.Abs = false;
+                string value = $"asdouble({AsUInt(lo)}, {AsUInt(hi)})";
+                if (operand.Abs) value = $"abs({value})";
+                return operand.Negate ? "-" + value : value;
+            }
+
+            Line("{");
+            _indent++;
+            var words = new List<string>(mask.Length == 0 ? 4 : 2);
+            for (int lane = 0; lane < 4; lane += 2)
+            {
+                if (mask.Length != 0 && mask[0] != "xz"[lane / 2]) continue;
+                string sum = $"({Read(args[1], lane)} + {Read(args[2], lane)})";
+                if (ins.Saturate) sum = $"min(max({sum}, 0.0L), 1.0L)";
+                string lo = $"_dadd{lane}lo", hi = $"_dadd{lane}hi";
+                Line($"uint {lo}, {hi};");
+                Line($"asuint({sum}, {lo}, {hi});");
+                words.Add(lo);
+                words.Add(hi);
+            }
+            // Both pairs must be read before writing either pair when the operands alias.
+            Line($"{destination} = asfloat(uint{words.Count}({string.Join(", ", words)}));");
+            _indent--;
+            Line("}");
+            return true;
+        }
+
         private bool Sample(List<Operand> a, string d, string method)
         {
             if (a.Count < 4) return false;
-            Line($"{d} = {TexName(a[2].Index)}.{method}(sampler_{TexName(a[2].Index)}, {Coord(a[1], a[2].Index)});");
+            Line($"{d} = {TexName(a[2].Index)}.{method}({SamplerName(a[3].Index)}, {Coord(a[1], a[2].Index)});");
             return true;
         }
 
@@ -3958,13 +4164,14 @@ namespace ShaderRipper.Emit
         private bool LoadRaw(List<Operand> a, string d)
         {
             if (a.Count < 3) return false;
+            if (a[2].Kind == RegKind.G) return LoadGroupShared(a[0], a[2], a[1], null, d);
 
             // `ld_raw ... u0` reads back a UAV; `t0` reads an SRV.  The two
             // namespaces are separate, so the name follows the operand kind.
             bool isUav = a[2].Kind == RegKind.U;
             int res = a[2].Index;
             string name = isUav ? UavName(res) : TexName(res);
-            Line($"{d} = {name}.Load{Comps(a[0])}(AsUInt(a[1]));");
+            Line($"{d} = asfloat({name}.Load{Comps(a[0])}({AsUInt(a[1])}));");
             return true;
         }
 
@@ -3983,6 +4190,7 @@ namespace ShaderRipper.Emit
         {
             // dst + index + byteOffset + resource
             if (a.Count < 4) return false;
+            if (a[3].Kind == RegKind.G) return LoadGroupShared(a[0], a[3], a[1], a[2], d);
 
             // The resource operand's kind splits the two views: `ld_structured
             // ... t1` reads an SRV, `ld_structured ... u1` reads back a
@@ -4018,7 +4226,50 @@ namespace ShaderRipper.Emit
                 addr = $"{addr} + {AsUInt(a[2])}";
             }
 
-            Line($"{d} = {(isUav ? UavName(tex) : TexName(tex))}.Load{Comps(a[0])}({addr});");
+            Line($"{d} = asfloat({(isUav ? UavName(tex) : TexName(tex))}.Load{Comps(a[0])}({addr}));");
+            return true;
+        }
+
+        private string GroupSharedIndex(Operand resource, Operand address, Operand offset)
+        {
+            var decl = _m.Decls.FirstOrDefault(d => d.Kind == "groupshared" && d.Register == resource.Index);
+            if (decl == null || decl.Count == 0 || decl.Structured != (offset != null)) return null;
+            string index = AsUInt(address);
+            return offset == null ? $"({index} >> 2u)"
+                : $"({index} * {decl.Stride / 4}u + ({AsUInt(offset)} >> 2u))";
+        }
+
+        private bool LoadGroupShared(Operand dst, Operand resource, Operand address, Operand offset, string destination)
+        {
+            string index = GroupSharedIndex(resource, address, offset);
+            if (index == null) return false;
+            string mask = DestMask(dst);
+            if (mask.Length == 0) mask = "xyzw";
+            string swizzle = resource.Swizzle?.TrimStart('.') ?? "xyzw";
+            if (swizzle.Length == 1) swizzle = new string(swizzle[0], 4);
+            if (swizzle.Length != 4) return false;
+            var words = mask.Select(lane => $"g{resource.Index}[{index} + {"xyzw".IndexOf(swizzle["xyzw".IndexOf(lane)])}u]");
+            string value = mask.Length == 1 ? words.First() : $"uint{mask.Length}({string.Join(", ", words)})";
+            Line($"{destination} = asfloat({value});");
+            return true;
+        }
+
+        private bool StoreGroupShared(string opcode, List<Operand> args)
+        {
+            bool structured = opcode == "store_structured";
+            if (!(structured && args.Count == 4 || opcode == "store_raw" && args.Count == 3)) return false;
+            string index = GroupSharedIndex(args[0], args[1], structured ? args[2] : null);
+            if (index == null) return false;
+            string mask = DestMask(args[0]);
+            if (mask.Length == 0) mask = "xyzw";
+            Operand value = args[^1];
+            string swizzle = value.Swizzle?.TrimStart('.') ?? "xyzw";
+            foreach (char lane in mask)
+            {
+                int component = "xyzw".IndexOf(lane);
+                string word = AsUInt(Clone(value, "." + swizzle[Math.Min(component, swizzle.Length - 1)]));
+                Line($"g{args[0].Index}[{index} + {component}u] = {word};");
+            }
             return true;
         }
 
@@ -4083,6 +4334,25 @@ namespace ShaderRipper.Emit
         /// <summary>Distinct temporary name per <c>resinfo</c> in this program.</summary>
         private int _resInfoSeq;
 
+        private bool BufferInfo(List<Operand> args, string destination)
+        {
+            if (args.Count != 2 || args[1].Kind is not (RegKind.T or RegKind.U)) return false;
+            var resource = args[1];
+            bool uav = resource.Kind == RegKind.U;
+            string kind = uav ? "uav" : "texture";
+            var decl = _m.Decls.FirstOrDefault(d => d.Kind == kind && d.Register == resource.Index);
+            if (decl == null || (decl.Structured ? decl.Stride <= 0 : !RawBuffer(decl) && decl.Dimension != 7))
+                return false;
+
+            string count = $"_bufCount{_resInfoSeq++}";
+            string name = uav ? UavName(resource.Index) : TexName(resource.Index);
+            Line($"uint {count};");
+            Line($"{name}.GetDimensions({count});");
+            string elements = decl.Structured ? $"{count} / {decl.Stride}u" : count;
+            Line($"{destination} = asfloat({elements});");
+            return true;
+        }
+
         /// <summary>
         /// A texture coordinate narrowed to integers, for the loads that address
         /// texels rather than sample them (<c>Texture2DMS.Load</c>).  The register
@@ -4116,7 +4386,7 @@ namespace ShaderRipper.Emit
                     if (a.Count < 4) return false;
                     {
                         string suffix = DestWidth(a[0]) switch { 2 => "2", 3 => "3", 4 => "4", _ => "" };
-                        Line($"{name}.Store{suffix}({uavAddress(a[1], a[2], decl?.Stride ?? 0)}, AsUInt(a[3]));");
+                        Line($"{name}.Store{suffix}({uavAddress(a[1], a[2], decl?.Stride ?? 0)}, {StoreValue(a[0], a[3])});");
                     }
                     return true;
 
@@ -4124,7 +4394,7 @@ namespace ShaderRipper.Emit
                 // append index.  No output register.
                 case "atomic_iadd":
                     if (a.Count < 3) return false;
-                    Line($"{name}.InterlockedAdd({uavAddress(a[1], null, decl?.Stride ?? 0)}, AsUInt(a[2]));");
+                    Line($"{name}.InterlockedAdd({uavAddress(a[1], null, decl?.Stride ?? 0)}, {AsUInt(a[2])});");
                     return true;
 
                 // `store_raw u0.xyz, r0.x, r2.xyzx`: (target, byte address, value).
@@ -4134,11 +4404,18 @@ namespace ShaderRipper.Emit
                     if (a.Count < 3) return false;
                     {
                         string suffix = DestWidth(a[0]) switch { 2 => "2", 3 => "3", 4 => "4", _ => "" };
-                        Line($"{name}.Store{suffix}(AsUInt(a[1]), AsUInt(a[2]));");
+                        Line($"{name}.Store{suffix}({AsUInt(a[1])}, {StoreValue(a[0], a[2])});");
                     }
                     return true;
             }
             return false;
+        }
+
+        private string StoreValue(Operand target, Operand value)
+        {
+            int width = DestWidth(target);
+            string swizzle = value.Swizzle ?? ".xyzw";
+            return AsUInt(swizzle.Length > width + 1 ? Clone(value, swizzle[..(width + 1)]) : value);
         }
 
         /// <summary>
@@ -4160,7 +4437,7 @@ namespace ShaderRipper.Emit
                     ? (uint)lit[0] : BitConverter.SingleToUInt32Bits(lit[0]);
                 if (off != 0) addr = $"{addr} + {off}u";
             }
-            else addr = $"{addr} + AsUInt(offset)";
+            else addr = $"{addr} + {AsUInt(offset)}";
             return addr;
         }
 

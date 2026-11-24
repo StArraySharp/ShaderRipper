@@ -1,4 +1,6 @@
 using System.Collections.Generic;
+using System.IO;
+using ShaderRipper.Game;
 
 namespace ShaderRipper.Data
 {
@@ -39,80 +41,20 @@ namespace ShaderRipper.Data
         public byte[][] RawPayloads = System.Array.Empty<byte[]>();
         public string FallbackName => ParsedForm?.FallbackName ?? "";
 
-        /// <summary>
-        /// Non-null for a ComputeShader (ClassID 72), whose structure is nothing like
-        /// a Shader's: kernels with their own thread-group size and programs, and a
-        /// separate parameter reflection per variant.  A compute shader has no
-        /// properties, no passes and no keywords the ShaderLab format could carry,
-        /// so it is exported through its own path rather than forced into this one.
-        /// </summary>
-        public ComputeShaderAsset Compute;
-
-        /// <summary>True when this object is a compute shader rather than a Shader.</summary>
-        public bool IsCompute => Compute != null;
+        public ShaderAsset PluginAsset;
+        public string OutputExtension => PluginAsset?.OutputExtension ?? ".shader";
     }
 
     /// <summary>
-    /// A <c>ComputeShader</c> (ClassID 72) as far as an export needs it: the
-    /// kernels it declares, and for each kernel the compiled programs of one
-    /// platform variant.
+    /// A serialized shader type whose body and output format are owned by a plugin.
     /// </summary>
-    internal sealed class ComputeShaderAsset
+    internal abstract class ShaderAsset
     {
         public string Name = "";
-
-        /// <summary>
-        /// One entry per platform the build shipped, in asset order.  A kernel's
-        /// <c>variants</c> index into this list, so a kernel that exists only for
-        /// d3d11 still lands in the right variant.
-        /// </summary>
-        public List<ComputeVariant> Variants = new List<ComputeVariant>();
-
-        /// <summary>Kernel names in declaration order (the asset's own order).</summary>
-        public List<string> KernelNames = new List<string>();
-
-        /// <summary>
-        /// Every keyword any variant was compiled under.  The emitted
-        /// <c>.compute</c> writes them as <c>#pragma multi_compile</c> so the guards
-        /// in its body can select a variant.
-        /// </summary>
-        public List<string> GlobalKeywords = new List<string>();
-        public List<string> LocalKeywords = new List<string>();
-    }
-
-    /// <summary>One platform's worth of compiled compute kernels.</summary>
-    internal sealed class ComputeVariant
-    {
-        /// <summary>The backend id (<c>SerializedShader.m_Platforms</c> spelling).</summary>
-        public int Platform;
-        public int Level;
-
-        public List<ComputeKernel> Kernels = new List<ComputeKernel>();
-
-        /// <summary>Keywords this variant was compiled under, in declaration order.</summary>
-        public List<string> GlobalKeywords = new List<string>();
-        public List<string> LocalKeywords = new List<string>();
-    }
-
-    /// <summary>One kernel's compiled programs for one platform.</summary>
-    internal sealed class ComputeKernel
-    {
-        public string Name = "";
-
-        /// <summary><c>threadGroupSize</c>: the <c>[numthreads(x, y, z)]</c> the source declared.</summary>
-        public int[] ThreadGroupSize = System.Array.Empty<int>();
-
-        /// <summary>
-        /// The compiled DXBC payloads, one per keyword variant the build made.
-        /// Usually a single entry; a kernel under <c>multi_compile</c> has more.
-        /// </summary>
-        public List<byte[]> Programs = new List<byte[]>();
-
-        /// <summary>
-        /// The keyword indices (into the shader's keyword table) each program was
-        /// compiled for, in program order.  Empty for the base variant.
-        /// </summary>
-        public List<List<int>> KeywordIndices = new List<List<int>>();
+        public abstract string OutputExtension { get; }
+        public abstract void Dump(TextWriter writer, long pathId);
+        public abstract void Export(string name, string rel, string outDir,
+                                    bool writeAsset, bool origAsm, GameExport.Stats stats);
     }
 
     internal sealed class ParsedForm
@@ -269,6 +211,9 @@ namespace ShaderRipper.Data
         /// </summary>
         public List<int> KeywordIndices = new List<int>();
 
+        /// <summary>Names resolved from legacy global and local keyword indices in the pass.</summary>
+        public List<string> PassKeywords;
+
         /// <summary>
         /// Index into the shader payload's parameter-blob table, which holds this
         /// program's constant-buffer layout.  It comes from
@@ -287,6 +232,9 @@ namespace ShaderRipper.Data
         /// </summary>
         public System.Collections.Generic.List<AssetConstantBuffer> ConstantBuffers
             = new System.Collections.Generic.List<AssetConstantBuffer>();
+
+        // Constant-buffer bindings are separate from the layout table and need not share its order.
+        public readonly Dictionary<int, string> ConstantBufferBindings = new();
 
         /// <summary>
         /// <c>m_Parameters.m_TextureParams</c> (plus the program-wide

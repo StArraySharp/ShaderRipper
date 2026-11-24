@@ -12,6 +12,8 @@
          solution build keeps it compiling.  The host still loads it from a
          directory given on the command line. -->
     <Project Path="src/ShaderRipper.Plugin.SpirV/ShaderRipper.Plugin.SpirV.csproj" />
+    <Project Path="src/ShaderRipper.Plugin.Compute/ShaderRipper.Plugin.Compute.csproj" />
+    <Project Path="src/ShaderRipper.Plugin.XorBundle/ShaderRipper.Plugin.XorBundle.csproj" />
     <!-- Turns an export into a render-test manifest.  A plugin for the same reason:
          what a test harness needs is one opinion, not part of the exporter. -->
     <Project Path="src/ShaderRipper.Plugin.AutomatedTesting/ShaderRipper.Plugin.AutomatedTesting.csproj" />

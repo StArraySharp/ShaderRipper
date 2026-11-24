@@ -286,7 +286,8 @@ namespace ShaderRipper.Emit
             RowName.TryGetValue(reg, out var rows) && rows.TryGetValue(row, out var n) ? n : null;
 
         public static CbLayout Build(Module m, Resolve.CbResolver cb,
-                                     IReadOnlyDictionary<(int reg, int row, int col), string> intLanes = null)
+                                     IReadOnlyDictionary<(int reg, int row, int col), string> intLanes = null,
+                                     bool standalone = false)
         {
             var layout = new CbLayout();
             var decls = m.Decls.Where(d => d.Kind == "cbuffer")
@@ -379,7 +380,35 @@ namespace ShaderRipper.Emit
                         + string.Join(" ", members.Select(x =>
                             $"{x.Name}@c{x.Row}.{"xyzw"[x.Col]}{(x.IsArray ? $"[{x.Rows}]" : "")}")));
             }
+            if (standalone) layout.DisambiguateStandaloneMembers();
             return layout;
+        }
+
+        private void DisambiguateStandaloneMembers()
+        {
+            // HLSL puts members from every cbuffer in one namespace. Preserve
+            // both physical offsets and redirect the reads from the later slot.
+            var reserved = Members.Values.SelectMany(members => members).Select(m => m.Name)
+                .ToHashSet(StringComparer.Ordinal);
+            var seen = new HashSet<string>(StringComparer.Ordinal);
+            foreach (var (register, members) in Members.OrderBy(kv => kv.Key))
+            {
+                var aliases = new Dictionary<string, string>(StringComparer.Ordinal);
+                foreach (var member in members)
+                {
+                    if (seen.Add(member.Name)) continue;
+                    string stem = $"{member.Name}_cb{register}";
+                    string alias = stem;
+                    for (int i = 1; !reserved.Add(alias); i++) alias = $"{stem}_{i}";
+                    aliases.Add(member.Name, alias);
+                    member.Name = alias;
+                }
+                if (aliases.Count == 0) continue;
+                var rows = RowName[register];
+                foreach (int row in rows.Keys.ToArray())
+                    rows[row] = Regex.Replace(rows[row], @"(?<![.\w])[A-Za-z_]\w*",
+                        name => aliases.GetValueOrDefault(name.Value, name.Value));
+            }
         }
 
         /// <summary>

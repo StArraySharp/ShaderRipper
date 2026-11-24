@@ -64,6 +64,8 @@ namespace ShaderRipper.Emit
         /// body lines, so the chain is emitted as-is.
         /// </summary>
         private const int MinimumBranches = 4;
+        // Large chains are compacted by sharing identical bodies in ShaderLab.
+        private const int MaximumBranches = 128;
 
         /// <summary>
         /// Rewrite one chain in place, collapsing it to a single body.  Returns false
@@ -71,7 +73,7 @@ namespace ShaderRipper.Emit
         /// </summary>
         public static bool Apply(ShaderLab.VariantChain chain)
         {
-            if (chain == null || chain.Bodies.Count < MinimumBranches) return false;
+            if (chain == null || chain.Bodies.Count is < MinimumBranches or > MaximumBranches) return false;
             if (chain.Keywords.Count != chain.Bodies.Count) return false;
 
             int n = chain.Bodies.Count;
@@ -96,13 +98,13 @@ namespace ShaderRipper.Emit
             var groups = new List<Group>();
             for (int i = 0; i < n; i++)
             {
-                var taken = new HashSet<string>(StringComparer.Ordinal);
+                var taken = new Dictionary<string, int>(StringComparer.Ordinal);
                 foreach (var item in branches[i])
                 {
                     if (!slots.TryGetValue(item.Shape, out var list))
                         slots[item.Shape] = list = new List<Group>();
-                    int nth = taken.Count(s => s == item.Shape);
-                    taken.Add(item.Shape);
+                    int nth = taken.GetValueOrDefault(item.Shape);
+                    taken[item.Shape] = nth + 1;
                     while (list.Count <= nth) list.Add(null);
                     var hit = list[nth];
                     if (hit == null)
@@ -351,6 +353,7 @@ namespace ShaderRipper.Emit
         {
             private readonly List<HashSet<string>> _keywords;
             private readonly List<string> _all = new();
+            private readonly ulong[] _states;
 
             public GuardBuilder(List<HashSet<string>> keywords)
             {
@@ -360,6 +363,13 @@ namespace ShaderRipper.Emit
                     foreach (string k in set)
                         if (seen.Add(k)) _all.Add(k);
                 _all.Sort(StringComparer.Ordinal);
+                if (_all.Count > 64) return;
+
+                _states = new ulong[keywords.Count];
+                for (int branch = 0; branch < keywords.Count; branch++)
+                    for (int bit = 0; bit < _all.Count; bit++)
+                        if (keywords[branch].Contains(_all[bit]))
+                            _states[branch] |= 1UL << bit;
             }
 
             /// <summary>
@@ -369,27 +379,26 @@ namespace ShaderRipper.Emit
             /// </summary>
             public string For(List<int> branches)
             {
-                if (branches.Count == _keywords.Count) return null;
+                if (_states == null || branches.Count == _keywords.Count) return null;
 
                 var want = new HashSet<int>(branches);
-                var keep = new List<string>(_all);
-                foreach (string candidate in _all)
+                ulong keep = _all.Count == 64 ? ulong.MaxValue : (1UL << _all.Count) - 1;
+                for (int bit = 0; bit < _all.Count; bit++)
                 {
-                    var trial = keep.Where(k => k != candidate).ToList();
+                    ulong trial = keep & ~(1UL << bit);
                     if (Selects(trial, want)) keep = trial;
                 }
-                if (keep.Count == 0 || !Selects(keep, want)) return null;
+                if (keep == 0 || !Selects(keep, want)) return null;
 
                 var terms = new List<string>();
-                var covered = new HashSet<int>();
+                var covered = new HashSet<ulong>();
                 foreach (int i in branches)
                 {
-                    if (!covered.Add(i)) continue;
+                    if (!covered.Add(_states[i] & keep)) continue;
                     var parts = new List<string>();
-                    foreach (string k in keep)
-                        parts.Add((_keywords[i].Contains(k) ? "" : "!") + "defined(" + k + ")");
-                    for (int j = 0; j < _keywords.Count; j++)
-                        if (SameState(i, j, keep)) covered.Add(j);
+                    for (int bit = 0; bit < _all.Count; bit++)
+                        if ((keep & (1UL << bit)) != 0)
+                            parts.Add(((_states[i] & (1UL << bit)) != 0 ? "" : "!") + "defined(" + _all[bit] + ")");
                     terms.Add(string.Join(" && ", parts));
                 }
                 return terms.Count == 1 ? terms[0]
@@ -397,21 +406,12 @@ namespace ShaderRipper.Emit
             }
 
             /// <summary>Does this group selection pick out exactly <paramref name="want"/>?</summary>
-            private bool Selects(List<string> groups, HashSet<int> want)
+            private bool Selects(ulong mask, HashSet<int> want)
             {
-                for (int i = 0; i < _keywords.Count; i++)
-                {
-                    if (want.Contains(i)) continue;
-                    foreach (int j in want)
-                        if (SameState(i, j, groups)) return false;
-                }
-                return true;
-            }
-
-            private bool SameState(int a, int b, List<string> groups)
-            {
-                foreach (string k in groups)
-                    if (_keywords[a].Contains(k) != _keywords[b].Contains(k)) return false;
+                var selected = new HashSet<ulong>();
+                foreach (int branch in want) selected.Add(_states[branch] & mask);
+                for (int i = 0; i < _states.Length; i++)
+                    if (!want.Contains(i) && selected.Contains(_states[i] & mask)) return false;
                 return true;
             }
         }

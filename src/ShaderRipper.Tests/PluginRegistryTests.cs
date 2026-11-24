@@ -20,6 +20,17 @@ namespace ShaderRipper.Tests;
 [TestFixture]
 public class PluginRegistryTests
 {
+    [Test]
+    public void DiscoveryAcceptsAssembliesWithMetadataBeyondTheFirstEightKilobytes()
+    {
+        var path = typeof(PluginRegistryTests).Assembly.Location;
+        using var stream = System.IO.File.OpenRead(path);
+        using var pe = new System.Reflection.PortableExecutable.PEReader(stream);
+
+        Assert.That(pe.PEHeaders.MetadataStartOffset, Is.GreaterThanOrEqualTo(8192));
+        Assert.That(PluginHost.LooksLikeManagedAssembly(path), Is.True);
+    }
+
     private static PlatformDescriptor Desc(int id, string name, string format = "dxbc") =>
         new() { Id = id, Name = name, Format = format, HasTranslator = true };
 

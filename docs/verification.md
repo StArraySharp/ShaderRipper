@@ -59,6 +59,32 @@ their counts, comparison operators, and the intrinsics after normalising through
 the translator's own rename table. 33/33 pass on that build, and a mutation test
 (deleting one `Sample`, dropping one register write) is caught in both cases.
 
+### Completed DXBC containers (`--hlslcc`)
+
+A program Unity ships for d3d has no RDEF chunk: the constant-buffer layout and the
+resource names live in the asset's parameter blobs, not in the container. `--orig-asm`
+on a d3d backend therefore writes the container out twice -- as `.orig.asm` (the text
+the translator read) and as `.orig.dxbc`, the body as shipped with an RDEF written back
+in. The exporter prefers the asset's constant-buffer bindings, member names, and byte
+offsets when available. It uses the parameter blobs and disassembly for the remaining
+reflection. HLSLcc translates each container with unused members removed. A successful
+translation confirms that HLSLcc can read the container. Names such as `_cb0_row17`,
+`_m0`, and `_tex0` in the output indicate that a resource or member still lacks its
+original name. A program HLSLcc
+cannot translate even with the chunk removed is reported as such rather than as a
+failure -- that is HLSLcc's limit, not this tool's.
+
+The container's own 16-byte digest is left zeroed: fxc computes it with a private
+algorithm (undocumented -- the one public write-up of the format says as much), and no
+derivation that can be tried against real output reproduces the value, so a reader that
+validates the digest -- d3dcompiler's disassembler -- rejects any modified container.
+HLSLcc is the reader this artifact exists for, and it walks the chunk tables by offset
+without checking the digest.
+
+```sh
+py -3 scripts/verify_logic.py <export dir> --hlslcc=<path to hlslcc> -j 6
+```
+
 ### Readability passes (pattern recognition)
 
 Correct output should also look like the shader it came from. Three pattern

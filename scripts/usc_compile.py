@@ -90,7 +90,7 @@ SCRIPT_DIR = os.path.dirname(os.path.abspath(__file__))
 
 MAGIC = b"\xe4\xd1\x0b\x0c"
 MAGIC_U32 = 0x0C0BD1E4
-MAXLEN = 1 << 26
+MAXLEN = 1 << 29
 PEEK_TIMEOUT = 0.30
 
 
@@ -108,6 +108,10 @@ def pack_int(v):
     return MAGIC + struct.pack("<i", int(v))
 
 
+def pack_uint64(v):
+    return MAGIC + struct.pack("<Q", int(v))
+
+
 def pack_cmd(name):
     return pack_str("c:" + name)
 
@@ -117,7 +121,7 @@ class Reader:
 
     def __init__(self, conn, verbose=False):
         self.conn = conn
-        self.buf = b""
+        self.buf = bytearray()
         self.verbose = verbose
 
     def _fill(self, k, timeout):
@@ -126,16 +130,17 @@ class Reader:
             chunk = self.conn.recv(65536)
             if not chunk:
                 raise EOFError("IPC stream closed")
-            self.buf += chunk
+            self.buf.extend(chunk)
 
     def _take(self, k, timeout):
         self._fill(k, timeout)
-        out, self.buf = self.buf[:k], self.buf[k:]
+        out = bytes(memoryview(self.buf)[:k])
+        del self.buf[:k]
         return out
 
     def _peek(self, k, timeout=PEEK_TIMEOUT):
         if len(self.buf) >= k:
-            return self.buf[:k]
+            return bytes(self.buf[:k])
         try:
             self.conn.settimeout(timeout)
             chunk = self.conn.recv(65536)
@@ -143,8 +148,8 @@ class Reader:
             return b""
         if not chunk:
             return b""
-        self.buf += chunk
-        return self.buf[:k]
+        self.buf.extend(chunk)
+        return bytes(self.buf[:k])
 
     def read(self, label="", timeout=20.0):
         magic = self._take(4, timeout)
@@ -187,17 +192,23 @@ class Client:
     def send(self, blob):
         self.conn.sendall(blob)
 
+    def send_source(self, source):
+        payload = source.encode("ascii", "replace")
+        self.send(MAGIC + struct.pack("<Q", len(payload)))
+        self.send(payload)
+
     # ---------------- preprocess ----------------
-    def preprocess(self, source, include_root, platform, valid_apis=-1):
+    def preprocess(self, source, include_root, platform, valid_apis=-1, *, capture=None):
+        capture = capture or {}
         self.send(pack_cmd("preprocess"))
-        self.send(pack_str(source))
+        self.send_source(source)
         self.send(pack_str(include_root))   # include search root
-        self.send(pack_str(include_root))
-        self.send(pack_int(0))              # surfaceOnly
-        self.send(pack_int(platform))       # buildPlatform
-        self.send(pack_int(valid_apis))     # platform bitmask, -1 = all
-        self.send(pack_int(0))              # pKW count
-        self.send(pack_int(0))              # dKW count
+        self.send(pack_str(capture.get("file", include_root)))
+        self.send(pack_int(capture.get("surfaceOnly", 0)))
+        self.send(pack_int(capture.get("buildPlatform", platform)))
+        self.send(pack_int(capture.get("validAPIs", valid_apis)))
+        self.send_keywords(capture.get("pKW", "").split())
+        self.send_keywords(capture.get("dKW", "").split())
 
         snips, errors = [], []
         while True:
@@ -223,7 +234,8 @@ class Client:
                     if k2 == "payload" and as_text(k2, v2).startswith("keywordsEnd:"):
                         break
                 snips.append({"id": sid, "text": body})
-                log(f"  snip {sid}: {len(body)}B")
+                if not capture or self.r.verbose:
+                    log(f"  snip {sid}: {len(body)}B")
                 continue
 
             if head == "err:":
@@ -243,30 +255,36 @@ class Client:
                 return snips, errors, ok != 0, as_text(k, v)
 
     # ---------------- compileSnippet ----------------
-    def compile_snippet(self, source, include_root, function, keywords, platform):
+    def send_keywords(self, keywords):
+        self.send(pack_int(len(keywords)))
+        for keyword in keywords:
+            self.send(pack_str(keyword))
+
+    def compile_snippet(self, source, include_root, function, keywords, platform, *, capture=None):
+        capture = capture or {}
+        if int(capture.get("rsLen", 0)) != 0:
+            raise ValueError("The capture does not include the render-state payload.")
         self.send(pack_cmd("compileSnippet"))
-        self.send(pack_str(source))
+        self.send_source(source)
         self.send(pack_str(include_root))
-        self.send(pack_str(include_root))
-        self.send(pack_str(""))            # name
-        self.send(pack_str("0"))           # pass
-        self.send(pack_int(0))             # ppOnly
-        self.send(pack_int(0))             # stripLineD
-        self.send(pack_int(0))             # buildPlatform
+        self.send(pack_str(capture.get("file", include_root)))
+        self.send(pack_str(capture.get("name", "")))
+        self.send(pack_str(capture.get("pass", "0")))
+        self.send(pack_int(capture.get("ppOnly", 0)))
+        self.send(pack_int(capture.get("stripLineD", 0)))
+        self.send(pack_int(capture.get("buildPlatform", 0)))
         self.send(pack_int(0))             # rsLen
-        self.send(pack_int(len(keywords)))  # pKW
-        for k in keywords:
-            self.send(pack_str(k))
-        self.send(pack_int(0))             # uKW
-        self.send(pack_int(0))             # dKW
+        self.send_keywords(capture["pKW"].split() if "pKW" in capture else keywords)
+        self.send_keywords(capture.get("uKW", "").split())
+        self.send_keywords(capture.get("dKW", "").split())
         self.send(pack_int(0))             # unlabelled
-        self.send(pack_str(""))            # flags
-        self.send(pack_int(0))             # lang
+        self.send(pack_uint64(capture.get("flags", 0)))
+        self.send(pack_int(capture.get("lang", 0)))
         self.send(pack_int(function))      # 0=vertex 1=fragment
         self.send(pack_int(platform))
-        self.send(pack_str(""))            # reqs
-        self.send(pack_int(0))             # mask
-        self.send(pack_int(0))             # start
+        self.send(pack_uint64(capture.get("reqs", 0)))
+        self.send(pack_int(capture.get("mask", 0)))
+        self.send(pack_int(capture.get("start", 0)))
 
         errors, bindings = [], []
         while True:

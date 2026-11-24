@@ -38,8 +38,8 @@ import threading
 
 # --- the GLSL side ---------------------------------------------------------
 
-GLSL_FETCH = re.compile(r"\b(texture|textureLod|textureProj|textureGrad|textureOffset|"
-                        r"texelFetch|texelFetchOffset|textureSize)\s*\(")
+GLSL_FETCH = re.compile(r"\b(texture(?:Lod(?:Offset)?|Proj|Grad(?:Offset)?|Offset|Size|"
+                        r"(?:[123]D|Cube)(?:Lod)?)?|texelFetch(?:Offset)?)\s*\(")
 GLSL_CALL = re.compile(r"\b([A-Za-z_]\w*)\s*\(")
 GLSL_KEYWORDS = {
     "if", "else", "for", "while", "do", "return", "break", "continue", "discard",
@@ -57,8 +57,8 @@ GLSL_OPS = ("&&", "||", "^^", "+=", "-=", "*=", "/=", "<<", ">>", "<=", ">=",
 
 # --- the emitted HLSL side -------------------------------------------------
 
-HLSL_FETCH = re.compile(r"\.(Sample|SampleLevel|SampleBias|SampleGrad|SampleCmp|"
-                        r"SampleCmpLevelZero|Load|Gather|GetDimensions)\s*\(")
+HLSL_FETCH = re.compile(r"(?:\.(?:Sample|SampleLevel|SampleBias|SampleGrad|SampleCmp|"
+                        r"SampleCmpLevelZero|Load|Gather|GetDimensions)|\b_sri_textureSize_\w+)\s*\(")
 HLSL_CALL = re.compile(r"\b([A-Za-z_]\w*)\s*\(")
 HLSL_KEYWORDS = {
     "if", "else", "for", "while", "do", "return", "break", "continue", "discard",
@@ -80,12 +80,16 @@ HLSL_OPS = ("&&", "||", "+=", "-=", "*=", "/=", "<<", ">>", "<=", ">=",
 # the comparison about LOGIC rather than about spelling.
 RENAMED = {
     # GLSL intrinsic -> HLSL intrinsic
-    "mix": "lerp", "fract": "frac", "mod": "fmod", "dFdx": "ddx", "dFdy": "ddy",
+    "mix": "lerp", "fract": "frac", "mod": "_sri_mod", "dFdx": "ddx", "dFdy": "ddy",
     "roundEven": "round", "inversesqrt": "rsqrt",
     "intBitsToFloat": "asfloat", "floatBitsToInt": "asint",
     "floatBitsToUint": "asuint", "uintBitsToFloat": "asfloat",
-    "texture": "Sample", "textureLod": "SampleLevel",
-    "texelFetch": "Load", "textureSize": "GetDimensions",
+    "texture": "Sample", "textureLod": "SampleLevel", "textureLodOffset": "SampleLevel",
+    "textureGrad": "SampleGrad", "textureGradOffset": "SampleGrad", "textureOffset": "Sample",
+    "texture1D": "Sample", "texture2D": "Sample", "texture3D": "Sample", "textureCube": "Sample",
+    "texture1DLod": "SampleLevel", "texture2DLod": "SampleLevel",
+    "texture3DLod": "SampleLevel", "textureCubeLod": "SampleLevel",
+    "texelFetch": "Load", "texelFetchOffset": "Load", "textureSize": "GetDimensions",
     # GLSL built-ins with no HLSL spelling: the translator routes the call
     # through a synthesized _sri_* helper.
     "bitfieldInsert": "bitfieldInsert", "bitfieldExtract": "bitfieldExtract",
@@ -130,6 +134,8 @@ def normalise_name(name):
             break
     if name in RENAMED:
         return RENAMED[name].lower()
+    if name.startswith("_sri_textureSize_"):
+        return "getdimensions"
     if name.startswith("vs_"):
         return name[3:].lower()
     return name.lower()

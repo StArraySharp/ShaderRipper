@@ -149,6 +149,7 @@ namespace ShaderRipper.Emit
             "unity_WorldToCamera", "unity_CameraToWorld",
             "unity_CameraProjection", "unity_CameraInvProjection",
             "unity_WorldToShadow",
+            "unity_DynamicLightmap_HDR",
             // per-frame scalars and vectors
             "_Time", "_SinTime", "_CosTime", "_DeltaTime",
             "_ProjectionParams", "_ScreenParams", "_ZBufferParams", "_OrthoParams",
@@ -406,7 +407,6 @@ namespace ShaderRipper.Emit
                 if (text == null) continue;
                 bool vertex = stage == "VERTEX";
                 var t = new GlslTranslator(text, vertex, props, materialUnion);
-                synthNeeded.UnionWith(t._synthHelpers);
                 t.Read();
                 r.ParseErrors += t._r.ParseErrors;
                 if (t._r.ParseErrors > 0) continue;
@@ -414,6 +414,7 @@ namespace ShaderRipper.Emit
                 r.Missing.AddRange(t._r.Missing);
 
                 var (g, fn) = t.Split();
+                synthNeeded.UnionWith(t._synthHelpers);
                 // `_engineNames` is filled while the body is emitted, so it is read
                 // after Split() -- reading it before would always see an empty list
                 // and drop the include line.
@@ -524,6 +525,8 @@ namespace ShaderRipper.Emit
             foreach (string h in synthNeeded)
                 if (SynthHelperText.TryGetValue(h, out string helperText))
                     sb.Append(helperText);
+                else if (TextureShapes.TryGetValue(h, out var shape))
+                    sb.Append(TextureSizeHelper(h, shape));
             foreach (var line in globals) sb.Append(line).Append('\n');
             sb.Append('\n');
             foreach (var fn in functions) sb.Append(fn).Append('\n');
@@ -759,6 +762,7 @@ namespace ShaderRipper.Emit
         private GlslParser.FunctionDefinitionContext _main;
         private readonly List<GlslParser.FunctionDefinitionContext> _helpers = new();
         private readonly HashSet<string> _synthHelpers = new(StringComparer.Ordinal);
+        private string _stageReturn;
 
         /// <summary>
         /// Bodies for the GLSL built-ins HLSL lacks a spelling for, emitted once
@@ -769,6 +773,10 @@ namespace ShaderRipper.Emit
         private static readonly Dictionary<string, string> SynthHelperText =
             new(StringComparer.Ordinal)
         {
+            ["mod"] = string.Concat(new[] { "float", "float2", "float3", "float4" }
+                .Select(type => $"{type} _sri_mod({type} x, {type} y) {{ return x - y * floor(x / y); }}\n")
+                .Concat(new[] { "float2", "float3", "float4" }
+                    .Select(type => $"{type} _sri_mod({type} x, float y) {{ return x - y * floor(x / y); }}\n"))) + "\n",
             ["bitfieldInsert"] =
                 "int _sri_bitfieldInsert(int base, int insert, int offset, int bits)\n" +
                 "{\n    int mask = ((1 << bits) - 1) << offset;\n" +
@@ -1097,15 +1105,9 @@ namespace ShaderRipper.Emit
                 // redefinition.  `SamplerOf` spells the include's sampler at the
                 // call sites instead.
                 if (IncludeDeclared.Contains(name)) continue;
-                string tex = type switch
-                {
-                    "sampler3D" => "Texture3D",
-                    "samplerCube" => "TextureCube",
-                    "sampler2DArray" => "Texture2DArray",
-                    _ => "Texture2D",
-                };
+                string tex = TextureShapes.TryGetValue(type, out var shape) ? shape.ObjectType : "Texture2D";
                 _sb.Append(tex).Append(' ').Append(name).Append(";\n");
-                _sb.Append("SamplerState sampler_").Append(name).Append(";\n");
+                if (type != "samplerBuffer") _sb.Append("SamplerState sampler_").Append(name).Append(";\n");
             }
             // Names already declared inside a cbuffer must not be declared again:
             // HLSL rejects the redefinition ("redefinition of '_SpecColor'"), and
@@ -1420,7 +1422,9 @@ namespace ShaderRipper.Emit
                 // `vs_out`.  See MainSignature.
             }
 
-            if (_main?.compoundStatement() != null)
+            _stageReturn = StageReturn(varying, mrt);
+            var statements = _main?.compoundStatement()?.statement();
+            if (statements != null)
             {
                 // The translated statement text carries the source's own layout,
                 // which is GLSLcc output: braces are glued to the preceding
@@ -1429,7 +1433,7 @@ namespace ShaderRipper.Emit
                 // readable; trimming alone left every nested statement at the
                 // same level as the `if` that guards it.
                 int depth = 1;   // 1 = inside the function's own body
-                foreach (var st in _main.compoundStatement().statement())
+                foreach (var st in statements)
                 {
                     string text = FinishStatement(Render(st)?.Trim());
                     if (string.IsNullOrEmpty(text)) continue;
@@ -1437,41 +1441,6 @@ namespace ShaderRipper.Emit
                     {
                         string l = line.Trim();
                         if (l.Length == 0) continue;
-                        // The payload's `return;` is the stage's exit.  A vertex
-                        // program with interpolators has to hand them over in the
-                        // return struct -- returning `o0` alone discards the vertex
-                        // colour, which is what made the sprite fully transparent.
-                        if (l == "return;" || l == "return o0;")
-                        {
-                            if (_vertex && varying)
-                            {
-                                string pad = new string(' ', depth * 4);
-                                _sb.Append(pad).Append("{\n");
-                                _sb.Append(pad).Append("    vs_out o;\n");
-                                _sb.Append(pad).Append("    o.pos = o0;\n");
-                                foreach (var (_, name, _) in _varyingOut)
-                                    _sb.Append(pad).Append("    o.").Append(name)
-                                       .Append(" = ").Append(name).Append(";\n");
-                                _sb.Append(pad).Append("    return o;\n");
-                                _sb.Append(pad).Append("}\n");
-                                continue;
-                            }
-                            if (!_vertex && _outs.Select(o => o.name).Distinct().Count() > 1)
-                            {
-                                string pad = new string(' ', depth * 4);
-                                _sb.Append(pad).Append("{\n");
-                                _sb.Append(pad).Append("    _frag_out _fo;\n");
-                                foreach (var (_, name) in _outs.Distinct())
-                                    _sb.Append(pad).Append("    _fo.").Append(name)
-                                       .Append(" = ").Append(name).Append(";\n");
-                                _sb.Append(pad).Append("    return _fo;\n");
-                                _sb.Append(pad).Append("}\n");
-                                continue;
-                            }
-                            l = _vertex ? "return o0;"
-                                        : "return " + (_outs.Count > 0 ? _outs[0].name : "o0") + ";";
-                        }
-
                         // A line that opens with `}` closes the block that was
                         // open, so it sits one level out from the body it ends.
                         // `} else {` is the exception in spirit but not in form:
@@ -1494,6 +1463,8 @@ namespace ShaderRipper.Emit
                 }
             }
 
+            if (statements?.LastOrDefault() is not GlslParser.ReturnStmtContext)
+                foreach (var line in _stageReturn.Split('\n')) _sb.Append("    ").Append(line).Append('\n');
             _sb.Append("}\n\n");
 
             // The payload unrolled every matrix-vector product into one assignment
@@ -1510,6 +1481,19 @@ namespace ShaderRipper.Emit
             _sb.Clear();
             foreach (string one in folded) _sb.Append(one).Append('\n');
             return _sb.ToString();
+        }
+
+        private string StageReturn(bool varying, bool mrt)
+        {
+            if (_vertex && varying)
+                return "{\n    vs_out o;\n    o.pos = o0;\n" +
+                       string.Concat(_varyingOut.Select(v => $"    o.{v.name} = {v.name};\n")) +
+                       "    return o;\n}";
+            if (mrt)
+                return "{\n    _frag_out _fo;\n" +
+                       string.Concat(_outs.Distinct().Select(o => $"    _fo.{o.name} = {o.name};\n")) +
+                       "    return _fo;\n}";
+            return $"return {(_vertex || _outs.Count == 0 ? "o0" : _outs[0].name)};";
         }
 
         /// <summary>
@@ -1680,7 +1664,7 @@ namespace ShaderRipper.Emit
                 // GLSL `return;` hands back whatever was written to the outputs;
                 // HLSL has to name it, or the compiler rejects the path (X3507).
                 case GlslParser.ReturnStmtContext r when r.expression() == null:
-                    return "return o0;";
+                    return _stageReturn;
                 default: return null;
             }
         }
@@ -1710,6 +1694,17 @@ namespace ShaderRipper.Emit
         /// </summary>
         private string Call(string name, List<string> args)
         {
+            if (name == "mod" && args.Count == 2)
+            {
+                _synthHelpers.Add(name);
+                return $"_sri_mod({args[0]}, {args[1]})";
+            }
+            name = name switch
+            {
+                "texture1D" or "texture2D" or "texture3D" or "textureCube" => "texture",
+                "texture1DLod" or "texture2DLod" or "texture3DLod" or "textureCubeLod" => "textureLod",
+                _ => name,
+            };
             if (name is "texture" && args.Count is 2 or 3 && _samplers.Contains(args[0]))
             {
                 string sampler = args[0];
@@ -1739,38 +1734,31 @@ namespace ShaderRipper.Emit
             if (name == "textureLod" && args.Count == 3)
                 return $"{args[0]}.SampleLevel({SamplerOf(args[0])}, {SampleCoord(args[0], args[1])}, {args[2]})";
 
-            // Integer-coordinate fetch.  GLSL's texelFetch takes (sampler, ivecN,
-            // lod) and returns the unfiltered texel; HLSL's equivalent is
-            // Texture.Load(int3(x, y, lod)) on a 2D texture.  The coordinate has to
-            // be widened to an int3 with the mip in z, which is why this is not a
-            // plain rename.
-            if (name is "texelFetch" or "texelFetchOffset" && args.Count >= 2 && _samplers.Contains(args[0]))
+            if (args.Count > 0 && _samplerKind.TryGetValue(args[0], out string kind) &&
+                TextureShapes.TryGetValue(kind, out var shape))
             {
                 string sampler = args[0];
-                string coord = args[1];
-                string lod = args.Count > 2 ? args[2] : "0";
-                // A swizzle written directly on the coordinate is the fetch
-                // position and must survive.  A cast or constructor is already
-                // the right width (`(int3)(uv.xyz)`), so leave it alone --
-                // appending .xy there would cut a three-component fetch down
-                // to two and change the texel it reads.
-                var m = Swizzle.Match(coord);
-                string xy = coord;
-                if (m.Success)
+                switch (name)
                 {
-                    string sw = m.Groups[2].Value;
-                    xy = $"({m.Groups[1].Value}).{(sw.Length > 2 ? sw.Substring(0, 2) : sw)}";
+                    case "textureSize" when args.Count == (shape.Mipmapped ? 2 : 1):
+                        _synthHelpers.Add(kind);
+                        return $"_sri_textureSize_{kind}({string.Join(", ", args)})";
+                    case "texelFetch" when !shape.Mipmapped && args.Count == 2:
+                        return $"{sampler}.Load({args[1]})";
+                    case "texelFetch" when shape.Offsets && args.Count == 3:
+                        return $"{sampler}.Load(int{shape.Dimensions + 1}({args[1]}, {args[2]}))";
+                    case "texelFetchOffset" when shape.Offsets && args.Count == 4:
+                        return $"{sampler}.Load(int{shape.Dimensions + 1}({args[1]}, {args[2]}), {args[3]})";
+                    case "textureGrad" when shape.Mipmapped && args.Count == 4:
+                    case "textureGradOffset" when shape.Offsets && args.Count == 5:
+                        return $"{sampler}.SampleGrad({SamplerOf(sampler)}, {SampleCoord(sampler, args[1])}, {string.Join(", ", args.Skip(2))})";
+                    case "textureOffset" when shape.Offsets && args.Count == 3:
+                        return $"{sampler}.Sample({SamplerOf(sampler)}, {SampleCoord(sampler, args[1])}, {args[2]})";
+                    case "textureOffset" when shape.Offsets && args.Count == 4:
+                        return $"{sampler}.SampleBias({SamplerOf(sampler)}, {SampleCoord(sampler, args[1])}, {args[3]}, {args[2]})";
+                    case "textureLodOffset" when shape.Offsets && args.Count == 4:
+                        return $"{sampler}.SampleLevel({SamplerOf(sampler)}, {SampleCoord(sampler, args[1])}, {args[2]}, {args[3]})";
                 }
-                return $"{sampler}.Load(int3({xy}, {lod}))";
-            }
-
-            // Texture dimensions.  GLSL returns ivecN; HLSL needs the texture
-            // object's own accessors, so the call becomes a GetDimensions query --
-            // expressed here as a helper the caller can inline.
-            if (name is "textureSize" && args.Count >= 1 && _samplers.Contains(args[0]))
-            {
-                string sampler = args[0];
-                return $"({sampler}.GetDimensions)";
             }
 
             // GLSL bit splicing has no HLSL intrinsic.  The call goes to a
@@ -1799,6 +1787,33 @@ namespace ShaderRipper.Emit
             }
 
             return null;
+        }
+
+        private readonly record struct TextureShape(string ObjectType, int Dimensions,
+                                                    bool Offsets = true, bool Mipmapped = true);
+
+        private static readonly Dictionary<string, TextureShape> TextureShapes = new(StringComparer.Ordinal)
+        {
+            ["sampler1D"] = new("Texture1D", 1),
+            ["sampler1DArray"] = new("Texture1DArray", 2),
+            ["sampler2D"] = new("Texture2D", 2),
+            ["sampler2DArray"] = new("Texture2DArray", 3),
+            ["sampler3D"] = new("Texture3D", 3),
+            ["samplerCube"] = new("TextureCube", 2, Offsets: false),
+            ["samplerCubeArray"] = new("TextureCubeArray", 3, Offsets: false),
+            ["samplerBuffer"] = new("Buffer<float4>", 1, Offsets: false, Mipmapped: false),
+        };
+
+        private static string TextureSizeHelper(string kind, TextureShape shape)
+        {
+            string type = shape.Dimensions == 1 ? "int" : $"int{shape.Dimensions}";
+            string dimensions = string.Join(", ", new[] { "width", "height", "depth" }.Take(shape.Dimensions));
+            string lodParameter = shape.Mipmapped ? ", int lod" : "";
+            string outputs = shape.Mipmapped ? $"{dimensions}, levels" : dimensions;
+            string arguments = shape.Mipmapped ? $"lod, {outputs}" : outputs;
+            return $"{type} _sri_textureSize_{kind}({shape.ObjectType} tex{lodParameter})\n" +
+                   $"{{\n    uint {outputs};\n    tex.GetDimensions({arguments});\n" +
+                   $"    return {type}({dimensions});\n}}\n\n";
         }
 
         private static readonly System.Text.RegularExpressions.Regex Swizzle =
@@ -1941,7 +1956,6 @@ namespace ShaderRipper.Emit
         {
             ["mix"] = "lerp",
             ["fract"] = "frac",
-            ["mod"] = "fmod",
             ["dFdx"] = "ddx",
             ["dFdy"] = "ddy",
             ["roundEven"] = "round",

@@ -119,6 +119,7 @@ namespace ShaderRipper.Data
             var stream = new byte[total];
 
             long sp = -1;
+            byte[] firstBlock = null;
             if (blocks.Length > 0)
             {
                 // Normal layout: block data follows the block table, 16-byte
@@ -151,7 +152,7 @@ namespace ShaderRipper.Data
                             var d = Decompress(Slice(buf, (int)cand, (int)blocks[0].comp),
                                                (int)blocks[0].raw,
                                                (Compression)(blocks[0].flags & 0x3F));
-                            if (d.Length == blocks[0].raw) sp = cand;
+                            if (d.Length == blocks[0].raw) { sp = cand; firstBlock = d; }
                         }
                         catch {  }
                         if (sp >= 0) break;
@@ -164,23 +165,17 @@ namespace ShaderRipper.Data
             int dp = 0;
             foreach (var (raw, comp, bf) in blocks)
             {
-                var src = Slice(buf, (int)sp, (int)comp);
-                var dst = new byte[raw];
-                if (comp == raw) Buffer.BlockCopy(src, 0, dst, 0, (int)raw);
+                if (dp == 0 && firstBlock != null)
+                    Buffer.BlockCopy(firstBlock, 0, stream, dp, (int)raw);
+                else if (comp == raw)
+                    Buffer.BlockCopy(buf, (int)sp, stream, dp, (int)raw);
                 else
                 {
-                    var bc = (Compression)(bf & 0x3F);
-                    if (bc == Compression.None) Buffer.BlockCopy(src, 0, dst, 0, (int)raw);
-                    else if (bc is Compression.Lz4 or Compression.Lz4Hc)
-                    {
-                        int got = LZ4Codec.Decode(src, 0, src.Length, dst, 0, dst.Length);
-                        if (got <= 0) throw new InvalidDataException("LZ4 block decode failed");
-                    }
-                    else throw new NotSupportedException(
-                        $"bundle block compression {bc} is not supported (only LZ4/none)");
+                    var src = Slice(buf, (int)sp, (int)comp);
+                    var dst = Decompress(src, (int)raw, (Compression)(bf & 0x3F));
+                    Buffer.BlockCopy(dst, 0, stream, dp, dst.Length);
                 }
-                Buffer.BlockCopy(dst, 0, stream, dp, dst.Length);
-                dp += dst.Length;
+                dp += (int)raw;
                 sp += comp;
             }
 
@@ -220,13 +215,14 @@ namespace ShaderRipper.Data
         /// levels, and a hostile or corrupt file must not send the walk into an
         /// unbounded recursion.
         /// </summary>
-        private static IEnumerable<(string path, byte[] data)> SerializedFiles(
-            byte[] buf, string prefix, int depth = 0)
+        internal static IEnumerable<(string path, byte[] data)> SerializedFiles(
+            byte[] buf, string prefix, int depth = 0, Action<string, Exception> onError = null)
         {
             List<Node> nodes;
             try { nodes = Read(buf); }
             catch (Exception e)
             {
+                onError?.Invoke(prefix, e);
                 // Silence here used to hide a genuine failure: a bundle that could
                 // not be decoded produced zero shaders and a "0 files" summary, with
                 // nothing to say why.  A one-line note costs nothing and turns that
@@ -245,7 +241,7 @@ namespace ShaderRipper.Data
                     // Nested container: its own nodes are what the caller wants,
                     // and the container itself carries no objects of its own.
                     if (depth >= 4) continue;
-                    foreach (var inner in SerializedFiles(n.Data, path, depth + 1))
+                    foreach (var inner in SerializedFiles(n.Data, path, depth + 1, onError))
                         yield return inner;
                     continue;
                 }
@@ -329,7 +325,7 @@ namespace ShaderRipper.Data
                 case Compression.Lz4Hc:
                     {
                         int got = LZ4Codec.Decode(src, 0, src.Length, dst, 0, rawSize);
-                        if (got <= 0) throw new InvalidDataException("LZ4 blocksInfo decode failed");
+                        if (got != rawSize) throw new InvalidDataException("LZ4 block decode failed");
                         return dst;
                     }
                 case Compression.Lzma:
@@ -344,20 +340,28 @@ namespace ShaderRipper.Data
         }
 
         /// <summary>
-        /// UnityFS LZMA blocks use the classic "lzma alone" framing: 5 bytes of
-        /// range-coder properties followed by the 8-byte uncompressed size, then
-        /// the raw stream. SharpCompress' LzmaStream decodes exactly that.
+        /// UnityFS normally stores five LZMA property bytes followed by the raw
+        /// stream. Also accept LZMA-alone blocks with an explicit matching size.
         /// </summary>
         private static byte[] DecodeLzma(byte[] src, int rawSize)
         {
-            if (src.Length < 13) throw new InvalidDataException("LZMA payload too short");
+            if (src.Length < 10 || src[0] >= 225 ||
+                System.Buffers.Binary.BinaryPrimitives.ReadUInt32LittleEndian(src.AsSpan(1)) > 1u << 27)
+                throw new InvalidDataException("Invalid LZMA block properties");
             var props = new byte[5];
             Buffer.BlockCopy(src, 0, props, 0, 5);
-            using var input = new MemoryStream(src, 13, src.Length - 13, writable: false);
+            int offset = 5;
+            if (src.Length >= 18)
+            {
+                ulong size = System.Buffers.Binary.BinaryPrimitives.ReadUInt64LittleEndian(src.AsSpan(5));
+                if (size == (ulong)rawSize || size == ulong.MaxValue) offset = 13;
+            }
+            if (src[offset] != 0) throw new InvalidDataException("Invalid LZMA range stream");
+            using var input = new MemoryStream(src, offset, src.Length - offset, writable: false);
             using var output = new MemoryStream(rawSize);
             var dec = new SevenZip.Compression.LZMA.Decoder();
             dec.SetDecoderProperties(props);
-            dec.Code(input, output, src.Length - 13, rawSize, null);
+            dec.Code(input, output, src.Length - offset, rawSize, null);
             if (output.Length != rawSize)
                 throw new InvalidDataException($"LZMA decode produced {output.Length}/{rawSize} bytes");
             return output.ToArray();

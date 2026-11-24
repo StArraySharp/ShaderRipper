@@ -29,6 +29,7 @@ namespace ShaderRipper.Resolve
         /// <summary>Scalar members that occupy one lane of a row: (cb,row,component) -> name.</summary>
         public readonly Dictionary<(int cb, int row, int comp), string> CompExpr = new();
         public readonly Dictionary<int, string> TexName = new();
+        public readonly Dictionary<int, int> SamplerTexture = new();
         public readonly Dictionary<int, List<(string name, string type)>> GlobalsDecl = new();
         public readonly HashSet<int> FullyMapped = new();
         /// <summary>
@@ -232,7 +233,8 @@ namespace ShaderRipper.Resolve
                                          System.Collections.Generic.List<(string Name, int Index, int Sampler)> texParams = null,
                                          Dictionary<string, int> matrixRows = null,
                                          Dictionary<int, string> glslTexNames = null,
-                                         Dictionary<int, string> blobTexNames = null)
+                                         Dictionary<int, string> blobTexNames = null,
+                                         IReadOnlyDictionary<int, string> assetBindings = null)
         {
             var r = new CbResolver(new HashSet<string>(nameTable ?? new List<string>(), StringComparer.Ordinal));
             r.MatrixRows = matrixRows;
@@ -266,6 +268,26 @@ namespace ShaderRipper.Resolve
             r._dynamicIndex = dynamicIndex;
             var candidates = r.CbufferNamesInTable();
             var chosen = r.IdentityFromParamBlob(decls, used) ?? r.AssignBijection(decls, used, candidates);
+            if (assetBindings != null)
+            {
+                // A compiled binding supersedes the heuristic assignment for that
+                // identity, including a guess on a different register.
+                var boundNames = new HashSet<string>(StringComparer.Ordinal);
+                foreach (var (register, name) in assetBindings)
+                    if (used.ContainsKey(register) && !string.IsNullOrEmpty(name))
+                    {
+                        chosen[register] = name;
+                        r.ConfirmedCb.Add(register);
+                        if (!BlobTool.IsGlobalsName(name)) boundNames.Add(name);
+                    }
+                foreach (int register in chosen.Keys.ToArray())
+                    if (!assetBindings.ContainsKey(register) && boundNames.Contains(chosen[register]))
+                    {
+                        chosen.Remove(register);
+                        r.ConfirmedCb.Remove(register);
+                        r.CbSize.Remove(register);
+                    }
+            }
             r.AssignFromSiblingHint(decls, used, chosen, identityHint);
             if (!chosen.Values.Any(BlobTool.IsGlobalsName) && TmpLayouts.Enabled)
             {
@@ -577,6 +599,7 @@ namespace ShaderRipper.Resolve
             {
                 if (chosen.ContainsKey(d.Register)) continue;
                 if (!hint.TryGetValue(d.Register, out var name)) continue;
+                if (chosen.ContainsValue(name)) continue;
                 if (BlobTool.IsGlobalsName(name) || UnityCbuffers.RowCount(name) <= 0) continue;
                 if (used[d.Register].Any(r => UnityCbuffers.Find(name, r) == null)) continue;
 
@@ -1262,6 +1285,133 @@ namespace ShaderRipper.Resolve
         /// order is NOT register order: one commercial title's FloorMesh declares _TileTex first but
         /// binds it to t2, which silently swapped three samplers and broke the look.
         /// </remarks>
+        private IEnumerable<(int reg, string name)> InferTextureNames(Ast.Module prog, List<string> properties)
+        {
+            var cubes = prog.Decls.Where(d => d.Kind == "texture" && d.Dimension == 4)
+                                  .Select(d => d.Register).ToHashSet();
+            var volumes = prog.Decls.Where(d => d.Kind == "texture" && d.Dimension == 3)
+                                    .Select(d => d.Register).ToHashSet();
+            var lightmapSamples = new Dictionary<int, Instruction>();
+            for (int i = 0; i < prog.Code.Count; i++)
+            {
+                var sample = prog.Code[i];
+                if (sample.Opcode is not ("sample" or "sample_b" or "sample_d" or "sample_l") ||
+                    sample.Args.Count < 4 || sample.Args[2].Kind != RegKind.T) continue;
+
+                int register = sample.Args[2].Index;
+                foreach (var binding in InferLightmapNames(prog, i, sample, lightmapSamples))
+                    yield return binding;
+                if (volumes.Contains(register))
+                    for (int j = i - 1; j >= Math.Max(0, i - 8); j--)
+                    {
+                        var scale = prog.Code[j];
+                        if (scale.Opcode == "mul" && scale.Args.Skip(1).Any(operand =>
+                            operand.Kind == RegKind.Cb &&
+                            (RowExpr.GetValueOrDefault((operand.Index, operand.Row)) == "unity_ProbeVolumeSizeInv" ||
+                             CompExpr.GetValueOrDefault((operand.Index, operand.Row, 0)) == "unity_ProbeVolumeSizeInv.x")))
+                        {
+                            yield return (register, "unity_ProbeVolumeSH");
+                            break;
+                        }
+                    }
+                if (i > 0 && properties.Count > 0)
+                {
+                    var transform = prog.Code[i - 1];
+                    var uv = sample.Args[1];
+                    if (transform.Opcode == "mad" && !transform.Saturate && transform.Args.Count == 4 &&
+                        transform.Args[0].Swizzle == ".xy" && SameTemp(transform.Args[0], uv) &&
+                        uv.Swizzle?.StartsWith(".xy", StringComparison.Ordinal) == true)
+                    {
+                        var offset = transform.Args[3];
+                        string member = ConstantMember(offset, ".zw");
+                        if (member?.EndsWith("_ST", StringComparison.Ordinal) == true &&
+                            (IsScale(transform.Args[1], offset) || IsScale(transform.Args[2], offset)) &&
+                            properties.Contains(member[..^3]))
+                            yield return (register, member[..^3]);
+                    }
+                }
+
+                // DecodeHDR starts with 1 + decode.w * (sample.a - 1).
+                if (sample.Opcode != "sample_l" || !cubes.Contains(register) || i + 2 >= prog.Code.Count)
+                    continue;
+                var add = prog.Code[i + 1];
+                var mad = prog.Code[i + 2];
+                if (add.Opcode != "add" || add.Args.Count != 3 || add.Saturate ||
+                    mad.Opcode != "mad" || mad.Args.Count != 4 || mad.Saturate ||
+                    sample.Args[0].Swizzle is not (null or ".xyzw") ||
+                    sample.Args[2].Swizzle is not (null or ".xyzw") ||
+                    !SameTemp(sample.Args[0], add.Args[1]) || add.Args[1].Swizzle != ".w" ||
+                    !IsLiteral(add.Args[2], -1) || !IsLiteral(mad.Args[3], 1) ||
+                    add.Args[0].Swizzle?.Length != 2) continue;
+
+                for (int factor = 1; factor <= 2; factor++)
+                {
+                    var alpha = mad.Args[3 - factor];
+                    if (!SameTemp(add.Args[0], alpha) || add.Args[0].Swizzle != alpha.Swizzle) continue;
+                    string member = ConstantMember(mad.Args[factor], ".w");
+                    if (member is "unity_SpecCube0_HDR" or "unity_SpecCube1_HDR")
+                        yield return (register, member[..^4]);
+                }
+            }
+        }
+
+        private IEnumerable<(int reg, string name)> InferLightmapNames(Ast.Module prog, int i,
+            Instruction sample, Dictionary<int, Instruction> dynamicLightmaps)
+        {
+            if (sample.Opcode != "sample" || i + 1 >= prog.Code.Count ||
+                sample.Args[0].Swizzle is not (null or ".xyzw") ||
+                sample.Args[2].Swizzle is not (null or ".xyzw")) yield break;
+
+            var next = prog.Code[i + 1];
+            var target = sample.Args[0];
+            var uv = sample.Args[1];
+            int register = sample.Args[2].Index;
+            int sampler = sample.Args[3].Index;
+            if (next.Args.Count != 3) yield break;
+            for (int factor = 1; factor <= 2; factor++)
+            {
+                var value = next.Args[3 - factor];
+                if (!SameTemp(target, value)) continue;
+                if (next.Opcode == "mul" && value.Swizzle is ".w" or ".wwww" &&
+                    ConstantMember(next.Args[factor], ".x") == "unity_DynamicLightmap_HDR")
+                {
+                    dynamicLightmaps[sampler] = sample;
+                    yield return (register, "unity_DynamicLightmap");
+                }
+                if (next.Opcode == "dp4" && value.Swizzle is null or ".xyzw" &&
+                    ConstantMember(next.Args[factor], ".xyzw") == "unity_OcclusionMaskSelector")
+                    yield return (register, "unity_ShadowMask");
+            }
+
+            // Directional lightmaps subtract 0.5 from the encoded direction before the dot.
+            if (next.Opcode == "add" && SameTemp(target, next.Args[1]) &&
+                next.Args[2].Lit is { Length: 4 } offset &&
+                offset[0] == -0.5f && offset[1] == -0.5f && offset[2] == -0.5f &&
+                dynamicLightmaps.TryGetValue(sampler, out var color) &&
+                color.Args[2].Index != register &&
+                uv.Kind == color.Args[1].Kind && uv.Index == color.Args[1].Index &&
+                uv.Swizzle == color.Args[1].Swizzle)
+                yield return (register, "unity_DynamicDirectionality");
+        }
+
+        private string ConstantMember(Operand operand, string swizzle) =>
+            operand.Kind == RegKind.Cb && !operand.Negate && !operand.Abs &&
+            operand.Swizzle?.StartsWith(swizzle, StringComparison.Ordinal) == true &&
+            RowExpr.TryGetValue((operand.Index, operand.Row), out string name) ? name : null;
+
+        private static bool IsScale(Operand scale, Operand offset) =>
+            scale.Kind == RegKind.Cb && !scale.Negate && !scale.Abs &&
+            scale.Index == offset.Index && scale.Row == offset.Row &&
+            scale.Swizzle?.StartsWith(".xy", StringComparison.Ordinal) == true;
+
+        private static bool SameTemp(Operand dest, Operand source) =>
+            dest.Kind == RegKind.R && source.Kind == RegKind.R && dest.Index == source.Index &&
+            !source.Abs && !source.Negate;
+
+        private static bool IsLiteral(Operand operand, float value) =>
+            !operand.IntLit && !operand.Abs && operand.Lit is { Length: 1 } values &&
+            (operand.Negate ? -values[0] : values[0]) == value;
+
         private void MapTextures(Ast.Module prog, IReadOnlyList<Property> props,
                                  System.Collections.Generic.List<(string Name, int Index, int Sampler)> texParams,
                                  Dictionary<int, string> glslTexNames = null,
@@ -1270,12 +1420,13 @@ namespace ShaderRipper.Resolve
             // A name is trustworthy when the shader itself declares it.  The
             // property table is authoritative for material textures; the name table
             // passed down here is the pass tag list, so it cannot vouch for anything.
-            var declared = new HashSet<string>(StringComparer.Ordinal);
-            if (props != null) foreach (var p in props) declared.Add(p.Name);
-
             var regs = prog.Decls.Where(d => d.Kind != null && d.Kind.StartsWith("texture"))
                                  .Select(d => d.Register).Distinct().OrderBy(x => x).ToList();
             if (regs.Count == 0) return;
+            if (texParams != null)
+                foreach (var entry in texParams)
+                    if (entry.Sampler >= 0 && regs.Contains(entry.Index))
+                        SamplerTexture.TryAdd(entry.Sampler, entry.Index);
 
             // 0. The compiled program's own parameter blob -- the table the DX11
             // runtime actually consumes.  Unity strips RDEF out of the DXBC
@@ -1291,7 +1442,7 @@ namespace ShaderRipper.Resolve
                 {
                     int reg = kv.Key;
                     string nm = kv.Value;
-                    if (reg < 0 || reg >= 128) continue;
+                    if (!regs.Contains(reg)) continue;
                     // No property-table check here.  Unity records built-in samplers
                     // too -- `_GrabTexture` and `_CameraDepthTexture` are engine-injected
                     // and never appear in a Properties block, yet the blob names them
@@ -1309,6 +1460,15 @@ namespace ShaderRipper.Resolve
                                   string.Join(", ", named));
             }
 
+            // A serialized per-program register binding also carries engine-supplied
+            // textures that have no ShaderLab property (depth, shadows and lightmaps).
+            if (texParams != null)
+                foreach (var (name, register, _) in texParams)
+                    if (regs.Contains(register) && !string.IsNullOrEmpty(name) &&
+                        System.Text.RegularExpressions.Regex.IsMatch(name, @"^[A-Za-z_][A-Za-z0-9_]*$") &&
+                        !TexName.ContainsValue(name))
+                        TexName.TryAdd(register, name);
+
             // 1. GL-family source names -- the strongest source when the asset ships
             // a GL-family variant at all.  The GLSL text is Unity's own translation
             // and keeps the property names the DXBC payload strips; locations and
@@ -1324,7 +1484,7 @@ namespace ShaderRipper.Resolve
                     var named = new List<string>();
                     for (int i = 0; i < g; i++)
                     {
-                        if (TexName.ContainsKey(regs[i])) continue;
+                        if (TexName.ContainsKey(regs[i]) || TexName.ContainsValue(glslTexNames[locs[i]])) continue;
                         TexName[regs[i]] = glslTexNames[locs[i]];
                         named.Add($"t{regs[i]}={glslTexNames[locs[i]]}");
                     }
@@ -1334,39 +1494,22 @@ namespace ShaderRipper.Resolve
                 }
             }
 
-            // 2. The asset's own reflection fills whatever the GLSL source did not
-            // cover (a Windows-only asset ships no GL-family variant to read).
-            if (texParams != null && texParams.Count > 0)
-            {
-                foreach (var (nm, idx, _) in texParams)
-                    if (idx >= 0 && idx < 128 && !TexName.ContainsKey(idx) &&
-                        (declared.Contains(nm) || _nameTable.Contains(nm)))
-                        TexName[idx] = nm;
-                if (Environment.GetEnvironmentVariable("SHADERRIP_TEXDBG") == "1")
-                    Console.Error.WriteLine($"[texparams] {texParams.Count} record(s): " +
-                        string.Join(", ", texParams.Select(x => $"t{x.Index}={x.Name}")));
-                // Do NOT stop here.  The asset records only the textures its material
-                // inspector exposes, so a partial list is the normal case: `_AlphaTex`
-                // is `[PerRendererData]` and never appears, and returning early left
-                // every register after the first one unnamed (`Texture2D t1`, `t2`).
-                // The property-order pass below fills the remainder.
-            }
+            if (regs.All(TexName.ContainsKey)) return;
 
-            var open = regs.Where(r => !TexName.ContainsKey(r)).ToList();
-            if (open.Count == 0) return;
-
-            // The declaration order is the only signal left for everything past the
-            // main texture.  Weak, but measured:
-            // over every pass of the reference corpus whose reflection names t0, the
-            // property table lists that texture FIRST -- 849 of 849, whatever the
-            // property flags say.  `[PerRendererData]` is no exception: `_MainTex`
-            // carries it and is still t0 in every sprite shader, because the renderer
-            // binds it to the slot the compiler gave it rather than to a slot of its
-            // own.  (Ordering those last instead measured 206 wrong bindings.)
             var texProps = new List<string>();
             if (props != null)
                 foreach (var p in props.Where(p => TextureTypes.Contains(p.Type)))
                     texProps.Add(p.Name);
+
+            var inferred = InferTextureNames(prog, texProps).Distinct().ToList();
+            foreach (var (reg, name) in inferred)
+                if (regs.Contains(reg) && !TexName.ContainsValue(name) &&
+                    inferred.Count(x => x.reg == reg || x.name == name) == 1 &&
+                    TexName.TryAdd(reg, name))
+                    FileNotes.Add($"texture name from sampling instructions: t{reg}={name}");
+
+            var open = regs.Where(r => !TexName.ContainsKey(r)).ToList();
+            if (open.Count == 0) return;
 
             // A property the reflection already bound must not be handed out again:
             // two registers with one name do not compile (`redefinition of
@@ -1402,11 +1545,15 @@ namespace ShaderRipper.Resolve
             var regDim = new Dictionary<int, char>();
             foreach (var d in prog.Decls)
             {
-                if (d.Kind == null) continue;
-                char dim = d.Kind.IndexOf("cube", StringComparison.OrdinalIgnoreCase) >= 0 ? 'c'
-                         : d.Kind.IndexOf("3d", StringComparison.OrdinalIgnoreCase) >= 0 ? '3'
-                         : d.Kind.IndexOf("array", StringComparison.OrdinalIgnoreCase) >= 0 ? 'a'
-                         : '2';
+                if (d.Kind != "texture" || d.Structured) continue;
+                char dim = d.Dimension switch
+                {
+                    2 => '2',
+                    3 => '3',
+                    4 when d.Raw?.Contains("texturecubearray", StringComparison.Ordinal) != true => 'c',
+                    4 or 5 => 'a',
+                    _ => '?',
+                };
                 if (!regDim.ContainsKey(d.Register)) regDim[d.Register] = dim;
             }
             char DimOfProperty(string nm)
@@ -1443,16 +1590,6 @@ namespace ShaderRipper.Resolve
                     spareLeft.Remove(pool[k]);
                     k++;
                 }
-            }
-
-            // Anything the dimension pass could not pair falls back to plain order,
-            // which is the historical behaviour and still the best available signal.
-            var stillOpen = regs.Where(r => !TexName.ContainsKey(r)).ToList();
-            int n = Math.Min(spareLeft.Count, stillOpen.Count);
-            for (int i = 0; i < n; i++)
-            {
-                TexName[stillOpen[i]] = spareLeft[i];
-                assigned.Add($"t{stillOpen[i]}={spareLeft[i]}");
             }
 
             if (assigned.Count > 0)

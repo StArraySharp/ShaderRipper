@@ -74,7 +74,9 @@ Export:
     --shaderlab      write &lt;Name&gt;.shader (the deliverable; give at least one of
                      --shaderlab, --programs or --orig-asm -- otherwise nothing is written)
     --programs       also write per-program HLSL into &lt;Name&gt;/ folders
-    --orig-asm       also write the original disassembly / GLSL into them
+    --orig-asm       also write the original disassembly / GLSL into them, and on a
+                     d3d backend the DXBC container with the RDEF Unity strips
+                     filled back in (.orig.dxbc)
     --embed-original put the original program text inside the .shader as a comment
                      block, so the recovered body and its source travel together
     --out &lt;dir&gt;      output directory (default "&lt;input&gt;_Ripped")
@@ -82,6 +84,7 @@ Export:
     --overwrite      empty the output directory first (alias --clean), so one
                      path can be reused instead of one folder per run
     --no-dedup       keep every copy of a shader (default: one copy per path)
+    --dedup-content  keep distinct shader content and list identical copies in shader-copies.json
     --builtin        include Unity's own shaders as well
     --no-incremental translate every shader even when its output file is already
                      current (default: keep an unchanged file and its entry in

@@ -1,6 +1,7 @@
 using System;
 using System.Collections.Generic;
 using System.Linq;
+using ShaderRipper.Data;
 using ShaderRipper.Plugins.Containers;
 using ShaderRipper.Plugins.Emit;
 using ShaderRipper.Plugins.Platforms;
@@ -66,6 +67,7 @@ namespace ShaderRipper.Plugins
         private readonly List<RegisteredCommand> _commands = new();
         private readonly List<RegisteredHook> _hooks = new();
         private readonly List<string> _artifacts = new();
+        private readonly SortedDictionary<int, (string Owner, ShaderAssetReader Read)> _assetReaders = new();
 
         private bool _closed;
 
@@ -272,6 +274,19 @@ namespace ShaderRipper.Plugins
         /// <summary>Who is registering right now, so a note can name the plugin.</summary>
         internal string CurrentOwner { get; set; } = "builtin";
 
+        internal delegate ShaderAsset ShaderAssetReader(byte[] data, int offset, int size, TypeNode schema);
+
+        internal void AddShaderAssetReader(int classId, ShaderAssetReader read)
+        {
+            ThrowIfClosed();
+            ArgumentNullException.ThrowIfNull(read);
+            if (!_assetReaders.TryAdd(classId, (CurrentOwner, read)))
+                throw new InvalidOperationException($"shader asset class {classId} is already registered");
+        }
+
+        internal ShaderAssetReader ShaderAssetReaderFor(int classId) =>
+            _assetReaders.TryGetValue(classId, out var entry) ? entry.Read : null;
+
         /// <summary>Refuse any later registration.</summary>
         internal void Close() => _closed = true;
 
@@ -342,6 +357,8 @@ namespace ShaderRipper.Plugins
                 yield return $"command                 {c.Handler.Command} ({c.Owner})";
             foreach (var h in _hooks)
                 yield return $"export hook             {h.Hook.Name} ({h.Owner})";
+            foreach (var (id, entry) in _assetReaders)
+                yield return $"shader asset            class {id} ({entry.Owner})";
             foreach (string a in _artifacts)
                 yield return $"artifact                {a}";
         }

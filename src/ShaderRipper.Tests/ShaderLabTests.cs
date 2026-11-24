@@ -12,6 +12,27 @@ namespace ShaderRipper.Tests;
 [TestFixture]
 public class ShaderLabCheckTests
 {
+    [Test]
+    public void IdenticalVariantBodiesKeepTheirGuardOrderAndFallback()
+    {
+        const string first = "float4 frag() : SV_Target { return 1.0; }";
+        const string second = "float4 frag() : SV_Target { return 2.0; }";
+        var chain = new ShaderLab.VariantChain
+        {
+            Guards = { "defined(A)", "defined(B)", "defined(C)", "defined(D)" },
+            Bodies = { first, second, first, second },
+        };
+        var sub = new ShaderLab.SubShaderText();
+        sub.Passes.Add(new ShaderLab.PassText { Chains = new List<ShaderLab.VariantChain> { chain } });
+
+        string shader = ShaderLab.Wrap("Test/SharedVariants", "", new List<ShaderLab.SubShaderText> { sub }, new List<Property>());
+
+        Assert.That(shader.Split(first).Length, Is.EqualTo(2));
+        Assert.That(shader.Split(second).Length, Is.EqualTo(2));
+        Assert.That(shader, Does.Contain("#elif defined(C)\n            #define _SHADERRIPPER_VARIANT_BODY 0")
+            .And.Contain("#else\n            #define _SHADERRIPPER_VARIANT_BODY 0"));
+    }
+
     private static Property Prop(string name, int type = 0, int dim = 0,
                                  string texture = "", float[] value = null, int flags = 0) =>
         new()
@@ -142,6 +163,22 @@ Shader "Test/Broken"
         Assert.That(text, Does.Contain("[NoScaleOffset]"));
         Assert.That(text, Does.Contain("_Color (\"Tint\", Color) = (1, 0.5, 0, 1)"));
         Assert.That(text, Does.Contain("_Amount (\"_Amount\""));
+        Assert.That(ShaderLab.Check(text), Is.Empty);
+    }
+
+    [Test]
+    public void WrapKeepsSerializedRangeBoundsAndDefault()
+    {
+        var props = new List<Property>
+        {
+            Prop("_Amount", type: 3, value: new[] { 1f, 0.01f, 10f, 0f }),
+            Prop("_Fallback", type: 3, value: new[] { 2f, 0f, 0f, 0f }),
+        };
+
+        var text = ShaderLab.Wrap("Test/Ranges", "", new List<ShaderLab.SubShaderText>(), props);
+
+        Assert.That(text, Does.Contain("Range(0.01, 10)) = 1"));
+        Assert.That(text, Does.Contain("Range(0, 2)) = 2"));
         Assert.That(ShaderLab.Check(text), Is.Empty);
     }
 
