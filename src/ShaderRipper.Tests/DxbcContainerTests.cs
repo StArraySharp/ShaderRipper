@@ -88,8 +88,13 @@ public class DxbcContainerTests
         Assert.That(chunks[0].payload, Is.EqualTo(new byte[] { 0xAA, 0xBB }));
         Assert.That(chunks[1].payload, Is.EqualTo(new byte[] { 1, 2, 3, 4 }));
         Assert.That(chunks[3].payload, Is.EqualTo(new byte[] { 9, 10, 11, 12, 13, 14, 15, 16 }));
-        Assert.That(patched.Skip(4).Take(16), Is.All.EqualTo((byte)0),
-                    "the digest cannot be recomputed, so it is left zeroed rather than stale");
+        Assert.That(patched.Skip(4).Take(16).Any(value => value != 0), Is.True,
+                    "the modified container must carry a new checksum");
+        Assert.That(DxbcContainer.HasSameProgram(original, patched), Is.True);
+        Assert.That(DxbcContainer.HasSameProgram(patched,
+            Build(("ISGN", Payload(4, 3, 2, 1)), ("OSGN", Payload(5, 6, 7, 8)),
+                  ("SHEX", Payload(9, 10, 11, 12, 13, 14, 15, 16)))), Is.False,
+            "identical instructions do not make different signatures interchangeable");
     }
 
     [Test]

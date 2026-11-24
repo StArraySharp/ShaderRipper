@@ -143,6 +143,7 @@ public class DxbcReflectionTests
         for (int k = 0; k < (int)U32(patched, 28); k++)
         {
             int at = (int)U32(patched, 32 + 4 * k);
+            Assert.That(at % 4, Is.Zero, "DXBC chunk offsets are DWORD-aligned");
             string code = Encoding.ASCII.GetString(patched, at, 4);
             if (code == "RDEF") continue;
             var expected = code == "ISGN" ? isgn : shex;
@@ -186,7 +187,7 @@ public class DxbcReflectionTests
             int members = (int)U32(body, at + 8);
             if (cbName == "UnityPerMaterial")
             {
-                Assert.That(count, Is.EqualTo(3));
+                Assert.That(count, Is.EqualTo(5));
                 Assert.That(Name(body, U32(body, members)), Is.EqualTo("_Color"));
                 Assert.That(U32(body, members + 4), Is.EqualTo(0u));
                 Assert.That(Name(body, U32(body, members + 40)), Is.EqualTo("_MainTex_ST"));
@@ -194,6 +195,10 @@ public class DxbcReflectionTests
                 Assert.That(Name(body, U32(body, members + 80)), Is.EqualTo("_Clip"));
                 Assert.That(U32(body, members + 84), Is.EqualTo(32u));
                 Assert.That(U32(body, members + 88), Is.EqualTo(4u), "_Clip is one float");
+                Assert.That(U32(body, members + 124), Is.EqualTo(36u), "padding starts after _Clip");
+                Assert.That(U32(body, members + 128), Is.EqualTo(4u));
+                Assert.That(U32(body, members + 164), Is.EqualTo(40u), "vec2 padding stays aligned");
+                Assert.That(U32(body, members + 168), Is.EqualTo(8u));
             }
             else
             {
@@ -225,19 +230,21 @@ public class DxbcReflectionTests
         var body = new byte[chunk.Length - 8];
         Buffer.BlockCopy(chunk, 8, body, 0, body.Length);
 
-        int members = (int)U32(body, (int)U32(body, 4) + 8);
-        var types = new List<(int cls, int type, int rows, int cols)>();
-        for (int i = 0; i < 4; i++)
+        int buffer = (int)U32(body, 4);
+        int members = (int)U32(body, buffer + 8);
+        var types = new Dictionary<string, (int cls, int type, int rows, int cols)>();
+        for (int i = 0; i < U32(body, buffer + 4); i++)
         {
-            int type = (int)U32(body, members + 40 * i + 16);
-            types.Add(((int)(U32(body, type) & 0xFFFF), (int)(U32(body, type) >> 16),
-                       (int)(U32(body, type + 4) & 0xFFFF), (int)(U32(body, type + 4) >> 16)));
+            int member = members + 40 * i;
+            int type = (int)U32(body, member + 16);
+            types.Add(Name(body, U32(body, member)), ((int)(U32(body, type) & 0xFFFF), (int)(U32(body, type) >> 16),
+                (int)(U32(body, type + 4) & 0xFFFF), (int)(U32(body, type + 4) >> 16)));
         }
 
-        Assert.That(types[0], Is.EqualTo((1, 3, 1, 3)), "float3 is a three-lane float vector");
-        Assert.That(types[1], Is.EqualTo((1, 19, 1, 2)), "uint2 is a two-lane unsigned vector");
-        Assert.That(types[2], Is.EqualTo((0, 2, 1, 1)), "int is a signed scalar");
-        Assert.That(types[3], Is.EqualTo((0, 1, 1, 1)), "bool is a scalar of its own type");
+        Assert.That(types["a"], Is.EqualTo((1, 3, 1, 3)), "float3 is a three-lane float vector");
+        Assert.That(types["b"], Is.EqualTo((1, 19, 1, 2)), "uint2 is a two-lane unsigned vector");
+        Assert.That(types["c"], Is.EqualTo((0, 2, 1, 1)), "int is a signed scalar");
+        Assert.That(types["d"], Is.EqualTo((0, 1, 1, 1)), "bool is a scalar of its own type");
     }
 
     [Test]
@@ -261,6 +268,45 @@ public class DxbcReflectionTests
 
         Assert.That(cb.Members.Select(m => m.Name), Is.EqualTo(new[] { "a", "_cb1_1", "c" }));
         Assert.That(cb.Members.Select(m => m.Offset), Is.EqualTo(new[] { 0, 16, 32 }));
+    }
+
+    [Test]
+    public void PackedAndTrailingGapsCoverEveryByteWithoutRenamingMembers()
+    {
+        var buffer = new DxbcReflection.ConstantBuffer { Name = "Material", Size = 32 };
+        var tint = new DxbcReflection.Member { Name = "_Tint", Type = "float2", Offset = 4, Size = 8 };
+        buffer.Members.Add(tint);
+        DxbcReflection.CoverBufferLanes(buffer);
+
+        Assert.That(buffer.Members.Select(member => (member.Offset, member.Size)),
+            Is.EqualTo(new[] { (0, 4), (4, 8), (12, 4), (16, 16) }));
+        Assert.That(buffer.Members[1], Is.SameAs(tint));
+    }
+
+    [Test]
+    public void StructuredBindingDescribesTheCompiledElementStride()
+    {
+        var reflection = new DxbcReflection();
+        reflection.Bindings.Add(new DxbcReflection.Binding
+        {
+            Name = "instances", Register = 3, StructureStride = 56,
+        });
+        byte[] body = reflection.Build("vs", "vs_4_0");
+        int binding = (int)U32(body, 12);
+        int buffer = (int)U32(body, 4);
+        int element = (int)U32(body, buffer + 8);
+        int type = (int)U32(body, element + 16);
+        int fields = (int)U32(body, type + 12);
+        Assert.Multiple(() =>
+        {
+            Assert.That(U32(body, binding + 4), Is.EqualTo(5u));
+            Assert.That(U32(body, binding + 16), Is.EqualTo(56u));
+            Assert.That(U32(body, binding + 20), Is.EqualTo(3u));
+            Assert.That(U32(body, buffer + 20), Is.EqualTo(3u));
+            Assert.That(Name(body, U32(body, element)), Is.EqualTo("$Element"));
+            Assert.That(U32(body, type + 8) >> 16, Is.EqualTo(14u));
+            Assert.That(U32(body, fields + 13 * 12 + 8), Is.EqualTo(52u));
+        });
     }
 
     [TestCase("ps_4_0", 24)]

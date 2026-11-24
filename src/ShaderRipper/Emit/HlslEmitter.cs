@@ -2167,6 +2167,7 @@ namespace ShaderRipper.Emit
                 },
                 Samples = d.Ms ? Math.Max(d.Samples, 0) : 0,
                 ByteAddress = byteAddress,
+                StructureStride = d.Structured && d.Stride is > 0 and <= 2048 && d.Stride % 4 == 0 ? d.Stride : 0,
             });
         }
 

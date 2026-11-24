@@ -84,6 +84,7 @@ namespace ShaderRipper.Data
             Scalar = 0,
             Vector = 1,
             MatrixColumns = 3,
+            Struct = 5,
         }
 
         /// <summary>D3D_SHADER_VARIABLE_TYPE values this writer emits.</summary>
@@ -109,6 +110,7 @@ namespace ShaderRipper.Data
             public int Rows = 1;
             public bool IsArray;
             public bool Matrix;
+            public IReadOnlyList<Member> Fields;
         }
 
         public sealed class ConstantBuffer
@@ -117,6 +119,7 @@ namespace ShaderRipper.Data
             public int Register;
             /// <summary>Declared byte size.</summary>
             public int Size;
+            public bool ResourceElement;
             public readonly List<Member> Members = new();
         }
 
@@ -142,6 +145,7 @@ namespace ShaderRipper.Data
             /// texture whose dimension is <c>BUFFER</c>.
             /// </summary>
             public bool ByteAddress;
+            public int StructureStride;
         }
 
         public readonly List<ConstantBuffer> Buffers = new();
@@ -273,6 +277,42 @@ namespace ShaderRipper.Data
             cb.Size = Math.Max(cb.Size, (cursor + 15) & ~15);
         }
 
+        // A bytecode operand can select an unreflected lane in an otherwise named
+        // row. Give it a distinct field without moving or renaming the known fields.
+        internal static void CoverBufferLanes(ConstantBuffer buffer)
+        {
+            var members = buffer.Members.OrderBy(member => member.Offset).ToArray();
+            var names = members.Select(member => member.Name).ToHashSet(StringComparer.Ordinal);
+            buffer.Members.Clear();
+            int cursor = 0;
+            foreach (var member in members)
+            {
+                AddPadding(member.Offset);
+                buffer.Members.Add(member);
+                cursor = Math.Max(cursor, member.Offset + member.Size);
+            }
+            AddPadding(buffer.Size);
+
+            void AddPadding(int end)
+            {
+                while (cursor + 4 <= end)
+                {
+                    int width = Math.Min((end - cursor) / 4, 4 - cursor % 16 / 4);
+                    // Keep synthesized vector padding aligned for std140 readers.
+                    if (cursor % 16 != 0)
+                        width = Math.Min(width, cursor % 8 == 0 ? 2 : 1);
+                    string name = $"_cb{buffer.Register}_padding{cursor / 4}";
+                    while (!names.Add(name)) name += "_";
+                    buffer.Members.Add(new Member
+                    {
+                        Name = name, Type = width == 1 ? "float" : $"float{width}",
+                        Offset = cursor, Size = width * 4,
+                    });
+                    cursor += width * 4;
+                }
+            }
+        }
+
         /// <summary>
         /// <paramref name="container"/> with an RDEF built from this reflection as its
         /// first chunk, or null when the container cannot take one (not DXBC, or a
@@ -280,8 +320,11 @@ namespace ShaderRipper.Data
         /// </summary>
         public byte[] Complete(byte[] container, string stage, string profile)
         {
-            if (!Any || !DxbcContainer.IsContainer(container) || BlobTool.HasDxilChunk(container))
+            if (!Any || !DxbcContainer.IsContainer(container) || BlobTool.HasDxilChunk(container) ||
+                ShaderModel(profile) > 5 || (profile?.EndsWith("_5_1", StringComparison.Ordinal) ?? false))
                 return null;
+            foreach (var buffer in Buffers)
+                CoverBufferLanes(buffer);
             return DxbcContainer.WithFirstChunk(container, DxbcContainer.Wrap("RDEF", Build(stage, profile)));
         }
 
@@ -289,22 +332,26 @@ namespace ShaderRipper.Data
         public byte[] Build(string stage, string profile)
         {
             int shaderModel = ShaderModel(profile);
+            int minorVersion = profile != null && profile.EndsWith("_1", StringComparison.Ordinal) ? 1 : 0;
             int tableOffset = TableOffset(shaderModel);
 
             // Bound resources: the declared textures, samplers and UAVs, then the
             // constant buffers, which fxc lists here too so a consumer can bind by
             // register without walking the buffer table.
             int resourceCount = Bindings.Count + Buffers.Count;
+            var buffers = Buffers.Concat(Bindings.Where(binding => binding.StructureStride > 0)
+                .Select(StructuredElement)).ToList();
 
             var strings = new StringTable(tableOffset + 32 * resourceCount);
             var resourceNames = new List<int>();
             foreach (var b in Bindings) resourceNames.Add(strings.Add(b.Name));
             var bufferNames = new List<int>();
-            foreach (var cb in Buffers) bufferNames.Add(strings.Add(cb.Name));
+            foreach (var cb in buffers) bufferNames.Add(strings.Add(cb.Name));
             var memberNames = new List<List<int>>();
             var typeNames = new List<List<int>>();
             int memberCount = 0;
-            foreach (var cb in Buffers)
+            int fieldCount = 0;
+            foreach (var cb in buffers)
             {
                 var names = new List<int>();
                 var types = new List<int>();
@@ -315,6 +362,13 @@ namespace ShaderRipper.Data
                     // zero means "unnamed", which a reader accepts but then cannot
                     // tell a matrix from four rows of floats.
                     types.Add(shaderModel >= 5 ? strings.Add(TypeName(m)) : 0);
+                    if (m.Fields == null) continue;
+                    foreach (var field in m.Fields)
+                    {
+                        strings.Add(field.Name);
+                        if (shaderModel >= 5) strings.Add(TypeName(field));
+                    }
+                    fieldCount += m.Fields.Count;
                 }
                 memberNames.Add(names);
                 typeNames.Add(types);
@@ -325,13 +379,15 @@ namespace ShaderRipper.Data
             int bufferTableOffset = stringOffset + strings.Length;
             int memberRecordSize = MemberRecordSize(shaderModel);
             int typeRecordSize = TypeRecordSize(shaderModel);
-            int memberOffset = bufferTableOffset + 24 * Buffers.Count;
+            int memberOffset = bufferTableOffset + 24 * buffers.Count;
             int typeOffset = memberOffset + memberRecordSize * memberCount;
+            int fieldOffset = typeOffset + typeRecordSize * (memberCount + fieldCount);
             string creator = "ShaderRipper (reflection rebuilt from the Unity parameter blobs)";
-            int creatorOffset = typeOffset + typeRecordSize * memberCount;
+            int creatorOffset = fieldOffset + 12 * fieldCount;
 
-            var body = new byte[creatorOffset + Encoding.UTF8.GetByteCount(creator) + 1];
-            Put(body, 0, (uint)Buffers.Count);
+            int bodySize = (creatorOffset + Encoding.UTF8.GetByteCount(creator) + 4) & ~3;
+            var body = new byte[bodySize];
+            Put(body, 0, (uint)buffers.Count);
             Put(body, 4, (uint)bufferTableOffset);
             Put(body, 8, (uint)resourceCount);
             Put(body, 12, (uint)tableOffset);
@@ -345,7 +401,7 @@ namespace ShaderRipper.Data
                 "ds" => 0xFFFB,
                 _ => 0xFFFF,
             };
-            Put(body, 16, (uint)((shaderModel << 8) | ((int)shaderType << 16)));
+            Put(body, 16, (uint)(minorVersion | (shaderModel << 8) | ((int)shaderType << 16)));
             Put(body, 20, 0x100);
             Put(body, 24, (uint)creatorOffset);
             if (tableOffset > HeaderBytes)
@@ -362,20 +418,22 @@ namespace ShaderRipper.Data
             {
                 var b = Bindings[i];
                 bool byteAddress = b.ByteAddress && b.Kind != BindingKind.Sampler;
-                // D3D_SIT_CBUFFER / TEXTURE / SAMPLER / BYTEADDRESS.
+                bool structured = b.StructureStride > 0;
                 uint inputType = b.Kind switch
                 {
                     BindingKind.Sampler => 3u,
+                    _ when structured => 5u, // D3D_SIT_STRUCTURED
                     _ => byteAddress ? 7u : 2u,
                 };
                 // D3D_RETURN_TYPE: UNORM(1) for a comparison sampler's float result is
                 // not what fxc records there -- it records 0 for a sampler, FLOAT(5)
                 // for a texture view and UINT(6) for a byte-address buffer.
-                uint returnType = b.Kind == BindingKind.Sampler ? 0u : byteAddress ? 6u : 5u;
+                uint returnType = b.Kind == BindingKind.Sampler ? 0u : byteAddress || structured ? 6u : 5u;
                 uint dimension = b.Kind == BindingKind.Sampler ? 0u
-                               : byteAddress ? 1u                       // D3D_SRV_DIMENSION_BUFFER
+                               : byteAddress || structured ? 1u        // D3D_SRV_DIMENSION_BUFFER
                                : (uint)Math.Max(b.Dimension, 1);
-                uint samples = b.Kind == BindingKind.Sampler || byteAddress ? 0u
+                uint samples = structured ? (uint)b.StructureStride
+                             : b.Kind == BindingKind.Sampler || byteAddress ? 0u
                              : b.Samples > 0 ? (uint)b.Samples : 0xFFFFFFFFu;
                 Put(body, at, (uint)resourceNames[i]);
                 Put(body, at + 4, inputType);
@@ -386,7 +444,7 @@ namespace ShaderRipper.Data
                 Put(body, at + 24, 1u);
                 // D3D_SVF_USERPACKED (the declarations name their registers) plus, for
                 // a texture view, the "four components" bit pair fxc sets on one.
-                Put(body, at + 28, b.Kind != BindingKind.Sampler && !byteAddress ? 0xDu : 1u);
+                Put(body, at + 28, inputType == 2u ? 0xDu : 1u);
             }
             for (int i = 0; i < Buffers.Count; i++, at += 32)
             {
@@ -402,15 +460,16 @@ namespace ShaderRipper.Data
             at = bufferTableOffset;
             int memberAt = memberOffset;
             int typeAt = typeOffset;
-            for (int i = 0; i < Buffers.Count; i++, at += 24)
+            int fieldAt = fieldOffset;
+            for (int i = 0; i < buffers.Count; i++, at += 24)
             {
-                var cb = Buffers[i];
+                var cb = buffers[i];
                 Put(body, at, (uint)bufferNames[i]);
                 Put(body, at + 4, (uint)cb.Members.Count);
                 Put(body, at + 8, (uint)memberAt);
                 Put(body, at + 12, (uint)cb.Size);
                 Put(body, at + 16, 0u);             // D3D_SHADER_CBUFFER_FLAGS: none
-                Put(body, at + 20, 0u);             // D3D11_CBUFFER_TYPE: CBUFFER
+                Put(body, at + 20, cb.ResourceElement ? 3u : 0u); // RESOURCE_BIND_INFO / CBUFFER
 
                 for (int j = 0; j < cb.Members.Count; j++)
                 {
@@ -432,13 +491,46 @@ namespace ShaderRipper.Data
                     }
 
                     WriteType(body, typeAt, m, typeNames[i][j]);
-                    memberAt += memberRecordSize;
                     typeAt += typeRecordSize;
+                    if (m.Fields != null)
+                    {
+                        Put(body, typeAt - typeRecordSize + 12, (uint)fieldAt);
+                        foreach (var field in m.Fields)
+                        {
+                            Put(body, fieldAt, (uint)strings.Add(field.Name));
+                            Put(body, fieldAt + 4, (uint)typeAt);
+                            Put(body, fieldAt + 8, (uint)field.Offset);
+                            WriteType(body, typeAt, field, shaderModel >= 5 ? strings.Add(TypeName(field)) : 0);
+                            typeAt += typeRecordSize;
+                            fieldAt += 12;
+                        }
+                    }
+                    memberAt += memberRecordSize;
                 }
             }
 
             Encoding.UTF8.GetBytes(creator).CopyTo(body, creatorOffset);
             return body;
+        }
+
+        private static ConstantBuffer StructuredElement(Binding binding)
+        {
+            // The disassembly records the stride but can omit field types. Reflect
+            // the bytecode's addressable words without inventing an asset schema.
+            var layout = new ConstantBuffer
+            {
+                Name = binding.Name, Register = binding.Register,
+                Size = binding.StructureStride, ResourceElement = true,
+            };
+            layout.Members.Add(new Member
+            {
+                Name = "$Element", Type = "_StructuredElement", Size = layout.Size,
+                Fields = Enumerable.Range(0, layout.Size / 4).Select(index => new Member
+                {
+                    Name = $"word{index}", Type = "uint", Offset = index * 4, Size = 4,
+                }).ToArray(),
+            });
+            return layout;
         }
 
         /// <summary>
@@ -452,6 +544,15 @@ namespace ShaderRipper.Data
         /// </summary>
         private static void WriteType(byte[] body, int at, Member m, int nameOffset)
         {
+            if (m.Fields != null)
+            {
+                Put(body, at, (uint)VariableClass.Struct);
+                Put(body, at + 4, ((uint)m.Fields.Count << 16) | 1u);
+                Put(body, at + 8, (uint)m.Fields.Count << 16);
+                if (nameOffset != 0) Put(body, at + 32, (uint)nameOffset);
+                return;
+            }
+
             int varClass = (int)VariableClass.Vector;
             int varType = (int)VariableType.Float;
             int rows = 1;

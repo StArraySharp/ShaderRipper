@@ -63,22 +63,30 @@ public class TextureBindingBlobTests
     }
 
     [Test]
-    public void DxbcRecordNamesTheTextureRegister()
+    public void DxbcRecordsKeepTextureNamesAcrossDimensions()
     {
-        // [m_NameIndex, m_Index = t#, m_SamplerIndex, marker 4]
-        var blob = Payload(2, b =>
+        var blob = Payload(1, b =>
         {
+            Name(b, "$Globals");
+            b.AddRange(Le(16u, 1u));
+            Name(b, "_NotATexture");
+            b.AddRange(Le(0u, 1u, 4u, 0u, 0u, 0u));
+            b.AddRange(Le(0u, 3u)); // Struct count, resource count.
             Name(b, "_PlanetTex");
             b.AddRange(Le(0u, 0u, 1u, 4u));
-            Name(b, "_AlphaTex");
-            b.AddRange(Le(0u, 1u, 0u, 4u));
+            Name(b, "_LightTexture0");
+            b.AddRange(Le(0u, 5u, 0u, 8u));
+            Name(b, "_MultisampleTex");
+            b.AddRange(Le(0u, 7u, uint.MaxValue, 5u));
         }, out _);
 
         var table = BlobTool.ParseBlobTextureParams(blob);
 
         Assert.That(table, Has.Count.EqualTo(1));
         Assert.That(table[0][0], Is.EqualTo("_PlanetTex"));
-        Assert.That(table[0][1], Is.EqualTo("_AlphaTex"));
+        Assert.That(table[0][5], Is.EqualTo("_LightTexture0"));
+        Assert.That(table[0][7], Is.EqualTo("_MultisampleTex"));
+        Assert.That(table[0].Values, Does.Not.Contain("_NotATexture"));
     }
 
     [Test]

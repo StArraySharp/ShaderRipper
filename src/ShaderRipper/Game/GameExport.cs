@@ -1600,7 +1600,8 @@ namespace ShaderRipper.Game
         /// embedder that already holds the bytes (AssetRipper) can get the file
         /// content without an output directory or a subprocess.
         /// </summary>
-        internal static string TranslateOne(Shader sh, string name, Stats s)
+        internal static string TranslateOne(Shader sh, string name, Stats s,
+            Dictionary<(int Platform, int BlobIndex), byte[]> dxbc = null)
         {
             var props = sh.ParsedForm?.Props ?? new List<Property>();
 
@@ -1686,7 +1687,8 @@ namespace ShaderRipper.Game
                 if (pre != null && pre.Count == 0) { s.Skipped++; continue; }
 
                 if (info.Format == "dxbc") ExportDxbc(sh, name, info, decoded, null, null,
-                    passOf, spOf, kwIndex, props, perPass, false, false, s, null, pre, null, null);
+                    passOf, spOf, kwIndex, props, perPass, false, false, s, null, pre, null, null,
+                    pre == null ? dxbc : null);
                 else if (info.Format == "glsl") ExportGlsl(sh, name, info, decoded, null, passOf, spOf, kwIndex, perPass, s, false);
                 else if (info.Format == "d3d9") ExportD3d9(sh, name, info, decoded, null, passOf, spOf, perPass, false, s);
                 else ExportPlugin(sh, name, info, decoded, null, passOf, spOf, kwIndex, props, perPass, false, s, null, glslAttr);
@@ -1972,7 +1974,8 @@ namespace ShaderRipper.Game
             Dictionary<Pass, PassBuild> perPass, bool programs, bool origAsm, Stats s,
             List<(int blobIndex, string stage, string hlsl)> collected = null,
             List<BlobTool.BlobSlot> preSlots = null,
-            Dictionary<int, string> glslVs = null, Dictionary<int, string> glslFs = null)
+            Dictionary<int, string> glslVs = null, Dictionary<int, string> glslFs = null,
+            Dictionary<(int Platform, int BlobIndex), byte[]> dxbc = null)
         {
             int platformIndex = Array.IndexOf(sh.Platforms, (uint)info.Id);
             if (sh.ParsedForm?.SubShaders.SelectMany(ss => ss.Passes).SelectMany(p => p.SubPrograms)
@@ -1991,13 +1994,6 @@ namespace ShaderRipper.Game
             // same shader does record them (both need explicit binding numbers) and
             // uses the same register numbering, so borrow from there when available.
             var borrowedTex = blobTex.Values.Sum(x => x.Count) == 0 ? BorrowTextureNames(sh) : null;
-            if (borrowedTex != null)
-            {
-                blobTex = borrowedTex;
-                if (Environment.GetEnvironmentVariable("SHADERRIP_TEXDBG") == "1")
-                    Console.Error.WriteLine($"[texborrow] {name}: {borrowedTex.Values.Sum(x => x.Count)} " +
-                        "binding(s) borrowed from another platform slot");
-            }
             var matrixRows = MatrixSpans(sh);
             // Notes are per program but the file shows them per pass, and the pass a
             // slot belongs to is only known once the slot has been decoded.
@@ -2054,63 +2050,20 @@ namespace ShaderRipper.Game
                 var pass = owners is { Count: > 0 } ? owners[0] : null;
                 var glslTexNames = module.Stage is "vs" ? glslVs
                                  : module.Stage is "ps" ? glslFs : null;
-                // The texture table is stored per parameter blob, which is the same slot
-                // number the constant buffers already resolve through.  Different
-                // variants of one pass record different bindings -- BlendModes/Grab has
-                // `_GrabTexture @ t1` in the two-texture variant and
-                // `_GrabTexture @ t2, _AlphaTex @ t1` in the three-texture one -- so a
-                // union would mix registers from two different pixel shaders and name
-                // t1 from whichever table came first.  Pick the table that matches this
-                // *program*: a table whose highest register is within the program's own
-                // texture-register count, preferring the most complete such table.
-                Dictionary<int, string> blobTexNames = null;
-                if (blobTex.Count > 0)
-                {
-                    var programRegs = module.Decls
-                        .Where(d => d.Kind != null && d.Kind.StartsWith("texture"))
-                        .Select(d => d.Register).ToHashSet();
-
-                    var candidates = blobTex
-                        .Select(kv => new { Slot = kv.Key, Names = kv.Value })
-                        .ToList();
-
-                    // The sub-program's own parameter blob describes exactly this
-                    // variant, so it wins whenever it fits the program's registers.
-                    if (sub != null && sub.ParameterBlobIndex >= 0)
-                    {
-                        var ownC = candidates.FirstOrDefault(c => c.Slot == sub.ParameterBlobIndex);
-                        if (ownC != null && ownC.Names.Keys.Any(programRegs.Contains))
-                            blobTexNames = ownC.Names;
-                    }
-
-                    if (blobTexNames == null)
-                    {
-                        // Otherwise the most complete table whose registers all exist in
-                        // this program; ties go to the lowest slot for determinism.
-                        var fitting = candidates
-                            .Where(c => c.Names.Keys.All(programRegs.Contains))
-                            .OrderByDescending(c => c.Names.Count)
-                            .ThenBy(c => c.Slot)
-                            .FirstOrDefault();
-                        blobTexNames = fitting?.Names;
-                    }
-
-                    if (Environment.GetEnvironmentVariable("SHADERRIP_TEXDBG") == "1")
-                        Console.Error.WriteLine($"[tex] {name} blk={slot.BlobIndex} stage={module.Stage} " +
-                            $"pbi={sub?.ParameterBlobIndex ?? -1} regs={programRegs} slots={blobTex.Count} " +
-                            "-> " + string.Join(",", (blobTexNames ?? new()).OrderBy(x => x.Key).Select(x => $"t{x.Key}={x.Value}")));
-                }
                 byte[] originalRdef = DxbcContainer.Chunk(container, "RDEF");
-                var originalNames = DxbcReflection.ReadTextureNames(originalRdef);
-                if (originalNames.Count > 0)
-                {
-                    if (blobTexNames != null)
-                        foreach (var (register, bindingName) in blobTexNames)
-                            originalNames.TryAdd(register, bindingName);
-                    blobTexNames = originalNames;
-                }
+                var textureNames = DxbcReflection.ReadTextureNames(originalRdef);
+                // Matching register numbers alone do not identify a sibling variant.
+                if (blobTex.TryGetValue(sub?.ParameterBlobIndex ?? -1, out var ownNames))
+                    foreach (var (register, bindingName) in ownNames)
+                        textureNames.TryAdd(register, bindingName);
+                if (sub != null)
+                    foreach (var (bindingName, register, _) in sub.TextureParams)
+                        textureNames.TryAdd(register, bindingName);
+                if (borrowedTex != null && borrowedTex.TryGetValue(sub?.ParameterBlobIndex ?? -1, out var borrowedNames))
+                    foreach (var (register, bindingName) in borrowedNames)
+                        textureNames.TryAdd(register, bindingName);
                 module.Cb = NameConstantBuffers(module, name, pass, sub, props, paramCbs, allParamCbs,
-                                               matrixRows, glslTexNames, blobTexNames);
+                                               matrixRows, glslTexNames, textureNames);
 
                 // Two consumers, two shapes.  The ShaderLab wrapper merges this text
                 // into a file that includes `UnityCG.cginc` -- matrices are
@@ -2129,9 +2082,10 @@ namespace ShaderRipper.Game
                 s.Translated++;
                 collected?.Add((slot.BlobIndex, module.Stage, r.Hlsl));
 
-                if (programs || origAsm)
+                if (programs || origAsm || dxbc != null)
                 {
-                    Directory.CreateDirectory(dir);
+                    if (programs || origAsm)
+                        Directory.CreateDirectory(dir);
                     // The standalone form is what compiles outside Unity; the RDEF
                     // below is described by the same declaration pass, so one emit
                     // feeds both.
@@ -2146,9 +2100,10 @@ namespace ShaderRipper.Game
                     // The original disassembly, kept beside the translation so the two
                     // can be compared instruction for instruction.  It is the same text
                     // the translator read.
-                    if (origAsm)
+                    if (origAsm || dxbc != null)
                     {
-                        File.WriteAllText(Path.Combine(dir, $"{slot.BlobIndex}_{module.Stage}.orig.asm"), asm);
+                        if (origAsm)
+                            File.WriteAllText(Path.Combine(dir, $"{slot.BlobIndex}_{module.Stage}.orig.asm"), asm);
                         // The body as the game ships it, with the RDEF Unity strips
                         // filled back in: HLSLcc and fxc's disassembler read constant
                         // buffers and resources by name from that chunk, and a Unity
@@ -2164,8 +2119,11 @@ namespace ShaderRipper.Game
                         if (completed == null && emitted.Reflection.Any)
                             s.Notes.Add($"{name}: no RDEF for DXBC {slot.BlobIndex}_{module.Stage}, " +
                                         "the exported container stays reflection-stripped");
-                        File.WriteAllBytes(Path.Combine(dir, $"{slot.BlobIndex}_{module.Stage}.orig.dxbc"),
-                                           completed ?? container);
+                        if (origAsm)
+                            File.WriteAllBytes(Path.Combine(dir, $"{slot.BlobIndex}_{module.Stage}.orig.dxbc"),
+                                               completed ?? container);
+                        if (dxbc != null && completed != null)
+                            dxbc[(info.Id, slot.BlobIndex)] = completed;
                     }
                 }
 

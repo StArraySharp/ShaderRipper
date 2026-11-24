@@ -1,5 +1,6 @@
 using System;
 using System.Collections.Generic;
+using System.Linq;
 
 namespace ShaderRipper.Data
 {
@@ -38,6 +39,19 @@ namespace ShaderRipper.Data
         /// <summary>Is this chunk one the container already carries?</summary>
         public static bool HasChunk(byte[] container, string fourCc) => Chunk(container, fourCc) != null;
 
+        // Reflection can change; the instructions, signatures and other program
+        // data must still belong to the same Unity blob.
+        public static bool HasSameProgram(byte[] original, byte[] restored)
+        {
+            var before = ReadChunks(original);
+            var after = ReadChunks(restored);
+            if (before == null || after == null) return false;
+            before.RemoveAll(chunk => chunk.Code == "RDEF");
+            after.RemoveAll(chunk => chunk.Code == "RDEF");
+            return before.Count == after.Count && before.Any(chunk => chunk.Code is "SHDR" or "SHEX" or "DXIL")
+                && before.Zip(after).All(pair => pair.First.Bytes.AsSpan().SequenceEqual(pair.Second.Bytes));
+        }
+
         /// <summary>Wrap a payload as a chunk: four-character code, size, payload.</summary>
         public static byte[] Wrap(string fourCc, byte[] payload)
         {
@@ -52,17 +66,6 @@ namespace ShaderRipper.Data
         /// <paramref name="container"/> with <paramref name="chunk"/> (code, size and
         /// payload) as its first chunk, replacing any chunk that carries the same
         /// code.
-        ///
-        /// The 16-byte digest in the header is written as zeros.  fxc computes it
-        /// with a private algorithm -- the only public write-up of the format (Tim
-        /// Jones, "Parsing Direct3D shader bytecode", 2015) says so outright, and
-        /// every derivation that can be tried against real output (the whole
-        /// container with the digest zeroed, the chunk payloads, every chunk order)
-        /// fails to reproduce it.  d3dcompiler's disassembler therefore rejects any
-        /// modified container, which is why the reader for this artifact is HLSLcc:
-        /// it walks the tables by offset and does not check the digest, and an
-        /// obviously absent digest is more honest than a stale copy of the one the
-        /// original bytes carried.
         ///
         /// Null when either argument is not a well-formed container, so a caller
         /// can keep the bytes it already has instead of writing something broken.
@@ -85,8 +88,7 @@ namespace ShaderRipper.Data
 
             var outp = new byte[total];
             WriteUInt(outp, 0, Magic);
-            // Checksum (4..20) stays zero; see the note above.
-            WriteUInt(outp, 20, 1);
+            WriteUInt(outp, 20, BitConverter.ToUInt32(container, 20));
             WriteUInt(outp, 24, (uint)total);
             WriteUInt(outp, 28, (uint)count);
 
@@ -97,6 +99,7 @@ namespace ShaderRipper.Data
                 Buffer.BlockCopy(chunks[k], 0, outp, at, chunks[k].Length);
                 at += chunks[k].Length;
             }
+            DxbcChecksum.Update(outp);
             return outp;
         }
 
@@ -114,18 +117,19 @@ namespace ShaderRipper.Data
         private static List<RawChunk> ReadChunks(byte[] container)
         {
             if (!IsContainer(container)) return null;
+            int length = BitConverter.ToInt32(container, 24);
             int count = BitConverter.ToInt32(container, 28);
             if (count <= 0 || count > 64) return null;
             int table = HeaderBytes + 4 * count;
-            if (table > container.Length) return null;
+            if (length < table || length > container.Length) return null;
 
             var chunks = new List<RawChunk>(count);
             for (int k = 0; k < count; k++)
             {
                 int at = BitConverter.ToInt32(container, HeaderBytes + 4 * k);
-                if (at < table || at + 8 > container.Length) return null;
+                if (at < table || at > length - 8) return null;
                 int size = BitConverter.ToInt32(container, at + 4);
-                if (size < 0 || (long)at + 8 + size > container.Length) return null;
+                if (size < 0 || (long)at + 8 + size > length) return null;
                 var bytes = new byte[8 + size];
                 Buffer.BlockCopy(container, at, bytes, 0, bytes.Length);
                 chunks.Add(new RawChunk(FourCc(container, at), bytes));

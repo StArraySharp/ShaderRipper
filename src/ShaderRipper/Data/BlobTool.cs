@@ -180,10 +180,7 @@ namespace ShaderRipper.Data
         }
 
         /// <summary>
-        /// True when a record's trailing int marks it as a texture rather than a plain
-        /// value.  Unity 6000 writes 4 here for every texture record in every shader we
-        /// have measured (2D included), so it is a kind discriminator, not the 4.3
-        /// <see cref="UnityEngine.Rendering.TextureDimension"/> enumeration.
+        /// Packed dimension of a 2D texture in the Vulkan texture records.
         /// </summary>
         private const int TextureRecordKind = 4;
 
@@ -281,39 +278,7 @@ namespace ShaderRipper.Data
         }
 
         /// <summary>
-        /// Parse the texture bindings Unity stores in the compiled program's own
-        /// parameter blob.
-        ///
-        /// This is the table the DX11 runtime actually consumes.  Unity 4.3 has the
-        /// authoritative definition (<c>Runtime/GfxDevice/GpuProgram.h</c>):
-        /// <code>
-        /// struct TextureParameter {
-        ///     FastPropertyName m_Name;   // serialized as a name-table index
-        ///     int m_Index;               // t# -- ApplyTextures passes this to SetTexture
-        ///     int m_SamplerIndex;        // s#
-        ///     TextureDimension m_Dim;
-        /// };
-        /// </code>
-        /// and <c>D3D11CommonShader::ApplyTextures</c> iterates exactly this list, so
-        /// the D3D11 backend cannot bind a texture without <c>m_Index</c>.  That is
-        /// why the data has to survive in the shipped asset even though Unity strips
-        /// RDEF out of the DXBC container.
-        ///
-        /// Record layout verified against the GLSL slots of the same shaders
-        /// (location 0 = _PlanetTex, 1 = _AlphaTex, 2 = _MaskTex in ADOFAI):
-        /// <code>
-        ///   u32 nameLen, name, align4
-        ///   u32 f0   name-table index
-        ///   u32 f1   m_Index (t#)          &lt;-- correlates 0/1/2 with the GLSL locations
-        ///   u32 f2   m_SamplerIndex
-        ///   u32 f3   record kind: 4 = texture, 0 = plain value
-        /// </code>
-        /// f3 is <em>not</em> the 4.3 <c>m_Dim</c> enumeration -- these are 2D textures
-        /// and would carry 2 -- so treat it as the kind discriminator it behaves like.
-        ///
-        /// Unity omits a record it can derive by convention, so a partial table is
-        /// normal rather than an error: ADOFAI's FloorMesh records no textures at all
-        /// while Frames records both of its own.
+        /// Read texture bindings from the resource table of each split parameter blob.
         /// </summary>
         /// <returns>blob slot -> (texture register -> property name).</returns>
         public static Dictionary<int, Dictionary<int, string>> ParseBlobTextureParams(byte[] buf)
@@ -329,47 +294,93 @@ namespace ShaderRipper.Data
                 int p0 = 4 + e * 12;
                 int off = BitConverter.ToInt32(buf, p0);
                 int size = BitConverter.ToInt32(buf, p0 + 4);
-                if (off < 0 || size < 32 || (long)off + size > buf.Length) continue;
+                if (off < 0 || size < 12 || (long)off + size > buf.Length) continue;
                 if (BitConverter.ToUInt32(buf, off) != ParamBlobMagic) continue;
-                int end = off + size;
 
-                Dictionary<int, string> found = null;
-                int p = off + 4;
-                while (p + 4 <= end)
+                try
                 {
-                    var got = ReadAlignedName(buf, p, end);
-                    if (got == null) { p += 4; continue; }
-                    string nm = got.Value.name;
-                    int q = got.Value.next;
-                    if (q + 16 > end) { p = q; continue; }
-
-                    int nameIndex = BitConverter.ToInt32(buf, q);
-                    int reg = BitConverter.ToInt32(buf, q + 4);
-                    int sampler = BitConverter.ToInt32(buf, q + 8);
-                    int kind = BitConverter.ToInt32(buf, q + 12);
-                    // A texture record, not a scalar/sampler record.  Verified against
-                    // the GLSL locations of the same shaders: f1 carries 0/1/2 exactly
-                    // where the GLSL has UNITY_LOCATION(0/1/2), while plain uniforms
-                    // carry f3 = 0 and a stale register number.  f3 is the kind
-                    // discriminator here, not the 4.3 m_Dim enumeration.
-                    //
-                    // f0 is NOT always 0: `_GrabTexture` in a BlendModes shader records
-                    // f0 = 1 (a per-program name-table offset), so requiring 0 dropped
-                    // exactly the built-in grab texture that dxbc cannot otherwise name.
-                    if (kind == TextureRecordKind &&
-                        reg >= 0 && reg < 128 && sampler >= 0 && sampler < 128 &&
-                        !nm.StartsWith("UnityPer", StringComparison.Ordinal) &&
-                        !nm.StartsWith("$Globals", StringComparison.Ordinal))
-                    {
-                        found ??= new Dictionary<int, string>();
-                        if (!found.ContainsKey(reg)) found[reg] = nm;
-                    }
-                    p = q;
+                    var names = ReadDxbcTextures(buf, off + 4, size - 4);
+                    if (names.Count > 0) res.Add(e, names);
                 }
-
-                if (found != null && found.Count > 0) res[e] = found;
+                catch (InvalidDataException)
+                {
+                    // An incomplete slot must not contribute unverified bindings.
+                }
             }
             return res;
+        }
+
+        private static Dictionary<int, string> ReadDxbcTextures(byte[] data, int cursor, int size)
+        {
+            int end = cursor + size;
+            int ReadInt()
+            {
+                if (end - cursor < sizeof(int)) throw new InvalidDataException();
+                int value = BitConverter.ToInt32(data, cursor);
+                cursor += sizeof(int);
+                return value;
+            }
+            void Skip(int bytes)
+            {
+                if (bytes < 0 || bytes > end - cursor) throw new InvalidDataException();
+                cursor += bytes;
+            }
+            int ReadCount(int minRecordSize)
+            {
+                int count = ReadInt();
+                if (count < 0 || count > (end - cursor) / minRecordSize) throw new InvalidDataException();
+                return count;
+            }
+            string ReadName(bool keep = false)
+            {
+                int length = ReadInt();
+                int start = cursor;
+                Skip(length);
+                Skip((-length) & 3);
+                return keep ? System.Text.Encoding.UTF8.GetString(data, start, length) : "";
+            }
+            void SkipMembers()
+            {
+                int count = ReadCount(28);
+                for (int i = 0; i < count; i++)
+                {
+                    ReadName();
+                    Skip(24);
+                }
+            }
+
+            int groups = ReadCount(16);
+            for (int i = 0; i < groups; i++)
+            {
+                ReadName();
+                Skip(4); // Used byte size.
+                SkipMembers();
+                int structs = ReadCount(20);
+                for (int j = 0; j < structs; j++)
+                {
+                    ReadName();
+                    Skip(12); // Offset, array size, structure size.
+                    SkipMembers();
+                }
+            }
+            int resources = ReadCount(16);
+            var names = new Dictionary<int, string>();
+            for (int i = 0; i < resources; i++)
+            {
+                string name = ReadName(keep: true);
+                int kind = ReadInt();
+                int register = ReadInt();
+                Skip(4); // Sampler index for texture records.
+                if (kind == 0)
+                {
+                    uint dimension = (uint)ReadInt() >> 1; // Bit zero is the multisample flag.
+                    if (register is >= 0 and < 128 && dimension is >= 2 and <= 6 && name.Length != 0)
+                        names.TryAdd(register, name);
+                }
+                else if (kind is < 1 or > 4)
+                    throw new InvalidDataException();
+            }
+            return names;
         }
 
         /// <summary>

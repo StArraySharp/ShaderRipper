@@ -9,7 +9,7 @@
     <ImplicitUsings>enable</ImplicitUsings>
     <AssemblyName>ShaderRipper</AssemblyName>
     <RootNamespace>ShaderRipper</RootNamespace>
-    <Version>1.2.4</Version>
+    <Version>1.2.5</Version>
     <PlatformTarget>x64</PlatformTarget>
     <AllowUnsafeBlocks>true</AllowUnsafeBlocks>
     <!-- XML documentation is emitted for every public API.  The plugin surface
@@ -42,6 +42,7 @@
   </PropertyGroup>
   <ItemGroup>
     <InternalsVisibleTo Include="ShaderRipper.Application" />
+    <InternalsVisibleTo Include="AssetRipperPatcher" />
     <!-- The desktop front end reads the same log and progress counter the console
          uses; it is not part of the solution and is not shipped here. -->
     <InternalsVisibleTo Include="ShaderRipper.Gui" />

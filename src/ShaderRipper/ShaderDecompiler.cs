@@ -255,6 +255,10 @@ namespace ShaderRipper
         /// <summary>Diagnostics worth surfacing; empty on a clean run.</summary>
         public List<string> Notes = new();
 
+        /// <summary>DXBC with resolved reflection, indexed by platform and Unity blob slot.</summary>
+        public IReadOnlyDictionary<(int Platform, int BlobIndex), byte[]> DxbcPrograms { get; internal set; }
+            = new Dictionary<(int, int), byte[]>();
+
         public bool Ok => !string.IsNullOrEmpty(ShaderLab);
     }
 
@@ -290,7 +294,10 @@ namespace ShaderRipper
         /// result carries the file text plus the counts, so a caller can log or
         /// reject it without touching the internals.
         /// </summary>
-        public static ShaderResult Translate(ShaderModel model)
+        public static ShaderResult Translate(ShaderModel model) => Translate(model, includeDxbc: false);
+
+        /// <summary>Translate and optionally return the DXBC programs with restored reflection.</summary>
+        public static ShaderResult Translate(ShaderModel model, bool includeDxbc)
         {
             var result = new ShaderResult();
             if (model == null || string.IsNullOrEmpty(model.Name))
@@ -307,9 +314,11 @@ namespace ShaderRipper
             }
 
             var stats = new GameExport.Stats();
+            var dxbc = includeDxbc ? new Dictionary<(int Platform, int BlobIndex), byte[]>() : null;
+            if (dxbc != null) result.DxbcPrograms = dxbc;
             try
             {
-                string text = GameExport.TranslateOne(sh, model.Name, stats);
+                string text = GameExport.TranslateOne(sh, model.Name, stats, dxbc);
                 result.Programs = stats.Programs;
                 result.Disassembled = stats.Disassembled;
                 result.Translated = stats.Translated;
