@@ -95,6 +95,8 @@ RENAMED = {
     # through a synthesized _sri_* helper.
     "bitfieldInsert": "bitfieldInsert", "bitfieldExtract": "bitfieldExtract",
     "_sri_bitfieldInsert": "bitfieldInsert", "_sri_bitfieldExtract": "bitfieldExtract",
+    "bitfieldReverse": "_sri_bitfieldReverse", "bitCount": "countbits",
+    "findLSB": "firstbitlow", "findMSB": "firstbithigh",
     "atomicAdd": "atomicAdd", "_sri_atomicAdd": "atomicAdd",
     # include-provided textures sample through the include's own sampler name
     "sampler_unity_SpecCube0": "samplerunity_SpecCube0",

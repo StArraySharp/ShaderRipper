@@ -153,7 +153,7 @@ namespace ShaderRipper.Emit
                 or "ieq" or "ine" or "ilt" or "ige" or "uge" or "ult"
                 or "ushr" or "ishr" or "ishl" or "itof" or "ftoi" or "ftou" or "utof"
                 or "udiv" or "ubfe" or "ibfe" or "bfi" or "bfrev"
-                or "countbits" or "firstbit_hi" or "firstbit_lo";
+                or "countbits" or "firstbit_hi" or "firstbit_shi" or "firstbit_lo";
 
             var info = new MaskInfo();
             var lanes = info.Lanes;
@@ -273,7 +273,7 @@ namespace ShaderRipper.Emit
         {
             "if_nz", "if_z", "else", "endif", "loop", "endloop", "break",
             "breakc_nz", "breakc_z", "continue", "continuec_nz", "continuec_z",
-            "switch", "case", "default", "endswitch", "ret",
+            "switch", "case", "default", "endswitch", "ret", "retc_nz", "retc_z",
         };
 
         /// <summary>
@@ -325,18 +325,6 @@ namespace ShaderRipper.Emit
         private readonly HashSet<int> _intRegs = new();
 
         /// <summary>
-        /// Per instruction: which lanes of which register have their <c>iN</c> in
-        /// sync with <c>rN</c> (bit set = in sync).
-        /// </summary>
-        private int[][] _intSync = Array.Empty<int[]>();
-
-        /// <summary>The snapshot for the instruction being emitted, or null.</summary>
-        private int[] _intNow;
-
-        /// <summary>Registers whose lanes are read in a FLOAT context somewhere.</summary>
-        private bool[] _intFloatRead = Array.Empty<bool>();
-
-        /// <summary>
         /// Instruction indices whose mask may be spelled <c>1.0f</c>.
         ///
         /// Per-INSTRUCTION rather than per register: the same lane usually holds a
@@ -379,7 +367,7 @@ namespace ShaderRipper.Emit
         {
             "iadd", "isub", "imul", "umul", "imad", "ineg",
             "imin", "imax", "umin", "umax", "udiv", "ushr", "ishr", "ishl",
-            "ubfe", "ibfe", "bfi",
+            "ubfe", "ibfe", "bfi", "bfrev", "countbits", "firstbit_hi", "firstbit_shi", "firstbit_lo",
             "ftoi", "ftou",
         };
 
@@ -391,7 +379,7 @@ namespace ShaderRipper.Emit
         {
             "iadd", "isub", "imul", "umul", "imad", "ineg",
             "imin", "imax", "umin", "umax", "udiv", "ushr", "ishr", "ishl",
-            "ubfe", "ibfe", "bfi",
+            "ubfe", "ibfe", "bfi", "bfrev", "countbits", "firstbit_hi", "firstbit_shi", "firstbit_lo",
         };
 
         private static int DestinationCount(Instruction ins) =>
@@ -445,55 +433,40 @@ namespace ShaderRipper.Emit
         /// Work out which registers need an integer shadow, and where in the program
         /// the shadow is still in sync with the float copy.
         ///
-        /// "In sync" is a property of the VALUE, not of control flow: the shadow is
-        /// written by every integer opcode and invalidated by every other write of the
-        /// same lane, so a forward scan over the instruction list is exact wherever
-        /// the emission is (the emitter re-emits the program in order).
+        /// Track integer results and the registers that may receive their bits
+        /// through a move. Integer copies stay synchronized on every path.
         /// </summary>
         private void PlanIntRegisters(Module m)
         {
-            var code = m.Code;
-            _intSync = new int[code.Count][];
-            _intFloatRead = new bool[_temps];
-            var live = new int[_temps];
-            // Both `float4 rN = 0.0` and `int4 iN = 0` start at the same bits.
-            for (int i = 0; i < _temps; i++) live[i] = 0xF;
-
-            for (int pc = 0; pc < code.Count; pc++)
+            var copies = new List<(int source, int destination)>();
+            for (int pc = 0; pc < m.Code.Count; pc++)
             {
-                _intSync[pc] = (int[])live.Clone();
-                var ins = code[pc];
+                var ins = m.Code[pc];
                 if (ins.Args.Count == 0) continue;
                 var a = ins.Args;
-                int destinations = Math.Min(DestinationCount(ins), a.Count);
-                for (int k = 0; k < destinations; k++)
+                _pc = pc;
+                if (IntWrites.Contains(ins.Opcode) || TakesBitPath(ins))
                 {
-                    var dst = a[k];
-                    if (dst?.Kind != RegKind.R) continue;
-                    string mask = DestMask(dst);
-                    if (mask.Length == 0) mask = "xyzw";
-                    int save = _pc;
-                    _pc = pc;
-                    bool integer = IntWrites.Contains(ins.Opcode) || TakesBitPath(ins);
-                    // A plain `mov` carries whatever the source held, integer included:
-                    // a loop counter is copied around the register file like any other
-                    // value, and losing track of it is what forced `asint(r0.z)` on
-                    // every read.
-                    int carry = !integer && ins.Opcode == "mov" ? IntMoveCarry(ins, live) : 0;
-                    _pc = save;
-                    if (integer || carry != 0) _intRegs.Add(dst.Index);
-                    for (int c = 0; c < 4; c++)
-                    {
-                        int bit = 1 << c;
-                        if (mask.IndexOf("xyzw"[c]) < 0) continue;
-                        if (integer || (carry & bit) != 0) live[dst.Index] |= bit;
-                        else live[dst.Index] &= ~bit;
-                    }
+                    foreach (var dst in a.Take(DestinationCount(ins)))
+                        if (dst.Kind == RegKind.R) _intRegs.Add(dst.Index);
                 }
-                if (IntReads.Contains(ins.Opcode)) continue;
-                for (int k = destinations; k < a.Count; k++)
-                    if (a[k]?.Kind == RegKind.R) _intFloatRead[a[k].Index] = true;
+                if (a[0].Kind != RegKind.R || ins.Saturate || ins.Opcode is not ("mov" or "movc")) continue;
+                foreach (var src in a.Skip(ins.Opcode == "mov" ? 1 : 2))
+                    if (!src.Negate && !src.Abs)
+                    {
+                        if (src.Kind == RegKind.R) copies.Add((src.Index, a[0].Index));
+                        else if (src.IntLit) _intRegs.Add(a[0].Index);
+                    }
             }
+
+            bool changed;
+            do
+            {
+                changed = false;
+                foreach (var (source, destination) in copies)
+                    if (_intRegs.Contains(source)) changed |= _intRegs.Add(destination);
+            }
+            while (changed);
         }
 
         /// <summary>
@@ -506,7 +479,8 @@ namespace ShaderRipper.Emit
         /// </summary>
         private bool TakesBitPath(Instruction ins)
         {
-            var a = ins.Args;
+            if (ins.Opcode is not ("and" or "or" or "xor" or "not")) return false;
+            var a = OperandsForEmission(ins);
             if (a.Count < 2) return false;
             switch (ins.Opcode)
             {
@@ -542,103 +516,13 @@ namespace ShaderRipper.Emit
             if (sw.Any(c => !"xyzw".Contains(c))) return null;
             string lanes = single ? sw[..1] : sw;
 
-            var sync = _intNow;
-            if (sync == null || sync.Length <= o.Index) return null;
-            foreach (char c in lanes)
-                if ((sync[o.Index] & (1 << "xyzw".IndexOf(c))) == 0) return null;
-
             string text = $"i{o.Index}.{lanes}";
             return unsigned ? $"asuint({text})" : text;
         }
 
-        /// <summary>Lane bits of a destination mask; an empty mask means all four.</summary>
-        private static int LaneBits(string mask)
-        {
-            if (string.IsNullOrEmpty(mask)) return 0xF;
-            int bits = 0;
-            foreach (char c in mask)
-            {
-                int i = "xyzw".IndexOf(c);
-                if (i >= 0) bits |= 1 << i;
-            }
-            return bits;
-        }
-
         /// <summary>
-        /// The destination lanes a plain `mov` carries an integer through; 0 when the
-        /// move is not a pure integer carry.
-        ///
-        /// Only unambiguous shapes qualify: one lane copied from an explicit lane, or
-        /// the whole register copied from <c>xyzw</c>.  A projection is left alone
-        /// because its letter order is positional against the destination mask, which
-        /// is not what <see cref="IntShadow"/> models.
-        /// </summary>
-        private static int IntMoveCarry(Instruction ins, int[] live)
-        {
-            var a = ins.Args;
-            if (a.Count < 2) return 0;
-            var dst = a[0];
-            var src = a[1];
-            if (dst.Kind != RegKind.R || dst.Negate || dst.Abs || ins.Saturate) return 0;
-            if (src == null || src.Negate || src.Abs) return 0;
-
-            string mask = DestMask(dst);
-            int width = string.IsNullOrEmpty(mask) ? 4 : mask.Length;
-            int bits = LaneBits(mask);
-            string sw = src.Swizzle is { Length: > 0 } s ? (s[0] == '.' ? s[1..] : s) : "";
-
-            if (src.Kind == RegKind.Literal)
-            {
-                if (!src.IntLit || src.LitBits is not { Length: > 0 } lit) return 0;
-                // A uniform literal means the same thing in every lane, so the
-                // destination mask and the operand swizzle cannot change the answer:
-                // `mov r2.zw, l(0,0,0,0)` seeds two integer lanes.  A non-uniform one
-                // is printed in the order the destination reads it, which is a mapping
-                // this does not model -- except for the whole-register identity form
-                // (`mov r1, l(0,0,0,-1)`), where that order is plain x,y,z,w.
-                if (lit.All(b => b == lit[0])) return bits;
-                if (width == 4 && lit.Length == 4 && (sw.Length == 0 || sw == "xyzw")) return bits;
-                return width == 1 && sw.Length == 0 && lit.Length == 1 ? bits : 0;
-            }
-
-            if (src.Kind != RegKind.R) return 0;
-            if (live == null || src.Index >= live.Length) return 0;
-
-            if (width == 1)
-            {
-                if (sw.Length == 0) return 0;                       // implicit lane, not modelled
-                if (sw.Length > 1 && sw.Any(c => c != sw[0])) return 0;
-                int lane = "xyzw".IndexOf(sw[0]);
-                if (lane < 0) return 0;
-                return (live[src.Index] & (1 << lane)) != 0 ? bits : 0;
-            }
-
-            if (sw.Length != 0 && sw != "xyzw") return 0;
-            return (live[src.Index] & bits) == bits ? bits : 0;
-        }
-
-        /// <summary>
-        /// An integer literal as the contents of an `int4`, for a `mov` that carries
-        /// one into the shadow.
-        ///
-        /// `l(0, 0, 0, -1)` seeds four lanes with two different values, so the spelling
-        /// has to be a constructor; a uniform one broadcasts as a scalar.
-        /// </summary>
-        private static string IntLiteralText(Operand src, int width)
-        {
-            var lb = src?.LitBits;
-            if (lb == null || lb.Length == 0) return "0";
-            string N(int i) =>
-                unchecked((int)lb[Math.Min(i, lb.Length - 1)]).ToString(CultureInfo.InvariantCulture);
-            if (lb.All(b => b == lb[0])) return N(0);
-            var parts = Enumerable.Range(0, Math.Max(width, 1)).Select(N).ToArray();
-            string ctor = parts.Length switch { 2 => "int2", 3 => "int3", _ => "int4" };
-            return $"{ctor}({string.Join(", ", parts)})";
-        }
-
-        /// <summary>
-        /// Emit an integer result.  Writes the shadow, and the float copy only when
-        /// something reads the register as a float.
+        /// Keep the original register bits available for mixed lanes or reads
+        /// across control flow, even when an integer copy is available here.
         /// </summary>
         private void IntResult(Instruction ins, string expr, bool unsigned = false) =>
             IntResult(ins.Args[0], expr);
@@ -662,7 +546,7 @@ namespace ShaderRipper.Emit
             // from `uint` to `int` -- i.e. the identity for every value the program
             // produces.  `iadd`/`and`/`ishl` therefore assign the expression as is.
             Line($"i{reg}.{lanes} = {expr};");
-            if (_intFloatRead[reg]) Line($"r{reg}.{lanes} = asfloat(i{reg}.{lanes});");
+            Line($"r{reg}.{lanes} = asfloat(i{reg}.{lanes});");
         }
 
         /// <summary>
@@ -678,12 +562,12 @@ namespace ShaderRipper.Emit
         /// rebuilt from the truth value rather than reinterpreted.
         /// </summary>
         private string AsInt(Operand o) =>
-            IntDirect(o) ?? IntShadow(o, false) ?? LitInt(o) ?? MaskAsInt(o, false)
+            MaskAsInt(o, false) ?? (o?.Kind == RegKind.VSv ? Expr(o) : IntShadow(o, false)) ?? LitInt(o)
             ?? IntReinterpret(o, false);
 
         private string AsUInt(Operand o) =>
-            (o?.Kind == RegKind.VSv ? Expr(o) : IntShadow(o, true))
-            ?? LitUInt(o) ?? MaskAsInt(o, true)
+            MaskAsInt(o, true) ?? (o?.Kind == RegKind.VSv ? Expr(o) : IntShadow(o, true))
+            ?? LitUInt(o)
             ?? IntReinterpret(o, true);
 
         /// <summary>
@@ -697,62 +581,19 @@ namespace ShaderRipper.Emit
         /// 0x7FFFFFFB instead of 5, and `max(x, asint(-x))` stops being `abs(x)`.
         /// Negating the int is the operation the original performs.
         /// </summary>
-        private string IntOperand(Operand o, bool unsigned)
-        {
-            if (o == null) return null;
-            // A compute system value is declared as a `uintN` parameter, so it is
-            // already an integer: `svThreadID.x` reads directly, and wrapping it in
-            // `asint(...)` would name a value the entry point does not have.
-            if (o.Kind == RegKind.VSv) return Expr(o);
-            return unsigned ? AsUInt(o) : AsInt(o);
-        }
-
-        /// <summary>
-        /// Does this operand name a value an integer instruction can read directly?
-        ///
-        /// Two cases: a compute system value, which the entry point declares as
-        /// `uintN`; and a register already carrying the integer shadow (see
-        /// <see cref="_intRegs"/>).  Neither needs a reinterpret.
-        /// </summary>
-        private string IntDirect(Operand o) =>
-            o == null ? null
-            : o.Kind == RegKind.VSv ? Expr(o)
-            : (o.Kind == RegKind.R ? IntShadow(o, false) : null);
-
         private string IntReinterpret(Operand o, bool unsigned)
         {
             if (o == null) return null;
-            // An int member is already an integer: `-_AbsoluteInset` is a negate
-            // in the right domain, and wrapping it would add a conversion.
-            if (CbIsInt(o)) return unsigned ? $"asuint({Expr(o)})" : $"asint({Expr(o)})";
-            if (!o.Negate)
-                return unsigned ? $"asuint({Expr(o)})" : $"asint({Expr(o)})";
-            var plain = Clone(o, o.Swizzle);
-            plain.Negate = false;
-            return unsigned ? $"-asuint({Expr(plain)})" : $"-asint({Expr(plain)})";
-        }
-
-        /// <summary>
-        /// Does this operand name a constant-buffer member the layout declares
-        /// <c>int</c>?
-        ///
-        /// The program reads such a slot with an integer instruction (`itof` and
-        /// friends), so the member is declared as an integer instead of a float that
-        /// gets reinterpreted.  `asint` around it would then be the identity, and the
-        /// surrounding conversion is the implicit one.
-        /// </summary>
-        private bool CbIsInt(Operand o)
-        {
-            if (o == null || o.Kind != RegKind.Cb || _lay.IsArray(o.Index)) return false;
-            int row = Math.Max(o.Row, 0);
-            string lanes = o.Swizzle is { Length: > 1 } s ? s.TrimStart('.') : "xyzw";
-            if (lanes.Length == 0) return false;
-            foreach (char c in lanes)
+            Operand plain = o;
+            if (o.Negate || o.Abs)
             {
-                int col = "xyzw".IndexOf(c);
-                if (col < 0 || !_lay.IsIntLane(o.Index, row, col)) return false;
+                plain = Clone(o, o.Swizzle);
+                plain.Negate = plain.Abs = false;
             }
-            return true;
+            string cast = unsigned ? "asuint" : "asint";
+            string value = IntShadow(plain, unsigned) ?? $"{cast}({Expr(plain)})";
+            if (o.Abs) value = $"abs({value})";
+            return o.Negate ? "-" + value : value;
         }
 
         /// <summary>The literal `-1` / `0xFFFFFFFFu` a mask stands for, as a select.</summary>
@@ -2541,6 +2382,7 @@ namespace ShaderRipper.Emit
 
             for (int pc = 0; pc < _m.Code.Count; pc++)
             {
+                int blockStart = _sb.Length;
                 // A component the fold re-reads later but fxc overwrote in between is
                 // captured here, at the last point it still held the row's value.
                 if (_pre.TryGetValue(pc, out var pre))
@@ -2555,6 +2397,7 @@ namespace ShaderRipper.Emit
                 if (_folded.TryGetValue(pc, out var fold))
                 {
                     foreach (string one in fold.Lines) Line(one);
+                    SyncIntegerCopies(blockStart);
                     _r.Instructions += fold.Consumed;
                     _r.Translated += fold.Consumed;
                     continue;
@@ -2563,7 +2406,6 @@ namespace ShaderRipper.Emit
 
                 var ins = _m.Code[pc];
                 _pc = pc;
-                _intNow = _intSync.Length > pc ? _intSync[pc] : null;
                 _r.Instructions++;
                 int at = _sb.Length;
                 bool ok = Emit(ins);
@@ -2586,7 +2428,11 @@ namespace ShaderRipper.Emit
                         Line($"{mm.Groups[2].Value}= saturate({mm.Groups[3].Value});");
                     }
                 }
-                if (ok) _r.Translated++;
+                if (ok)
+                {
+                    SyncIntegerCopies(blockStart);
+                    _r.Translated++;
+                }
                 else
                 {
                     _r.Todo++;
@@ -2602,6 +2448,30 @@ namespace ShaderRipper.Emit
                 _sb.Append('\n');
                 ReturnStatement();
             }
+        }
+
+        private static readonly Regex TemporaryWrite =
+            new(@"(?m)^([ \t]*)r(\d+)(\.[xyzw]+)? = ([^;\r\n]+);(\r?\n)");
+
+        // Mirror float writes after result modifiers have been applied. An integer
+        // write already copied its bits into rN, so copying it back can lose them.
+        private void SyncIntegerCopies(int start)
+        {
+            if (_intRegs.Count == 0 || _sb.Length == start) return;
+            string lines = _sb.ToString(start, _sb.Length - start);
+            string synced = TemporaryWrite.Replace(lines, match =>
+            {
+                int register = int.Parse(match.Groups[2].Value, CultureInfo.InvariantCulture);
+                string lanes = match.Groups[3].Value;
+                string integer = $"i{register}{lanes}";
+                if (!_intRegs.Contains(register) || match.Groups[4].Value == $"asfloat({integer})")
+                    return match.Value;
+
+                return $"{match.Value}{match.Groups[1].Value}{integer} = asint(r{register}{lanes});{match.Groups[5].Value}";
+            });
+            if (synced == lines) return;
+            _sb.Length = start;
+            _sb.Append(synced);
         }
 
         /// <summary>
@@ -2681,19 +2551,8 @@ namespace ShaderRipper.Emit
 
             if (comps > 0)
             {
-                // A dot over N components must see exactly N: the disassembly
-                // spells four-component masks (`v1.xyzx`) even for dp3, and
-                // feeding the trailing component to `dot` turns fxc's dp3 into
-                // a dp4 whose fourth product changes the value.
-                if (sw == null)
-                {
-                    if (o.Kind is RegKind.R or RegKind.V or RegKind.Cb or RegKind.X or RegKind.Icb)
-                        sw = ".xyzw";
-                }
-                else if (sw[0] == '.' && sw.Length > 1 + comps)
-                {
-                    sw = sw.Substring(0, 1 + comps).PadRight(1 + comps, sw[sw.Length - 1]);
-                }
+                string lanes = sw?.TrimStart('.') ?? (o.Lit is { Length: 1 } ? "x" : "xyzw");
+                sw = "." + lanes.PadRight(comps, lanes[^1])[..comps];
             }
 
             // A constant with a swizzle is a NARROWER constant: `l(0, 0.5, 0.5, 0).yz`
@@ -2751,7 +2610,7 @@ namespace ShaderRipper.Emit
             }
             foreach (char c in litSw) want.Add("xyzw".IndexOf(c));
             if (comps > 0 && want.Count > comps) want = want.GetRange(0, comps);
-            if (want.Count == 0 || want.Count >= o.Lit.Length) return full;
+            if (want.Count == o.Lit.Length && want.SequenceEqual(Enumerable.Range(0, want.Count))) return full;
             if (want.Any(i => i < 0)) return full;
 
             var parts = want.Select(i => LitNum(o, i)).ToArray();
@@ -2900,7 +2759,7 @@ namespace ShaderRipper.Emit
         {
             int row = Math.Max(o.Row, 0);
             if (_lay.IsArray(o.Index)) return $"cb{o.Index}[{CbIndex(o, row)}]";
-            return _lay.Row(o.Index, row) ?? $"_cb{o.Index}_row{row}";
+            return _lay.ReadRow(o.Index, row) ?? $"_cb{o.Index}_row{row}";
         }
 
         /// <summary>
@@ -2942,8 +2801,7 @@ namespace ShaderRipper.Emit
             if (regText.Length > 1 && regText[0] == 'r' &&
                 int.TryParse(regText[1..], NumberStyles.Integer, CultureInfo.InvariantCulture,
                              out int reg) &&
-                _intNow != null && reg < _intNow.Length && _intRegs.Contains(reg) &&
-                (_intNow[reg] & (1 << "xyzw".IndexOf(lane))) != 0)
+                _intRegs.Contains(reg))
                 return $"i{reg}.{lane}";
             return $"asint({regText}.{lane})";
         }
@@ -3148,7 +3006,7 @@ namespace ShaderRipper.Emit
             "iadd", "isub", "imul", "imad", "ineg", "iumin", "iumax", "imin", "imax", "umin", "umax",
             "ieq", "ine", "ilt", "ige", "ult", "uge", "eq", "ne", "lt", "le", "gt", "ge",
             "and", "or", "xor", "not", "ishl", "ishr", "ushr", "itof", "utof", "ftoi", "ftou",
-            "ubfe", "ibfe", "bfi",
+            "ubfe", "ibfe", "bfi", "bfrev", "countbits", "firstbit_hi", "firstbit_shi", "firstbit_lo",
             "rcp", "deriv_rtx", "deriv_rty", "deriv_rtx_coarse", "deriv_rty_coarse",
             "deriv_rtx_fine", "deriv_rty_fine",
         };
@@ -3273,38 +3131,16 @@ namespace ShaderRipper.Emit
             IndexRaw = o.IndexRaw, LitBits = o.LitBits, IntLit = o.IntLit,
         };
 
-        /// <summary>
-        /// The condition of a flow-control instruction, as an HLSL expression that
-        /// fxc turns back into a single `if_nz` / `breakc_nz`.
-        ///
-        /// DXBC's <c>_nz</c> / <c>_z</c> tests are <c>any(operand != 0)</c> over the
-        /// components the operand names, not a read of <c>.x</c>: a program tests a
-        /// packed pair far more often than a single lane, and looking only at x
-        /// silently takes the wrong branch.  The scalar form is the bare register
-        /// rather than <c>x != 0.0</c>, because HLSL's implicit conversion already
-        /// means "non-zero" and spelling the compare out makes fxc emit an extra `ne`
-        /// before every branch.
-        /// </summary>
+        // DXBC conditions test the encoded bits. Floating-point truth tests can
+        // treat negative zero and subnormal bit patterns as zero.
+        private string ConditionBits(Operand o) =>
+            LitUInt(o) ?? IntShadow(o, true) ?? $"asuint({Expr(o)})";
+
         private string Any(Operand o)
         {
-            string mask = o.Swizzle?.TrimStart('.') ?? "";
-            if (mask.Length == 1) return Expr(o);
-            // A one-component literal is already scalar; `any` on a bool scalar is
-            // not HLSL.
-            if (o.Kind == RegKind.Literal && (o.Lit?.Length ?? 0) <= 1)
-                return Expr(o);
-            if (mask.Length == 0)
-            {
-                // No swizzle: the operand is the whole register, and DXBC's test is
-                // over all four components.
-                string core = Core(o);
-                if (core == null) return Scalar(o);
-                string e = core;
-                if (o.Abs) e = $"abs({e})";
-                if (o.Negate) e = "-" + e;
-                return $"any({e})";
-            }
-            return $"any({Expr(o)})";
+            string bits = ConditionBits(o);
+            return o.Swizzle is { Length: 2 } || o.Lit is { Length: 1 }
+                ? bits : $"any({bits})";
         }
 
         /// <summary>
@@ -3429,10 +3265,21 @@ namespace ShaderRipper.Emit
         private string BoolExpr(Operand o) =>
             IsBool(o) ? Expr(o) : $"{Scalar(o)} != 0.0";
 
+        private static List<Operand> OperandsForEmission(Instruction ins)
+        {
+            var args = ins.Args;
+            if (args.Count == 0 || (!Componentwise.Contains(ins.Opcode) && !Unary.ContainsKey(ins.Opcode)))
+                return args;
+            string mask = DestMask(args[0]);
+            return mask.Length == 0
+                ? args
+                : args.Select((operand, i) => i == 0 ? operand : RemapForMask(operand, mask)).ToList();
+        }
+
         /// <summary>Emit one instruction; false when there is no handler.</summary>
         private bool Emit(Instruction ins)
         {
-            List<Operand> a = new List<Operand>(ins.Args);
+            List<Operand> a = OperandsForEmission(ins);
             // Instructions that carry no operand are the block punctuation; they
             // have to be handled before any destination is looked at.
             if (a.Count == 0) return EmitNoOperand(ins.Opcode);
@@ -3445,13 +3292,6 @@ namespace ShaderRipper.Emit
             // rotation across two instructions.  Returning here skipped that sine
             // entirely, leaving the next instruction reading a lane nothing wrote.
             if (a[0].Kind == RegKind.Null && ins.Opcode != "sincos") return true;
-
-            if (Componentwise.Contains(ins.Opcode) || Unary.ContainsKey(ins.Opcode))
-            {
-                string m = DestMask(a[0]);
-                if (m.Length > 0)
-                    a = a.Select((o, i) => i == 0 ? o : RemapForMask(o, m)).ToList();
-            }
 
             // A UAV store names a writable resource where a register normally sits,
             // so it is handled before the destination is resolved.  Falling through
@@ -3481,31 +3321,23 @@ namespace ShaderRipper.Emit
                     }
                     return true;
                 case "case":
-                    {
-                        // `case l(0)`: the disassembler prints the label as a plain
-                        // number, so the value is the literal itself.  A label whose
-                        // text was hexadecimal is a raw bit pattern instead (that is
-                        // how `0xFFFFFFFF` survives -- it parses as a NaN, which is
-                        // not an integer in range).
-                        string label = "0u";
-                        if (a.Count > 0 && a[0].Lit is { Length: > 0 })
-                        {
-                            float v = a[0].Lit[0];
-                            bool integral = v >= 0f && v <= 4294967295f && MathF.Floor(v) == v;
-                            label = integral
-                                ? ((uint)v).ToString(CultureInfo.InvariantCulture) + "u"
-                                : BitConverter.SingleToUInt32Bits(v).ToString(CultureInfo.InvariantCulture) + "u";
-                        }
-                        else if (a.Count > 0)
-                            label = AsUInt(a[0]);
-                        Line($"case {label}:");
-                    }
+                    Line($"case {AsUInt(a[0])}:");
                     return true;
 
                 // ---- control flow: the tree supplies the condition, the emitter
                 // spells out the block structure.
                 case "discard_nz":
-                    Line($"if ({Any(a[0])}) discard;");
+                case "discard_z":
+                    Line($"if ({(ins.Opcode == "discard_z" ? "!" : "")}{Any(a[0])}) discard;");
+                    return true;
+                case "retc_nz":
+                case "retc_z":
+                    Line($"if ({(ins.Opcode == "retc_z" ? "!" : "")}{Any(a[0])})");
+                    Line("{");
+                    _indent++;
+                    ReturnStatement();
+                    _indent--;
+                    Line("}");
                     return true;
 
                 case "if_z":
@@ -3533,20 +3365,11 @@ namespace ShaderRipper.Emit
 
                 case "mov":
                     {
-                        // An integer copied lane to lane stays an integer: the shadow
-                        // is written instead of the bits being reinterpreted later.
-                        if (a[0].Kind == RegKind.R && IntMoveCarry(ins, _intNow) != 0)
+                        if (!ins.Saturate && !a[1].Negate && !a[1].Abs &&
+                            a[0].Kind == RegKind.R && _intRegs.Contains(a[0].Index))
                         {
-                            string mask0 = DestMask(a[0]);
-                            int width0 = string.IsNullOrEmpty(mask0) ? 4 : mask0.Length;
-                            string moved = a[1].Kind == RegKind.Literal
-                                ? IntLiteralText(a[1], width0)
-                                : IntShadow(a[1], false);
-                            if (moved != null)
-                            {
-                                IntResult(ins, moved);
-                                return true;
-                            }
+                            IntResult(ins, AsInt(a[1]));
+                            return true;
                         }
                         Line($"{d} = {Expr(a[1])};");
                     }
@@ -3562,7 +3385,11 @@ namespace ShaderRipper.Emit
                     // and fxc compiles it straight back to movc, so the whole
                     // operand goes over.  A broadcast swizzle (`r1.xxxx`) still
                     // compiles to the same `movc` as the old scalar spelling.
-                    Line($"{d} = {Expr(a[1])} ? {Expr(a[2])} : {Expr(a[3])};");
+                    if (!ins.Saturate && a[0].Kind == RegKind.R && _intRegs.Contains(a[0].Index) &&
+                        !a[2].Negate && !a[2].Abs && !a[3].Negate && !a[3].Abs)
+                        IntResult(ins, $"{ConditionBits(a[1])} ? {AsInt(a[2])} : {AsInt(a[3])}");
+                    else
+                        Line($"{d} = {ConditionBits(a[1])} ? {Expr(a[2])} : {Expr(a[3])};");
                     return true;
 
                 case "add": Line($"{d} = {Expr(a[1])} + {Expr(a[2])};"); return true;
@@ -3581,7 +3408,7 @@ namespace ShaderRipper.Emit
                     return true;
                 case "dp2": Line($"{d} = dot({Expr(a[1], 2)}, {Expr(a[2], 2)});"); return true;
                 case "dp3": Line($"{d} = dot({Expr(a[1], 3)}, {Expr(a[2], 3)});"); return true;
-                case "dp4": Line($"{d} = dot({Expr(a[1])}, {Expr(a[2])});"); return true;
+                case "dp4": Line($"{d} = dot({Expr(a[1], 4)}, {Expr(a[2], 4)});"); return true;
                 case "rcp": Line($"{d} = 1.0 / {Expr(a[1], DestWidth(a[0]))};"); return true;
                 case "sincos":
                     // DXBC's sincos has TWO destinations plus the source:
@@ -3748,9 +3575,8 @@ namespace ShaderRipper.Emit
                     // kernel: its address arithmetic is entirely `imad`, and reading
                     // only a[1]/a[2] dropped the addend that carries the thread index.
                     IntResult(ins, a.Count > 3
-                        ? $"{IntDirect(a[1]) ?? AsInt(a[1])} * {IntDirect(a[2]) ?? AsInt(a[2])} + " +
-                          $"{IntDirect(a[3]) ?? AsInt(a[3])}"
-                        : $"{IntDirect(a[1]) ?? AsInt(a[1])} * {IntDirect(a[2]) ?? AsInt(a[2])}");
+                        ? $"{AsInt(a[1])} * {AsInt(a[2])} + {AsInt(a[3])}"
+                        : $"{AsInt(a[1])} * {AsInt(a[2])}");
                     return true;
                 case "ineg":
                     IntResult(ins, $"-{AsInt(a[1])}");
@@ -3847,6 +3673,28 @@ namespace ShaderRipper.Emit
                 case "ubfe":
                 case "ibfe":
                     return BitField(ins.Opcode, a);
+                case "bfrev":
+                    IntResult(ins, $"reversebits({AsUInt(a[1])})");
+                    return true;
+                case "countbits":
+                    IntResult(ins, $"countbits({AsUInt(a[1])})");
+                    return true;
+                case "firstbit_lo":
+                    IntResult(ins, $"firstbitlow({AsUInt(a[1])})");
+                    return true;
+                case "firstbit_hi":
+                case "firstbit_shi":
+                    {
+                        string input = ins.Opcode == "firstbit_shi" ? AsInt(a[1]) : AsUInt(a[1]);
+                        // firstbithigh addresses bits from the LSB in HLSL.
+                        Line("{");
+                        _indent++;
+                        Line($"int{Comps(a[0])} _highestBit = asint(firstbithigh({input}));");
+                        IntResult(ins, "_highestBit < 0 ? -1 : 31 - _highestBit");
+                        _indent--;
+                        Line("}");
+                        return true;
+                    }
 
                 case "ld":
                     {

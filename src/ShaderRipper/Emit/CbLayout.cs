@@ -88,10 +88,8 @@ namespace ShaderRipper.Emit
         /// <summary>
         /// A matrix column as the resolver spells it: <c>(_EnvMatrix._m00_m10_m20_m30)</c>
         /// is column 0 of the matrix, i.e. the four floats a single constant-buffer
-        /// row holds.  That spelling is an expression, not an identifier, so the
-        /// declaration layer cannot use it -- but <c>_EnvMatrix[0]</c> is the same
-        /// value once the matrix is declared as an array of <c>float4</c> (which is
-        /// exactly the memory layout: column-major, one column per row).
+        /// row holds. The column is tracked as <c>_EnvMatrix[0]</c> during layout
+        /// and folding. Reads from native HLSL matrices use a column swizzle.
         ///
         /// An array element carries its own index -- <c>(unity_WorldToShadow[2]._m01_...)</c>
         /// is column 2 of element 0 -- so the brackets are part of the name.
@@ -284,6 +282,16 @@ namespace ShaderRipper.Emit
 
         public string Row(int reg, int row) =>
             RowName.TryGetValue(reg, out var rows) && rows.TryGetValue(row, out var n) ? n : null;
+
+        public string ReadRow(int reg, int row)
+        {
+            string name = Row(reg, row);
+            if (name == null || !name.EndsWith(']') || !Members.TryGetValue(reg, out var members))
+                return name;
+
+            var matrix = members.FirstOrDefault(m => m.Matrix && row >= m.Row && row - m.Row < m.Rows);
+            return matrix == null ? name : Resolve.CbResolver.MatrixColumn(matrix.Name, row - matrix.Row, 4);
+        }
 
         public static CbLayout Build(Module m, Resolve.CbResolver cb,
                                      IReadOnlyDictionary<(int reg, int row, int col), string> intLanes = null,

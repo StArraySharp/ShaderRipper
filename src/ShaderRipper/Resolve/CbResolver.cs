@@ -707,7 +707,7 @@ namespace ShaderRipper.Resolve
         /// M[R] transposes the matrix.  The expression is parenthesised so a lane can
         /// still be taken from it, since swizzling a swizzle is not legal.
         /// </summary>
-        private static string MatrixColumn(string name, int k, int rows)
+        internal static string MatrixColumn(string name, int k, int rows)
         {
             var sb = new System.Text.StringBuilder("(").Append(name).Append('.');
             for (int r = 0; r < rows; r++) sb.Append("_m").Append(r).Append(k);

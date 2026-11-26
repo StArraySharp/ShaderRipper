@@ -35,6 +35,7 @@ namespace ShaderRipper.Emit
         private readonly List<(string type, string name)> _uniforms = new();
         private readonly HashSet<string> _samplers = new(StringComparer.Ordinal);
         private readonly Dictionary<string, string> _samplerKind = new(StringComparer.Ordinal);
+        private readonly HashSet<string> _matrixColumns = new(StringComparer.Ordinal);
         /// <summary>
         /// Is this a name Unity synthesises for a texture property?
         ///
@@ -782,6 +783,9 @@ namespace ShaderRipper.Emit
                     .Select(type => $"{type} _sri_mod({type} x, float y) {{ return x - y * floor(x / y); }}\n"))) + "\n",
             ["bitfieldInsert"] = BitfieldHelpers(insert: true),
             ["bitfieldExtract"] = BitfieldHelpers(insert: false),
+            ["bitfieldReverse"] = string.Concat(new[] { "", "2", "3", "4" }.Select(suffix =>
+                $"int{suffix} _sri_bitfieldReverse(int{suffix} value) {{ return asint(reversebits(asuint(value))); }}\n" +
+                $"uint{suffix} _sri_bitfieldReverse(uint{suffix} value) {{ return reversebits(value); }}\n")) + "\n",
             ["atomicAdd"] =
                 "uint _sri_atomicAdd(inout uint dest, uint value)\n" +
                 "{\n    uint original;\n    InterlockedAdd(dest, value, original);\n" +
@@ -892,18 +896,11 @@ namespace ShaderRipper.Emit
 
                     string arr = raw.Contains(mapped) ? raw[(raw.IndexOf(mapped, StringComparison.Ordinal) + mapped.Length)..] : "";
 
-                    // An `hlslcc_mtx4x4` member is a matrix, and four rows of a
-                    // matrix ARE `float4x4` -- the bytes and the `name[i]` spelling
-                    // are unchanged, but `mul` has an overload for the type and none
-                    // for a row array.  Declaring the rows instead is what forced
-                    // every product over this member to be written out one row at a
-                    // time.
-                    if (nm.StartsWith("hlslcc_mtx4x4", StringComparison.Ordinal))
-                    {
-                        type = "float4x4";
-                        arr = "";
-                    }
-                    members.Add($"{type}|{mapped}{tarr}{arr}");
+                    bool columnArray = nm.StartsWith("hlslcc_mtx4x4", StringComparison.Ordinal);
+                    string memberType = columnArray ? "float4x4" : type;
+                    if (columnArray) arr = "";
+                    if (memberType == "float4x4" && tarr.Length == 0 && arr.Length == 0) _matrixColumns.Add(mapped);
+                    members.Add($"{memberType}|{mapped}{tarr}{arr}");
                 }
             }
             if (members.Count == 0) return;
@@ -1095,7 +1092,11 @@ namespace ShaderRipper.Emit
                     if (close > br) arr = raw[br..(close + 1)];
                 }
 
-                if (storage == "uniform") _uniforms.Add((text, name + arr));
+                if (storage == "uniform")
+                {
+                    _uniforms.Add((text, name + arr));
+                    if (text == "float4x4" && arr.Length == 0) _matrixColumns.Add(name);
+                }
                 else if (storage == "in" && _vertex) _ins.Add((text, name + arr));
                 else if (storage == "out" && _vertex)
                     _varyingOut.Add((text, name + arr, VaryingSemantic(name, _varyingOut)));
@@ -1527,8 +1528,21 @@ namespace ShaderRipper.Emit
             var withMacro = TransformTexChain.Fold(folded);
             if (withMacro != null) { folded = withMacro; _usedTransformTex = true; }
             _sb.Clear();
-            foreach (string one in folded) _sb.Append(one).Append('\n');
+            foreach (string one in folded)
+                _sb.Append(_matrixColumns.Count == 0 ? one : MatrixIndex.Replace(one, ReadMatrixColumn)).Append('\n');
             return _sb.ToString();
+        }
+
+        private static readonly System.Text.RegularExpressions.Regex MatrixIndex =
+            new(@"(?<![\w.])([A-Za-z_]\w*)\s*\[\s*(?:([0-3])\s*\])?");
+
+        private string ReadMatrixColumn(System.Text.RegularExpressions.Match match)
+        {
+            string name = match.Groups[1].Value;
+            if (!_matrixColumns.Contains(name)) return match.Value;
+            return match.Groups[2].Success
+                ? Resolve.CbResolver.MatrixColumn(name, match.Groups[2].Value[0] - '0', 4)
+                : $"transpose({name})[";
         }
 
         private string StageReturn(bool varying, bool mrt)
@@ -1742,6 +1756,20 @@ namespace ShaderRipper.Emit
         /// </summary>
         private string Call(string name, List<string> args)
         {
+            if (args.Count == 1)
+            {
+                string value = args[0];
+                switch (name)
+                {
+                    case "not": return $"(!({value}))";
+                    case "bitCount": return $"asint(countbits(asuint({value})))";
+                    case "findLSB": return $"asint(firstbitlow(asuint({value})))";
+                    case "findMSB": return $"asint(firstbithigh({TypedIntegerLiteral(value)}))";
+                    case "bitfieldReverse":
+                        _synthHelpers.Add(name);
+                        return $"_sri_bitfieldReverse({TypedIntegerLiteral(value)})";
+                }
+            }
             if ((name == "mod" && args.Count == 2) || (name == "mix" && args.Count == 3))
             {
                 _synthHelpers.Add(name);
@@ -1840,6 +1868,16 @@ namespace ShaderRipper.Emit
             }
 
             return null;
+        }
+
+        private static readonly System.Text.RegularExpressions.Regex IntegerLiteral =
+            new(@"^[+-]?(?:0[xX][0-9a-fA-F]+|\d+)([uU])?$");
+
+        private static string TypedIntegerLiteral(string expression)
+        {
+            var match = IntegerLiteral.Match(expression);
+            if (!match.Success) return expression;
+            return match.Groups[1].Success ? $"uint({expression})" : $"int({expression})";
         }
 
         private readonly record struct TextureShape(string ObjectType, int Dimensions,

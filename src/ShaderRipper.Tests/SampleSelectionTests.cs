@@ -2,6 +2,7 @@ using System.Text.RegularExpressions;
 using NUnit.Framework;
 using ShaderRipper.Ast;
 using ShaderRipper.Emit;
+using ShaderRipper.Resolve;
 
 namespace ShaderRipper.Tests;
 
@@ -175,6 +176,182 @@ void main()
     }
 
     [Test]
+    public void GlslMatrixIndexingPreservesConstantAndDynamicColumns()
+    {
+        var r = GlslTranslator.Translate("""
+#ifdef FRAGMENT
+uniform vec4 hlslcc_mtx4x4Transform[4];
+uniform int columnIndex;
+out vec4 SV_Target0;
+void main()
+{
+    SV_Target0 = hlslcc_mtx4x4Transform[1] + hlslcc_mtx4x4Transform[columnIndex];
+}
+#endif
+""");
+
+        Assert.That(r.ParseErrors, Is.Zero);
+        Assert.That(r.Hlsl, Does.Contain("float4x4 Transform;")
+            .And.Contain("(Transform._m01_m11_m21_m31)")
+            .And.Contain("transpose(Transform)[columnIndex]"));
+    }
+
+    [Test]
+    public void GlslBitIntrinsicsPreserveSignednessAndBooleanLanes()
+    {
+        var r = GlslTranslator.Translate("""
+#ifdef FRAGMENT
+out vec4 SV_Target0;
+void main()
+{
+    bvec2 flags = not(bvec2(false, true));
+    int a = findMSB(-2);
+    int b = findMSB(0x80000000u);
+    int c = findLSB(16u);
+    int d = bitCount(bitfieldReverse(-1));
+    SV_Target0 = mix(vec4(b), vec4(a, b, c, d), bvec4(flags.xyxx));
+}
+#endif
+""");
+
+        Assert.That(r.ParseErrors, Is.Zero);
+        Assert.That(r.Hlsl, Does.Contain("(!(bool2(false, true)))")
+            .And.Contain("asint(firstbithigh(int(-2)))")
+            .And.Contain("asint(firstbithigh(uint(0x80000000u)))")
+            .And.Contain("asint(firstbitlow(asuint(16u)))")
+            .And.Contain("asint(countbits(asuint(_sri_bitfieldReverse(int(-1)))))"));
+    }
+
+    [Test]
+    public void DxbcConstantRegisterReadsTheColumnOfAnEmittedMatrix()
+    {
+        var module = Module.Read("""
+ps_4_0
+dcl_constantbuffer CB0[4], immediateIndexed
+dcl_output o0.xyzw
+mov o0.xyzw, cb0[1].xwzy
+ret
+""");
+        module.Cb = CbResolver.Resolve(module, new[] { "unity_ObjectToWorld" }, null,
+            assetBindings: new Dictionary<int, string> { [0] = "UnityPerDraw" });
+
+        var r = HlslEmitter.Emit(module, standalone: true);
+        Assert.That(r.Hlsl, Does.Contain("float4x4 unity_ObjectToWorld")
+            .And.Contain("o0.xyzw = (unity_ObjectToWorld._m01_m11_m21_m31).xwzy;"));
+    }
+
+    [Test]
+    public void DxbcIntegerReadsAcrossABranchUseTheRegisterFromTheTakenPath()
+    {
+        var r = HlslEmitter.Emit(Module.Read("""
+ps_5_0
+dcl_input_ps linear v0.x
+dcl_output o0.xyzw
+dcl_temps 2
+mov r0.x, l(7)
+if_nz v0.x
+  mov r0.x, l(1.0)
+else
+  iadd r0.x, r0.x, l(2)
+endif
+iadd r1.x, r0.x, l(1)
+itof o0.x, r1.x
+ret
+"""));
+
+        Assert.That(r.Missing, Is.Empty);
+        Assert.That(r.Hlsl, Does.Contain("r0.x = asfloat(i0.x);")
+            .And.Contain("i0.x = i0.x + 2;")
+            .And.Contain("i1.x = i0.x + 1;"));
+    }
+
+    [Test]
+    public void DxbcMixedLaneIntegerReadsRetainBitsOfBothWrites()
+    {
+        var r = HlslEmitter.Emit(Module.Read("""
+ps_5_0
+dcl_output o0.xyzw
+dcl_temps 2
+mov r0.x, l(1.0)
+ftoi r0.y, l(7.0)
+iadd r1.xy, r0.xyxy, l(1)
+itof o0.xy, r1.xyxy
+ret
+"""));
+
+        Assert.That(r.Hlsl, Does.Contain("r0.y = asfloat(i0.y);")
+            .And.Contain("i0.xy + 1"));
+    }
+
+    [Test]
+    public void DxbcConditionsTreatTheSignBitAsNonzeroAndPreserveConditionalReturn()
+    {
+        var r = HlslEmitter.Emit(Module.Read("""
+ps_5_0
+dcl_output o0.xyzw
+movc o0.xy, l(0x80000000, 0, 0, 0), l(7.0, 8.0, 0.0, 0.0), l(1.0, 2.0, 0.0, 0.0)
+discard_z l(0x80000000)
+retc_nz l(0x80000000)
+mov o0, l(99.0, 99.0, 99.0, 99.0)
+ret
+"""));
+
+        Assert.That(r.Missing, Is.Empty);
+        Assert.That(r.Hlsl, Does.Contain("uint2(2147483648u, 0u) ?")
+            .And.Contain("if (!2147483648u) discard;")
+            .And.Contain("if (2147483648u)"));
+    }
+
+    [Test]
+    public void DxbcBitOperationsKeepTheMsbOriginAndNoMatchSentinel()
+    {
+        var r = HlslEmitter.Emit(Module.Read("""
+ps_5_0
+dcl_output o0.xyzw
+dcl_temps 1
+firstbit_hi r0.x, l(0x80000000)
+firstbit_shi r0.y, l(-2)
+firstbit_lo r0.z, l(16)
+countbits r0.w, l(-1)
+itof o0, r0
+ret
+"""));
+
+        Assert.That(r.Missing, Is.Empty);
+        Assert.That(r.Hlsl, Does.Contain("firstbithigh(2147483648u)")
+            .And.Contain("firstbithigh(-2)")
+            .And.Contain("_highestBit < 0 ? -1 : 31 - _highestBit")
+            .And.Contain("firstbitlow(16u)")
+            .And.Contain("countbits(4294967295u)"));
+    }
+
+    [Test]
+    public void DxbcDotWidthAndSwitchLabelsDoNotDependOnFloatCoercion()
+    {
+        var r = HlslEmitter.Emit(Module.Read("""
+ps_5_0
+dcl_output o0.xyzw
+dcl_temps 1
+mov r0, l(1.0, 2.0, 20.0, 30.0)
+dp2 o0.x, r0, l(1.0, 1.0, 100.0, 100.0)
+dp3 o0.y, r0, l(1.0)
+switch l(16777217)
+case l(16777217)
+  mov o0.z, l(9.0)
+  break
+default
+  break
+endswitch
+ret
+"""));
+
+        Assert.That(r.Missing, Is.Empty);
+        Assert.That(r.Hlsl, Does.Contain("dot(r0.xy, float2(1.0f, 1.0f))")
+            .And.Contain("dot(r0.xyz, float3(1.0f, 1.0f, 1.0f))")
+            .And.Contain("case 16777217u:"));
+    }
+
+    [Test]
     public void DxbcTextureReadsPreserveMipResultSwizzlesAndArrayGradients()
     {
         var r = HlslEmitter.Emit(Module.Read("""
@@ -274,7 +451,7 @@ ret
     {
         string hlsl = HlslEmitter.Emit(Module.Read(MovcAsm)).Hlsl;
 
-        Assert.That(hlsl, Does.Contain("r0.xyzw = r1.xyzw ? r2.xyzw : r3.xyzw"));
+        Assert.That(hlsl, Does.Contain("r0.xyzw = asuint(r1.xyzw) ? r2.xyzw : r3.xyzw"));
         // A scalar condition would apply lane x to every component of the select.
         Assert.That(hlsl, Does.Not.Contain("r1.x ?"));
     }
