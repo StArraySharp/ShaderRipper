@@ -14,15 +14,21 @@ namespace ShaderRipper.Tests;
 public class BundleTests
 {
     private const uint FlagBlocksInfoAtEnd = 0x80;
+    private const uint FlagDataPadding = 0x200;
 
     // ---- a bundle writer for the tests --------------------------------------
 
     private sealed class Builder
     {
         public uint Version = 8;
+        public string UnityVersion = "2022.3.33f1";
         public bool PadTo16 = true;
+        public bool? PadData;
+        public bool DataPaddingFlag;
         public bool BlocksInfoAtEnd;
         public bool LzmaBlock;
+        public bool LzmaInfo;
+        public byte[] EncodedLzmaBlock;
         public List<(string path, byte[] data)> Nodes = new();
 
         public byte[] Build()
@@ -35,25 +41,13 @@ public class BundleTests
                 nodeStream.Write(data, 0, data.Length);
             }
             byte[] blockData = nodeStream.ToArray();
-            byte[] stored = blockData;
-            if (LzmaBlock)
-            {
-                var encoder = new SevenZip.Compression.LZMA.Encoder();
-                using var source = new MemoryStream(blockData);
-                using var compressed = new MemoryStream();
-                encoder.WriteCoderProperties(compressed);
-                encoder.Code(source, compressed, source.Length, -1, null);
-                stored = compressed.ToArray();
-            }
-
-            // One block, stored uncompressed: raw == compressed.  That is the case
-            // where a misaligned read cannot be detected by trying to decode.
+            byte[] stored = EncodedLzmaBlock ?? (LzmaBlock ? EncodeLzma(blockData) : blockData);
             var info = new MemoryStream();
             info.Write(new byte[16], 0, 16);                       // hash, unused
             WriteBE(info, 1);                                      // one block
             WriteBE(info, (uint)blockData.Length);
             WriteBE(info, (uint)stored.Length);
-            WriteBE16(info, LzmaBlock ? (ushort)0x41 : (ushort)0x40);
+            WriteBE16(info, LzmaBlock || EncodedLzmaBlock != null ? (ushort)0x41 : (ushort)0x40);
             WriteBE(info, (uint)table.Count);
             foreach (var (off, len, path) in table)
             {
@@ -65,18 +59,20 @@ public class BundleTests
                 info.WriteByte(0);
             }
             byte[] blockInfo = info.ToArray();
+            byte[] storedInfo = LzmaInfo ? EncodeLzma(blockInfo) : blockInfo;
 
             var head = new MemoryStream();
             head.Write(System.Text.Encoding.ASCII.GetBytes("UnityFS"), 0, 7);
             head.WriteByte(0);
             WriteBE(head, Version);
             WriteCStr(head, "5.x.x");
-            WriteCStr(head, "2022.3.33f1");
+            WriteCStr(head, UnityVersion);
             long sizePosition = head.Position;
             WriteBE64(head, 0);                                    // patched below
+            WriteBE(head, (uint)storedInfo.Length);
             WriteBE(head, (uint)blockInfo.Length);
-            WriteBE(head, (uint)blockInfo.Length);
-            WriteBE(head, BlocksInfoAtEnd ? FlagBlocksInfoAtEnd : 0);
+            WriteBE(head, (BlocksInfoAtEnd ? FlagBlocksInfoAtEnd : 0) |
+                          (DataPaddingFlag ? FlagDataPadding : 0) | (LzmaInfo ? 1u : 0u));
 
             if (BlocksInfoAtEnd)
             {
@@ -84,26 +80,31 @@ public class BundleTests
                 if (PadTo16) Pad16(head);
                 head.Write(stored, 0, stored.Length);
                 if (PadTo16) Pad16(head);
-                head.Write(blockInfo, 0, blockInfo.Length);
+                head.Write(storedInfo);
             }
             else
             {
                 // Table first: header, then the table, then the block data.
-                long infoAt = PadTo16 ? (head.Position + 15) & ~15L : head.Position;
-                head.SetLength(infoAt);
-                head.Write(new byte[infoAt - head.Position], 0, (int)(infoAt - head.Position));
-                head.Write(blockInfo, 0, blockInfo.Length);
-
-                long dataAt = PadTo16 ? (head.Position + 15) & ~15L : head.Position;
-                head.SetLength(dataAt);
-                head.Write(new byte[dataAt - head.Position], 0, (int)(dataAt - head.Position));
-                head.Write(stored, 0, stored.Length);
+                if (PadTo16) Pad16(head);
+                head.Write(storedInfo);
+                if (PadData ?? PadTo16) Pad16(head);
+                head.Write(stored);
             }
 
             var result = head.ToArray();
             long total = result.Length;
             for (int i = 0; i < 8; i++) result[(int)sizePosition + i] = (byte)(total >> (56 - 8 * i));
             return result;
+        }
+
+        private static byte[] EncodeLzma(byte[] data)
+        {
+            var encoder = new SevenZip.Compression.LZMA.Encoder();
+            using var source = new MemoryStream(data);
+            using var compressed = new MemoryStream();
+            encoder.WriteCoderProperties(compressed);
+            encoder.Code(source, compressed, source.Length, -1, null);
+            return compressed.ToArray();
         }
 
         private static void Pad16(Stream s)
@@ -136,11 +137,58 @@ public class BundleTests
         }
     }
 
-    [Test]
-    public void ReadsLzmaDataBlocksWithUnityFsPropertiesOnly()
+    [TestCase(false)]
+    [TestCase(true)]
+    public void ReadsLzmaDataBlocksWithUnityFsPropertiesOnly(bool infoAtEnd)
     {
         byte[] data = Enumerable.Repeat((byte)0xA5, 8192).ToArray();
-        var builder = new Builder { LzmaBlock = true };
+        var builder = new Builder { LzmaBlock = true, LzmaInfo = true, BlocksInfoAtEnd = infoAtEnd };
+        builder.Nodes.Add(("CAB-test", data));
+        Assert.That(Bundle.Read(builder.Build()).Single().Data, Is.EqualTo(data));
+    }
+
+    [Test]
+    public void ReadsCompressedBlockWhenTheStoredAndRawSizesMatch()
+    {
+        byte[] data = new byte[17];
+        var builder = new Builder
+        {
+            EncodedLzmaBlock = Convert.FromHexString("5D0010000000006D9F497BFFFFF0004000"),
+        };
+        builder.Nodes.Add(("CAB-test", data));
+        Assert.That(Bundle.Read(builder.Build()).Single().Data, Is.EqualTo(data));
+    }
+
+    [TestCase(6u, "2019.4.14f1", false)]
+    [TestCase(6u, "2019.4.15f1", false)]
+    [TestCase(7u, "2019.4.15f1", false)]
+    [TestCase(8u, "2022.3.34f1", true)]
+    public void HeaderAndDataAlignmentAreIndependent(uint version, string revision, bool padData)
+    {
+        var builder = new Builder
+        {
+            Version = version, UnityVersion = revision, PadData = padData, DataPaddingFlag = padData,
+        };
+        byte[] data = Payload("original uncompressed bytes");
+        builder.Nodes.Add(("CAB-test", data));
+        Assert.That(Bundle.Read(builder.Build()).Single().Data, Is.EqualTo(data));
+    }
+
+    [Test]
+    public void UnalignedDataBeforeTheFooterDoesNotReadTheBlockTable()
+    {
+        var builder = new Builder { Version = 6, UnityVersion = "2019.4.14f1", PadTo16 = false, BlocksInfoAtEnd = true };
+        byte[] data = Payload("payload");
+        builder.Nodes.Add(("CAB-test", data));
+        Assert.That(Bundle.Read(builder.Build()).Single().Data, Is.EqualTo(data));
+    }
+
+    [Test]
+    public void DeclaredBundleEndResolvesUnflaggedPaddingBeforeRawData()
+    {
+        var builder = new Builder();
+        var data = new byte[32];
+        data[0] = 0x12;
         builder.Nodes.Add(("CAB-test", data));
         Assert.That(Bundle.Read(builder.Build()).Single().Data, Is.EqualTo(data));
     }

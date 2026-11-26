@@ -1,6 +1,8 @@
 using System;
+using System.Buffers.Binary;
 using System.Collections.Generic;
 using System.IO;
+using AssetRipper.Primitives;
 using K4os.Compression.LZ4;
 
 namespace ShaderRipper.Data
@@ -14,8 +16,10 @@ namespace ShaderRipper.Data
     internal static class Bundle
     {
         private const uint FlagBlocksInfoAtEnd = 0x80;
+        private const uint FlagBlockDataPadding = 0x200;
 
         private enum Compression { None = 0, Lzma = 1, Lz4 = 2, Lz4Hc = 3, Lzham = 4 }
+        private readonly record struct Block(int Raw, int Stored, Compression Codec);
 
         internal readonly struct Node
         {
@@ -46,148 +50,133 @@ namespace ShaderRipper.Data
 
         public static List<Node> Read(byte[] buf)
         {
-            if (!IsBundleBytes(buf))
+            if (!IsBundleBytes(buf) || buf.Length < 12 || buf[7] != 0)
                 throw new InvalidDataException("not a UnityFS bundle");
 
             int p = 8;
             uint version = U32(buf, ref p);
             CStr(buf, ref p);
-            CStr(buf, ref p);
-            long size = (long)U64(buf, ref p);
+            string revision = CStr(buf, ref p);
+            if (buf.Length - p < 20) throw new InvalidDataException("truncated UnityFS header");
+            ulong size = U64(buf, ref p);
             uint compressedInfoSize = U32(buf, ref p);
             uint uncompressedInfoSize = U32(buf, ref p);
             uint flags = U32(buf, ref p);
 
+            if (size > (ulong)buf.Length || size < (ulong)p ||
+                compressedInfoSize > size - (ulong)p || uncompressedInfoSize > Array.MaxLength)
+                throw new InvalidDataException("invalid UnityFS bundle or block table size");
+
             var compression = (Compression)(flags & 0x3F);
+            bool atEnd = (flags & FlagBlocksInfoAtEnd) != 0;
+            bool hasEngineVersion = UnityVersion.TryParse(revision, out var engine, out _);
+            bool alignHeader = version >= 7 || (hasEngineVersion && engine.Major == 2019 &&
+                engine >= new UnityVersion(2019, 4, 15));
+            bool alignData = (flags & FlagBlockDataPadding) != 0 &&
+                (!hasEngineVersion || UsesBlockPaddingFlag(engine));
 
-            // UnityFS aligns both the block table and the block data to 16 bytes,
-            // and the alignment is not optional: a bundle whose block table starts
-            // at 50 (right after the header) instead of 64 decodes into garbage,
-            // because the LZ4 stream is read three to fourteen bytes off.  The
-            // unaligned positions are still tried, in case an old writer omitted
-            // the padding, but the aligned one has to come first -- and it has to
-            // come first for the block *data* too, where an uncompressed block
-            // cannot be told apart from its misaligned copy by validating it.
-            bool aligned = version >= 7;
-
-            byte[] info = null;
-            long infoAt = -1;
-            foreach (long start in BlocksInfoCandidates(p, size, compressedInfoSize, aligned, flags))
+            InvalidDataException error = null;
+            long footer = atEnd ? (long)size - compressedInfoSize : -1;
+            foreach (long start in atEnd ? new[] { footer } : AlignmentCandidates(p, alignHeader))
             {
-                if (start < 0 || start + compressedInfoSize > buf.Length) continue;
-                var slice = Slice(buf, (int)start, (int)compressedInfoSize);
-                if (compressedInfoSize == uncompressedInfoSize)
-                {
-                    info = slice;
-                    infoAt = start;
-                    break;
-                }
+                if (start + compressedInfoSize > (long)size) continue;
                 try
                 {
-                    var d = Decompress(slice, (int)uncompressedInfoSize, compression);
-                    if (d.Length == uncompressedInfoSize) { info = d; infoAt = start; }
+                    int tableStart = (int)start;
+                    int tableEnd = tableStart + (int)compressedInfoSize;
+                    byte[] info = Decompress(Slice(buf, tableStart, (int)compressedInfoSize),
+                                             (int)uncompressedInfoSize, compression);
+                    return ReadLayout(buf, info, atEnd ? p : tableEnd, atEnd ? tableStart : (int)size,
+                                      atEnd, alignData || (atEnd && alignHeader));
                 }
-                catch {  }
-                if (info != null) break;
+                catch (InvalidDataException e) { error ??= e; }
             }
-            if (info == null)
-                throw new InvalidDataException("block table not found");
+            throw new InvalidDataException("invalid UnityFS block table or block data", error);
+        }
 
+        private static List<Node> ReadLayout(byte[] buf, byte[] info, int dataStart, int dataEnd,
+                                             bool infoAtEnd, bool alignData)
+        {
+            if (info.Length < 24) throw new InvalidDataException("truncated UnityFS block table");
             int q = 16;
-            int blockCount = (int)U32(info, ref q);
-            var blocks = new (uint raw, uint comp, ushort flags)[blockCount];
-            for (int i = 0; i < blockCount; i++)
+            uint blockCount = U32(info, ref q);
+            if (blockCount > (info.Length - 24) / 10) throw new InvalidDataException("invalid UnityFS block count");
+            var blocks = new Block[(int)blockCount];
+            long rawSize = 0;
+            long storedSize = 0;
+            for (int i = 0; i < blocks.Length; i++)
             {
                 uint raw = U32(info, ref q);
-                uint comp = U32(info, ref q);
-                ushort f = (ushort)U16(info, ref q);
-                blocks[i] = (raw, comp, f);
+                uint stored = U32(info, ref q);
+                var compression = (Compression)(U16(info, ref q) & 0x3F);
+                rawSize += raw;
+                storedSize += stored;
+                if (rawSize > Array.MaxLength || storedSize > dataEnd - dataStart)
+                    throw new InvalidDataException("invalid UnityFS block sizes");
+                if (compression == Compression.None && raw != stored)
+                    throw new InvalidDataException("invalid uncompressed UnityFS block size");
+                blocks[i] = new Block((int)raw, (int)stored, compression);
             }
 
-            int nodeCount = (int)U32(info, ref q);
-            var nodes = new (long off, long len, string path)[nodeCount];
+            uint nodeCount = U32(info, ref q);
+            if (nodeCount > (info.Length - q) / 21) throw new InvalidDataException("invalid UnityFS node count");
+            var nodes = new List<(int Offset, int Length, string Path)>((int)nodeCount);
             for (int i = 0; i < nodeCount; i++)
             {
-                long off = (long)U64(info, ref q);
-                long len = (long)U64(info, ref q);
+                if (info.Length - q < 21) throw new InvalidDataException("truncated UnityFS node");
+                ulong off = U64(info, ref q);
+                ulong len = U64(info, ref q);
                 U32(info, ref q);
-                nodes[i] = (off, len, CStr(info, ref q));
+                string path = CStr(info, ref q);
+                if (off > (ulong)rawSize || len > (ulong)rawSize - off)
+                    throw new InvalidDataException("UnityFS node exceeds the block stream");
+                if (len > 0) nodes.Add(((int)off, (int)len, path));
             }
+            if (info.AsSpan(q).IndexOfAnyExcept((byte)0) >= 0)
+                throw new InvalidDataException("unexpected data at the end of the UnityFS block table");
 
-            long total = 0;
-            foreach (var b in blocks) total += b.raw;
-            var stream = new byte[total];
+            // With a leading table, the declared bundle end can identify padding
+            // even when a legacy writer omitted the data padding flag.
+            if (!infoAtEnd && dataEnd - storedSize == Align16(dataStart))
+                alignData = true;
 
-            long sp = -1;
-            byte[] firstBlock = null;
-            if (blocks.Length > 0)
+            InvalidDataException error = null;
+            foreach (long start in AlignmentCandidates(dataStart, alignData))
             {
-                // Normal layout: block data follows the block table, 16-byte
-                // aligned. With the BlocksInfoAtEnd flag (0x80) the table sits at
-                // the end of the file and the data follows the header instead, so
-                // "after the table" would point at the file end -- the header end
-                // is the only sensible base there.
-                var bases = new List<long>();
-                if ((flags & FlagBlocksInfoAtEnd) != 0) bases.Add(p);
-                else bases.Add(infoAt + compressedInfoSize);
-                if ((flags & FlagBlocksInfoAtEnd) != 0) bases.Add(infoAt + compressedInfoSize);
-
-                foreach (long basePos in bases)
+                long end = start + storedSize;
+                if (end > dataEnd || !IsPadding(buf, dataStart, (int)start) ||
+                    !IsPadding(buf, (int)end, dataEnd))
+                    continue;
+                try
                 {
-                    foreach (long cand in DataCandidates(basePos, aligned))
-                    {
-                        if (cand < 0 || cand + blocks[0].comp > buf.Length) continue;
-                        // An uncompressed first block cannot be validated -- any
-                        // bytes "decode" -- so it is only accepted at the aligned
-                        // position.  That is what makes the padding rule real:
-                        // taking the contiguous one here shifted the whole stream
-                        // by three bytes and turned every node into garbage.
-                        if (blocks[0].comp == blocks[0].raw)
-                        {
-                            if (!aligned || cand == Align16(basePos)) sp = cand;
-                            continue;
-                        }
-                        try
-                        {
-                            var d = Decompress(Slice(buf, (int)cand, (int)blocks[0].comp),
-                                               (int)blocks[0].raw,
-                                               (Compression)(blocks[0].flags & 0x3F));
-                            if (d.Length == blocks[0].raw) { sp = cand; firstBlock = d; }
-                        }
-                        catch {  }
-                        if (sp >= 0) break;
-                    }
-                    if (sp >= 0) break;
+                    byte[] stream = ReadBlocks(buf, blocks, (int)start, (int)rawSize);
+                    var result = new List<Node>(nodes.Count);
+                    foreach (var (offset, length, path) in nodes)
+                        result.Add(new Node(path, Slice(stream, offset, length)));
+                    return result;
                 }
+                catch (InvalidDataException e) { error ??= e; }
             }
-            if (sp < 0) throw new InvalidDataException("block data not found");
+            throw new InvalidDataException("UnityFS block data not found", error);
+        }
 
-            int dp = 0;
-            foreach (var (raw, comp, bf) in blocks)
+        private static byte[] ReadBlocks(byte[] buf, Block[] blocks, int source, int rawSize)
+        {
+            var stream = new byte[rawSize];
+            int dest = 0;
+            foreach (var block in blocks)
             {
-                if (dp == 0 && firstBlock != null)
-                    Buffer.BlockCopy(firstBlock, 0, stream, dp, (int)raw);
-                else if (comp == raw)
-                    Buffer.BlockCopy(buf, (int)sp, stream, dp, (int)raw);
+                if (block.Codec == Compression.None)
+                    Buffer.BlockCopy(buf, source, stream, dest, block.Raw);
                 else
                 {
-                    var src = Slice(buf, (int)sp, (int)comp);
-                    var dst = Decompress(src, (int)raw, (Compression)(bf & 0x3F));
-                    Buffer.BlockCopy(dst, 0, stream, dp, dst.Length);
+                    byte[] data = Decompress(Slice(buf, source, block.Stored), block.Raw, block.Codec);
+                    Buffer.BlockCopy(data, 0, stream, dest, block.Raw);
                 }
-                dp += (int)raw;
-                sp += comp;
+                source += block.Stored;
+                dest += block.Raw;
             }
-
-            var list = new List<Node>(nodeCount);
-            foreach (var (off, len, nodePath) in nodes)
-            {
-                if (off < 0 || len <= 0 || off + len > stream.Length) continue;
-                var data = new byte[len];
-                Buffer.BlockCopy(stream, (int)off, data, 0, (int)len);
-                list.Add(new Node(nodePath, data));
-            }
-            return list;
+            return stream;
         }
 
         /// <summary>
@@ -260,70 +249,39 @@ namespace ShaderRipper.Data
             data[0] == 'U' && data[1] == 'n' && data[2] == 'i' &&
             data[3] == 't' && data[4] == 'y' && data[5] == 'F' && data[6] == 'S';
 
-        /// <summary>Round up to the 16-byte boundary UnityFS pads to.</summary>
-        private static long Align16(long value) => (value + 15) & ~15L;
-
-        /// <summary>
-        /// Where the block table can start, most likely first.
-        ///
-        /// UnityFS v7 and later pad to 16 bytes, so the aligned position is the
-        /// real one in every build this reader has seen; the contiguous position
-        /// is kept as a fallback for an older writer that did not pad.  Those
-        /// bytes are tried a few at a time because the fallback cannot be predicted,
-        /// but the aligned candidate always comes first.
-        /// </summary>
-        private static IEnumerable<long> BlocksInfoCandidates(
-            int headerEnd, long size, uint compressedSize, bool aligned, uint flags)
+        // Older Unity releases used this bit for asset bundle encryption.
+        private static bool UsesBlockPaddingFlag(UnityVersion version) => version.Major switch
         {
-            long declared = (flags & FlagBlocksInfoAtEnd) != 0 ? size - compressedSize : headerEnd;
-            if (aligned)
-            {
-                yield return Align16(declared);
-                // "At end" puts the table at the very end of the file, where the
-                // declared position is already exact.
-                if ((flags & FlagBlocksInfoAtEnd) == 0) yield return declared;
-            }
-            else
-            {
-                yield return declared;
-            }
-            for (int shift = 1; shift <= 32; shift++)
-            {
-                yield return declared + shift;
-                if (aligned) yield return Align16(declared) + shift;
-            }
+            < 2020 => false,
+            2020 => version >= new UnityVersion(2020, 3, 34),
+            2021 => version >= new UnityVersion(2021, 3, 2),
+            2022 => version >= new UnityVersion(2022, 1, 1),
+            _ => true,
+        };
+
+        private static IEnumerable<long> AlignmentCandidates(int offset, bool preferAligned)
+        {
+            long aligned = Align16(offset);
+            yield return preferAligned ? aligned : offset;
+            if (aligned != offset) yield return preferAligned ? offset : aligned;
         }
 
-        /// <summary>
-        /// Where block data can start, most likely first: the aligned position,
-        /// then -- for an uncompressed block, where a wrong guess cannot be
-        /// detected -- nothing else, so the padding rule cannot be silently
-        /// ignored.  A compressed block is probed in between, because a successful
-        /// decode is proof the offset was right.
-        /// </summary>
-        private static IEnumerable<long> DataCandidates(long basePos, bool aligned)
-        {
-            if (aligned)
-            {
-                yield return Align16(basePos);
-                yield return basePos;
-                for (int shift = 1; shift <= 160; shift++) yield return basePos + shift;
-                yield break;
-            }
-            for (int shift = 0; shift <= 160; shift++) yield return basePos + shift;
-        }
+        private static long Align16(int offset) => (offset + 15L) & ~15L;
+
+        private static bool IsPadding(byte[] buffer, int start, int end) =>
+            buffer.AsSpan(start, end - start).IndexOfAnyExcept((byte)0) < 0;
 
         private static byte[] Decompress(byte[] src, int rawSize, Compression c)
         {
-            var dst = new byte[rawSize];
             switch (c)
             {
                 case Compression.None:
-                    Buffer.BlockCopy(src, 0, dst, 0, Math.Min(src.Length, rawSize));
-                    return dst;
+                    if (src.Length != rawSize) throw new InvalidDataException("invalid uncompressed UnityFS table size");
+                    return src;
                 case Compression.Lz4:
                 case Compression.Lz4Hc:
                     {
+                        var dst = new byte[rawSize];
                         int got = LZ4Codec.Decode(src, 0, src.Length, dst, 0, rawSize);
                         if (got != rawSize) throw new InvalidDataException("LZ4 block decode failed");
                         return dst;
@@ -339,29 +297,26 @@ namespace ShaderRipper.Data
             }
         }
 
-        /// <summary>
-        /// UnityFS normally stores five LZMA property bytes followed by the raw
-        /// stream. Also accept LZMA-alone blocks with an explicit matching size.
-        /// </summary>
         private static byte[] DecodeLzma(byte[] src, int rawSize)
         {
-            if (src.Length < 10 || src[0] >= 225 ||
-                System.Buffers.Binary.BinaryPrimitives.ReadUInt32LittleEndian(src.AsSpan(1)) > 1u << 27)
+            // UnityFS prefixes the raw LZMA1 stream with five property bytes.
+            const int propertySize = 5;
+            if (src.Length < propertySize + 5 || src[0] >= 225 ||
+                BinaryPrimitives.ReadUInt32LittleEndian(src.AsSpan(1)) > 1u << 27)
                 throw new InvalidDataException("Invalid LZMA block properties");
-            var props = new byte[5];
-            Buffer.BlockCopy(src, 0, props, 0, 5);
-            int offset = 5;
-            if (src.Length >= 18)
-            {
-                ulong size = System.Buffers.Binary.BinaryPrimitives.ReadUInt64LittleEndian(src.AsSpan(5));
-                if (size == (ulong)rawSize || size == ulong.MaxValue) offset = 13;
-            }
-            if (src[offset] != 0) throw new InvalidDataException("Invalid LZMA range stream");
-            using var input = new MemoryStream(src, offset, src.Length - offset, writable: false);
+            if (src[propertySize] != 0) throw new InvalidDataException("Invalid LZMA range stream");
+            using var input = new MemoryStream(src, propertySize, src.Length - propertySize, writable: false);
             using var output = new MemoryStream(rawSize);
-            var dec = new SevenZip.Compression.LZMA.Decoder();
-            dec.SetDecoderProperties(props);
-            dec.Code(input, output, src.Length - offset, rawSize, null);
+            var decoder = new SevenZip.Compression.LZMA.Decoder();
+            try
+            {
+                decoder.SetDecoderProperties(src[..propertySize]);
+                decoder.Code(input, output, input.Length, rawSize, null);
+            }
+            catch (ApplicationException e)
+            {
+                throw new InvalidDataException("Invalid LZMA block", e);
+            }
             if (output.Length != rawSize)
                 throw new InvalidDataException($"LZMA decode produced {output.Length}/{rawSize} bytes");
             return output.ToArray();
@@ -369,7 +324,7 @@ namespace ShaderRipper.Data
 
         private static byte[] Slice(byte[] b, int off, int len)
         {
-            if (off < 0 || len < 0 || off + len > b.Length)
+            if (off < 0 || len < 0 || len > b.Length - off)
                 throw new InvalidDataException("bundle offset out of range");
             var r = new byte[len];
             Buffer.BlockCopy(b, off, r, 0, len);
@@ -387,11 +342,11 @@ namespace ShaderRipper.Data
         }
         private static string CStr(byte[] b, ref int p)
         {
-            int s = p;
-            while (p < b.Length && b[p] != 0) p++;
-            var s2 = System.Text.Encoding.UTF8.GetString(b, s, p - s);
-            p++;
-            return s2;
+            int end = Array.IndexOf(b, (byte)0, p);
+            if (end < 0) throw new InvalidDataException("unterminated UnityFS string");
+            string value = System.Text.Encoding.UTF8.GetString(b, p, end - p);
+            p = end + 1;
+            return value;
         }
         private static uint BE(byte[] b, int o) =>
             (uint)((b[o] << 24) | (b[o + 1] << 16) | (b[o + 2] << 8) | b[o + 3]);
