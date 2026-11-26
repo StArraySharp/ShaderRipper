@@ -715,14 +715,14 @@ namespace ShaderRipper
             string text = r.Hlsl;
             if (shaderLab)
             {
-                // A standalone GLSL payload has no asset behind it: no properties,
-                // no pass tags.  One pass, both entry points it defines.
+                // The GLSL translator already combines the stages into one body.
                 var pass = new Emit.ShaderLab.PassText
                 {
-                    Vertex = r.Hlsl.Contains("float4 vert()", StringComparison.Ordinal)
-                        ? new Emit.ShaderLab.Stage { Hlsl = r.Hlsl, Entry = "vert" } : null,
-                    Fragment = r.Hlsl.Contains("float4 frag()", StringComparison.Ordinal)
-                        ? new Emit.ShaderLab.Stage { Hlsl = r.Hlsl, Entry = "frag" } : null,
+                    Source = "GLSL",
+                    Chains = string.IsNullOrWhiteSpace(r.Hlsl) ? null : new()
+                    {
+                        new() { Guards = new() { "" }, Bodies = new() { r.Hlsl } },
+                    },
                 };
                 var sub = new Emit.ShaderLab.SubShaderText();
                 sub.Passes.Add(pass);

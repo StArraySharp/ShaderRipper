@@ -20,7 +20,7 @@ would only add noise):
 
 The renames matter: HLSLcc writes `hlslcc_mtx4x4unity_ObjectToWorld` where the
 translation says `unity_ObjectToWorld`, `SV_Target0` where it says `o0`, and
-`mix` where it says `lerp`.  A comparison that did not map those would report a
+`mix` where it says `_sri_mix`.  A comparison that did not map those would report a
 correct translation as completely wrong.
 
 Usage:
@@ -38,7 +38,7 @@ import threading
 
 # --- the GLSL side ---------------------------------------------------------
 
-GLSL_FETCH = re.compile(r"\b(texture(?:Lod(?:Offset)?|Proj|Grad(?:Offset)?|Offset|Size|"
+GLSL_FETCH = re.compile(r"\b(texture(?:Lod(?:Offset)?|Proj|Grad(?:Offset)?|Offset|Size|Samples|"
                         r"(?:[123]D|Cube)(?:Lod)?)?|texelFetch(?:Offset)?)\s*\(")
 GLSL_CALL = re.compile(r"\b([A-Za-z_]\w*)\s*\(")
 GLSL_KEYWORDS = {
@@ -58,7 +58,7 @@ GLSL_OPS = ("&&", "||", "^^", "+=", "-=", "*=", "/=", "<<", ">>", "<=", ">=",
 # --- the emitted HLSL side -------------------------------------------------
 
 HLSL_FETCH = re.compile(r"(?:\.(?:Sample|SampleLevel|SampleBias|SampleGrad|SampleCmp|"
-                        r"SampleCmpLevelZero|Load|Gather|GetDimensions)|\b_sri_textureSize_\w+)\s*\(")
+                        r"SampleCmpLevelZero|Load|Gather|GetDimensions)|\b_sri_texture(?:Size|Samples)_\w+)\s*\(")
 HLSL_CALL = re.compile(r"\b([A-Za-z_]\w*)\s*\(")
 HLSL_KEYWORDS = {
     "if", "else", "for", "while", "do", "return", "break", "continue", "discard",
@@ -80,7 +80,7 @@ HLSL_OPS = ("&&", "||", "+=", "-=", "*=", "/=", "<<", ">>", "<=", ">=",
 # the comparison about LOGIC rather than about spelling.
 RENAMED = {
     # GLSL intrinsic -> HLSL intrinsic
-    "mix": "lerp", "fract": "frac", "mod": "_sri_mod", "dFdx": "ddx", "dFdy": "ddy",
+    "mix": "lerp", "_sri_mix": "lerp", "fract": "frac", "mod": "_sri_mod", "dFdx": "ddx", "dFdy": "ddy",
     "roundEven": "round", "inversesqrt": "rsqrt",
     "intBitsToFloat": "asfloat", "floatBitsToInt": "asint",
     "floatBitsToUint": "asuint", "uintBitsToFloat": "asfloat",
@@ -90,6 +90,7 @@ RENAMED = {
     "texture1DLod": "SampleLevel", "texture2DLod": "SampleLevel",
     "texture3DLod": "SampleLevel", "textureCubeLod": "SampleLevel",
     "texelFetch": "Load", "texelFetchOffset": "Load", "textureSize": "GetDimensions",
+    "textureSamples": "GetDimensions",
     # GLSL built-ins with no HLSL spelling: the translator routes the call
     # through a synthesized _sri_* helper.
     "bitfieldInsert": "bitfieldInsert", "bitfieldExtract": "bitfieldExtract",
@@ -134,7 +135,7 @@ def normalise_name(name):
             break
     if name in RENAMED:
         return RENAMED[name].lower()
-    if name.startswith("_sri_textureSize_"):
+    if name.startswith(("_sri_textureSize_", "_sri_textureSamples_")):
         return "getdimensions"
     if name.startswith("vs_"):
         return name[3:].lower()

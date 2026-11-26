@@ -345,9 +345,7 @@ namespace ShaderRipper.Ast
                         || ctx.GetText().Contains("texture2darrayms", StringComparison.OrdinalIgnoreCase)
                         || ctx.GetText().Contains("ms(", StringComparison.OrdinalIgnoreCase)
                         || ctx.GetText().Contains("ms (", StringComparison.OrdinalIgnoreCase);
-                    // `dcl_resource_texture2dms(4)` -- HLSL needs the count to size
-                    // the type: an unsized `Texture2DMS<float4>` is rejected on
-                    // every target ("Unsized MSAA textures aren't supported").
+                    // A zero sample count leaves MSAA sizing to the resource view.
                     var sc = ctx.sampleCount();
                     if (sc?.number() != null) d.Samples = Number(sc.number());
                     // `dcl_resource_structured t0, 32` -- the stride is the one bare
@@ -469,8 +467,8 @@ namespace ShaderRipper.Ast
             // coordinate was silently dropped.
             if (text.Contains("texture2dmsarray")) return 5;
             if (text.Contains("texture2darray")) return 5;
-            if (text.Contains("texture1darray")) return 5;
-            if (text.Contains("texturecubearray")) return 4;
+            if (text.Contains("texture1darray")) return 6;
+            if (text.Contains("texturecubearray")) return 8;
             if (text.Contains("texture3d")) return 3;
             if (text.Contains("texturecube")) return 4;
             if (text.Contains("texture2d")) return 2;
@@ -524,9 +522,9 @@ namespace ShaderRipper.Ast
             // `sampleinfo_uint` / `resinfo_uint` spell the result type as a suffix.
             // It only says the bits are an integer pattern, not which instruction
             // this is, so it goes with the other modifiers.
-            foreach (string suffix in new[] { "_uint", "_int", "_sat", "_precise" })
+            foreach (string suffix in new[] { "_uint", "_int", "_rcpFloat", "_sat", "_precise" })
             {
-                if (!name.EndsWith(suffix, StringComparison.Ordinal)) continue;
+                if (!name.EndsWith(suffix, StringComparison.OrdinalIgnoreCase)) continue;
                 if (suffix == "_sat") saturate = true;
                 else if (suffix == "_precise") precise = true;
                 name = name[..^suffix.Length];

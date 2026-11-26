@@ -119,6 +119,145 @@ void main()
             .And.Contain("_sri_mod(p, float2(1.0, -1.0))"));
     }
 
+    [Test]
+    public void GlslBitFieldsAndBooleanMixPreserveTypesAndValueSelection()
+    {
+        var r = GlslTranslator.Translate("""
+#ifdef FRAGMENT
+out vec4 SV_Target0;
+void main()
+{
+    ivec2 signedField = bitfieldExtract(ivec2(15, 7), 1, 3);
+    uvec2 wholeWord = bitfieldInsert(uvec2(0u), uvec2(9u, 8u), 0, 32);
+    vec2 selected = mix(vec2(signedField), vec2(wholeWord), bvec2(false, true));
+    SV_Target0 = vec4(selected, mix(0.0, 2.0, 0.25), 1.0);
+}
+#endif
+""");
+        Assert.That(r.ParseErrors, Is.Zero);
+        Assert.That(r.Hlsl, Does.Contain("int2 _sri_bitfieldExtract(int2 value, int offset, int bits)")
+            .And.Contain("asint(asuint(value) << ((32 - offset - bits) & 31)) >> ((32 - bits) & 31)")
+            .And.Contain("uint2 _sri_bitfieldInsert(uint2 value, uint2 insert, int offset, int bits)")
+            .And.Contain("if (bits == 0) return value;")
+            .And.Contain("float2 _sri_mix(float2 x, float2 y, bool2 a) { return a ? y : x; }")
+            .And.Contain("_sri_mix(0.0, 2.0, 0.25)"));
+    }
+
+    [Test]
+    public void GlslMultisampleFetchUsesTheSampleIndexAndArrayLayer()
+    {
+        var r = GlslTranslator.Translate("""
+#ifdef FRAGMENT
+uniform sampler2DMS colorSamples;
+uniform sampler2DMSArray slices;
+out vec4 SV_Target0;
+void main()
+{
+    ivec2 size = textureSize(colorSamples);
+    int count = textureSamples(slices);
+    vec4 a = texelFetch(colorSamples, size - ivec2(1), gl_SampleID);
+    vec4 b = texelFetch(slices, ivec3(1, 2, 3), count - 1);
+    SV_Target0 = a + b;
+}
+#endif
+""");
+        Assert.That(r.ParseErrors, Is.Zero);
+        Assert.That(r.Hlsl, Does.Contain("Texture2DMS<float4> colorSamples;")
+            .And.Contain("Texture2DMSArray<float4> slices;")
+            .And.Contain("uint sv_sample_index : SV_SampleIndex")
+            .And.Contain("colorSamples.Load(")
+            .And.Contain(", gl_SampleID)")
+            .And.Contain("slices.Load(int3(1, 2, 3), ")
+            .And.Contain("_sri_textureSize_sampler2DMS(colorSamples)")
+            .And.Contain("_sri_textureSamples_sampler2DMSArray(slices)")
+            .And.Contain("tex.GetDimensions(width, height, depth, samples);")
+            .And.Not.Contain("SamplerState sampler_colorSamples"));
+    }
+
+    [Test]
+    public void DxbcTextureReadsPreserveMipResultSwizzlesAndArrayGradients()
+    {
+        var r = HlslEmitter.Emit(Module.Read("""
+ps_5_0
+dcl_resource_texture2d (float,float,float,float) t0
+dcl_resource_texture2darray (float,float,float,float) t1
+dcl_resource_texture2dms(4) (float,float,float,float) t2
+dcl_sampler s0, mode_default
+dcl_input_ps linear v0.xyzw
+dcl_output o0.xyzw
+dcl_temps 2
+sample_b r0.yw, v0.zwzw, t0.wzyx, s0, l(1.0)
+ld r0.xz, l(11, 19, 99, 3), t0.wzyx
+sample_d r1.zw, v0.xyzw, t1.yxwz, s0, v0.wyxx, v0.zxxx
+ldms r1.yw, l(6, 7, 0, 0), t2.yzwx, l(2)
+gather4 r1.xz, v0.xyxy, t0.zwxy, s0.y
+add o0, r0, r1
+ret
+"""));
+
+        Assert.That(r.Missing, Is.Empty);
+        Assert.That(r.Hlsl, Does.Contain(".SampleBias(sampler_t0, (v0).zw, 1.0f).zx")
+            .And.Contain(".Load(int3(11, 19, 3)).wy")
+            .And.Contain(".SampleGrad(sampler_t0, (v0).xyz, (v0).wy, (v0).zx).wz")
+            .And.Contain(".Load(int2(6, 7), 2).zx")
+            .And.Contain(".GatherGreen(sampler_t0, (v0).xy).zx"));
+    }
+
+    [Test]
+    public void DxbcTextureSizeUsesTheResourceShapeAndReturnMode()
+    {
+        var r = HlslEmitter.Emit(Module.Read("""
+ps_5_0
+dcl_resource_texture2d (float,float,float,float) t0
+dcl_resource_texture2darray (float,float,float,float) t1
+dcl_resource_texture2dmsarray(4) (float,float,float,float) t2
+dcl_output o0.xyzw
+dcl_temps 2
+resinfo_indexable(texture2d)(float,float,float,float)_uint r0.yw, l(3), t0.wxyz
+resinfo_rcpFloat r1.xyzw, l(2), t1.xyzw
+resinfo r0.xz, l(0), t2.xzyw
+sampleinfo_uint r1.yw, t2.wxxw
+add o0, r0, r1
+ret
+"""));
+
+        Assert.That(r.Missing, Is.Empty);
+        Assert.That(r.Hlsl, Does.Contain("t0.GetDimensions(3u, _ri0w, _ri0h, _ri0n);")
+            .And.Contain("asfloat(uint2(_ri0w, _ri0d))")
+            .And.Contain("t1.GetDimensions(2u, _ri1w, _ri1h, _ri1d, _ri1n);")
+            .And.Contain("float4(1.0 / float(_ri1w), 1.0 / float(_ri1h), float(_ri1d), float(_ri1n))")
+            .And.Contain("t2.GetDimensions(_ri2w, _ri2h, _ri2d, _ri2samples);")
+            .And.Contain("float2(float(_ri2w), float(_ri2h))")
+            .And.Contain("t2.GetDimensions(_si3w, _si3h, _si3d, _si3n);")
+            .And.Contain("asfloat(uint2(_si3n, 0u))"));
+    }
+
+    [Test]
+    public void DxbcArrayTypesPreserveSliceCoordinatesOutsideTheirGradients()
+    {
+        var r = HlslEmitter.Emit(Module.Read("""
+ps_5_0
+dcl_resource_texture1darray (float,float,float,float) t0
+dcl_resource_texturecubearray (float,float,float,float) t1
+dcl_sampler s0, mode_default
+dcl_input_ps linear v0.xyzw
+dcl_output o0.xyzw
+dcl_temps 2
+sample_d r0.xyzw, v0.xyzw, t0.xyzw, s0, v0.yxxx, v0.zxxx
+sample_d r1.xyzw, v0.xyzw, t1.xyzw, s0, v0.wyzx, v0.zxyw
+ld r0.y, l(5, 6, 99, 2), t0.xyzw
+add o0, r0, r1
+ret
+"""));
+
+        Assert.That(r.Missing, Is.Empty);
+        Assert.That(r.Hlsl, Does.Contain("Texture1DArray t0")
+            .And.Contain("TextureCubeArray t1")
+            .And.Contain("t0.SampleGrad(sampler_t0, (v0).xy, (v0).y, (v0).z)")
+            .And.Contain("t1.SampleGrad(sampler_t0, (v0).xyzw, (v0).wyz, (v0).zxy)")
+            .And.Contain("t0.Load(int3(5, 6, 2)).y"));
+    }
+
     private const string MovcAsm = """
 ps_5_0
 dcl_globalFlags refactoringAllowed

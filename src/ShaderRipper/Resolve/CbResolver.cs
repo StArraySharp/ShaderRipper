@@ -1287,7 +1287,7 @@ namespace ShaderRipper.Resolve
         /// </remarks>
         private IEnumerable<(int reg, string name)> InferTextureNames(Ast.Module prog, List<string> properties)
         {
-            var cubes = prog.Decls.Where(d => d.Kind == "texture" && d.Dimension == 4)
+            var cubes = prog.Decls.Where(d => d.Kind == "texture" && d.Dimension is 4 or 8)
                                   .Select(d => d.Register).ToHashSet();
             var volumes = prog.Decls.Where(d => d.Kind == "texture" && d.Dimension == 3)
                                     .Select(d => d.Register).ToHashSet();
@@ -1550,8 +1550,8 @@ namespace ShaderRipper.Resolve
                 {
                     2 => '2',
                     3 => '3',
-                    4 when d.Raw?.Contains("texturecubearray", StringComparison.Ordinal) != true => 'c',
-                    4 or 5 => 'a',
+                    4 => 'c',
+                    5 or 6 or 8 => 'a',
                     _ => '?',
                 };
                 if (!regDim.ContainsKey(d.Register)) regDim[d.Register] = dim;

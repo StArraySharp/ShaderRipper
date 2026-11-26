@@ -2162,7 +2162,9 @@ namespace ShaderRipper.Emit
                     3 => 8,                                     // TEXTURE3D
                     4 => 9,                                     // TEXTURECUBE
                     5 => d.Ms ? 7 : 5,                          // 2DMS_ARRAY / 2D_ARRAY
+                    6 => 3,                                     // TEXTURE1DARRAY
                     7 => 1,                                     // BUFFER
+                    8 => 10,                                    // TEXTURECUBEARRAY
                     _ => d.Ms ? 6 : 4,                          // TEXTURE2D(MS)
                 },
                 Samples = d.Ms ? Math.Max(d.Samples, 0) : 0,
@@ -2213,21 +2215,17 @@ namespace ShaderRipper.Emit
                     RecordTexture(name, d, byteAddress: true);
                     continue;
                 }
+                string sampleCount = d.Samples > 0 ? $", {d.Samples}"
+                    : _m.Profile.EndsWith("_4_0", StringComparison.Ordinal) ? ", 1" : "";
                 string ty = d.Dimension switch
                 {
                     1 => "Texture1D", 3 => "Texture3D", 4 => "TextureCube",
-                    // `dcl_resource_texture2dmsarray(N)` is BOTH multisampled and
-                    // an array, so its type carries the sample count as well:
-                    // a bare `Texture2DMSArray` does not compile.
-                    5 => d.Ms ? $"Texture2DMSArray<float4, {Math.Max(d.Samples, 1)}>" : "Texture2DArray",
+                    5 => d.Ms ? $"Texture2DMSArray<float4{sampleCount}>" : "Texture2DArray",
+                    6 => "Texture1DArray",
                     7 => "Buffer",
-                    // A multisampled resource is a template in HLSL and has to be
-                    // sized: `Texture2DMS<float4>` does not compile ("Unsized MSAA
-                    // textures aren't supported on this target") even at 5.0.  The
-                    // count comes from the declaration; 1 is the safe stand-in when
-                    // the disassembly omitted it, since the count is only read
-                    // through GetDimensions/sampleinfo in that case.
-                    _ => d.Ms ? $"Texture2DMS<float4, {Math.Max(d.Samples, 1)}>" : "Texture2D",
+                    8 => "TextureCubeArray",
+                    // SM4.1 and later accept a resource whose sample count is only known at runtime.
+                    _ => d.Ms ? $"Texture2DMS<float4{sampleCount}>" : "Texture2D",
                 };
                 _sb.Append($"{ty} {name} : register(t{d.Register});\n");
                 RecordTexture(name, d, byteAddress: false);
@@ -2288,8 +2286,10 @@ namespace ShaderRipper.Emit
                 string uty = d.Structured || RawBuffer(d) ? "RWByteAddressBuffer"
                            : d.Dimension switch
                            {
+                               1 => "RWTexture1D<float4>",
                                3 => "RWTexture3D<float4>",
                                5 => "RWTexture2DArray<float4>",
+                               6 => "RWTexture1DArray<float4>",
                                7 => "RWBuffer<float4>",
                                _ => "RWTexture2D<float4>",
                            };
@@ -3836,29 +3836,13 @@ namespace ShaderRipper.Emit
                     return true;
 
                 case "sample":
-                    return Sample(a, d, "Sample");
-                // `sample_b` is `sample` with an LOD bias: DXBC appends the bias as
-                // a fifth operand.  HLSL spells it SampleBias, and dropping the bias
-                // (which is what leaving this unhandled did) softens or sharpens
-                // every mip the shader picks.
                 case "sample_b":
-                    if (a.Count < 5) return Sample(a, d, "Sample");
-                    Line($"{d} = {TexName(a[2].Index)}.SampleBias({SamplerName(a[3].Index)}, "
-                         + $"{Coord(a[1], a[2].Index)}, {Scalar(a[4])});");
-                    return true;
                 case "sample_l":
-                    Line($"{d} = {TexName(a[2].Index)}.SampleLevel({SamplerName(a[3].Index)}, {Coord(a[1], a[2].Index)}, {Scalar(a[4])});");
-                    return true;
                 case "sample_d":
-                    Line($"{d} = {TexName(a[2].Index)}.SampleGrad({SamplerName(a[3].Index)}, {Coord(a[1], a[2].Index)}, "
-                         + $"{Coord(a[4], a[2].Index)}, {Coord(a[5], a[2].Index)});");
-                    return true;
+                case "gather":
+                case "gather4":
+                    return Sample(ins.Opcode, a, d);
 
-                // Plain texture fetch: `ld_indexable(texture2d)... r0.xyzw, r1.xyww,
-                // t0.xyzw`.  HLSL's Texture.Load takes an int3 (x, y, mip) on a 2D
-                // texture; the coordinate register holds float bits, so each
-                // component is read back with asint.  Zeroing the unused
-                // components is what the DXBC form does implicitly.
                 case "bfi":
                 case "ubfe":
                 case "ibfe":
@@ -3866,25 +3850,15 @@ namespace ShaderRipper.Emit
 
                 case "ld":
                     {
+                        if (a.Count != 3) return false;
                         int tex = a[2].Index;
-                        // The coordinate width belongs to the resource, not to the
-                        // 2D default: an array read is (x, y, slice, mip) and a 3D
-                        // read is (x, y, z, mip), so the old fixed int3 handed
-                        // `Texture2DArray.Load` a width it has no overload for
-                        // (X3013, "no matching 1 parameter intrinsic method").
-                        var ldDecl = _m.Decls.FirstOrDefault(x => x.Kind == "texture" && x.Register == tex);
-                        int comps = ldDecl?.Dimension switch { 1 => 2, 3 => 4, 5 => 4, _ => 3 };
-                        Line($"{d} = {TexName(tex)}.Load({IntCoord(a[1], comps)});");
-                    }
-                    return true;
-
-                // Gather: four texels around the coordinate, returned in one
-                // float4.  DXBC spells the four components "red, green, blue,
-                // alpha" of the 2x2 footprint; HLSL's Gather returns exactly that.
-                case "gather":
-                    {
-                        int tex = a[2].Index;
-                        Line($"{d} = {TexName(tex)}.Gather({SamplerName(a[3].Index)}, {Coord(a[1], tex)});");
+                        // DXBC encodes the mip in logical lane w even for 1D and 2D loads.
+                        string slots = TextureDecl(tex)?.Dimension switch
+                        {
+                            1 => "xw", 3 or 5 => "xyzw", 7 => "x", _ => "xyw",
+                        };
+                        string call = $"{TexName(tex)}.Load({IntCoord(a[1], slots)})";
+                        Line($"{d} = {TextureResult(call, a[0], a[2])};");
                     }
                     return true;
 
@@ -3934,30 +3908,12 @@ namespace ShaderRipper.Emit
                 case "ldms_indexable":
                 case "ldms":
                     {
-                        // Four operands: `ldms dst, address, resource, sampleIndex`.
-                        // Reading the sample from a[4] (one past the end) left every
-                        // read asking for sample 0, so a resolved-MSAA shader showed
-                        // only the first sample -- and the compiler then merged the
-                        // identical loads into one.
+                        if (a.Count != 4) return false;
                         int tex = a[2].Index;
-                        var msDecl = _m.Decls.FirstOrDefault(x => x.Kind == "texture" && x.Register == tex);
-                        string loc = IntCoord(a[1], msDecl?.Dimension == 5 ? 3 : 2);
-                        // The sample index has to be an integer constant fxc can
-                        // range-check: `asint(0.0f)` is a runtime conversion and is
-                        // rejected outright (X4566, "MSAA Sample Index must be in
-                        // the range 0 to 32"), even though it is provably 0.
-                        string sample;
-                        if (a.Count > 3 && a[3].Lit is { Length: > 0 } sLit)
-                        {
-                            int sv = (int)MathF.Round(sLit[0]);
-                            sample = sv.ToString(CultureInfo.InvariantCulture);
-                        }
-                        else if (a.Count > 3)
-                        {
-                            sample = $"asint({Scalar(a[3])})";
-                        }
-                        else sample = "0";
-                        Line($"{d} = {TexName(tex)}.Load({loc}, {sample});");
+                        string loc = IntCoord(a[1], TextureDecl(tex)?.Dimension == 5 ? "xyz" : "xy");
+                        string sample = IntCoord(a[3], "x");
+                        string call = $"{TexName(tex)}.Load({loc}, {sample})";
+                        Line($"{d} = {TextureResult(call, a[0], a[2])};");
                     }
                     return true;
 
@@ -3966,24 +3922,21 @@ namespace ShaderRipper.Emit
                 // mip count) into the destination; the `_uint` suffix only says the
                 // result is an integer pattern, which the float register already
                 // carries.
-                case "resinfo_indexable":
                 case "resinfo":
-                    return ResInfo(a, d);
+                    return ResInfo(ins, a, d);
                 case "bufinfo":
                     return BufferInfo(a, d);
 
-                // Sample count of a multisampled resource: `sampleinfo_uint r0.z,
-                // t0.x`.  HLSL has no intrinsic for it -- a Texture2DMS reports the
-                // count as the last output of its GetDimensions overload, whose
-                // first argument is the mip (always 0 here).
                 case "sampleinfo":
                     {
-                        int tex = a[1].Index;
-                        string w2 = $"_si{_resInfoSeq}";
-                        _resInfoSeq++;
-                        Line($"uint {w2}w = 0u, {w2}h = 0u, {w2}n = 0u;");
-                        Line($"{TexName(tex)}.GetDimensions({w2}w, {w2}h, {w2}n);");
-                        Line($"{d} = asfloat({w2}n);");
+                        if (a.Count != 2 || a[1].Kind != RegKind.T || TextureDecl(a[1].Index) is not { Ms: true } info)
+                            return false;
+                        string prefix = $"_si{_resInfoSeq++}";
+                        Line($"uint {prefix}w, {prefix}h, {prefix}d, {prefix}n;");
+                        string layers = info.Dimension == 5 ? $", {prefix}d" : "";
+                        Line($"{TexName(a[1].Index)}.GetDimensions({prefix}w, {prefix}h{layers}, {prefix}n);");
+                        WriteResourceQuery(d, a[0], a[1], new[] { $"{prefix}n", "0u", "0u", "0u" },
+                            ins.OpcodeFull.Contains("_uint", StringComparison.Ordinal));
                     }
                     return true;
 
@@ -4147,10 +4100,56 @@ namespace ShaderRipper.Emit
             return true;
         }
 
-        private bool Sample(List<Operand> a, string d, string method)
+        private Decl TextureDecl(int register) =>
+            _m.Decls.FirstOrDefault(d => d.Kind == "texture" && d.Register == register);
+
+        private static string TextureResult(string result, Operand destination, Operand texture)
         {
-            if (a.Count < 4) return false;
-            Line($"{d} = {TexName(a[2].Index)}.{method}({SamplerName(a[3].Index)}, {Coord(a[1], a[2].Index)});");
+            string lanes = TextureLanes(destination, texture);
+            return lanes == "xyzw" ? result : $"{result}.{lanes}";
+        }
+
+        private static string TextureLanes(Operand destination, Operand texture)
+        {
+            string mask = DestMask(destination);
+            return RemapForMask(texture, mask.Length == 0 ? "xyzw" : mask).Swizzle?.TrimStart('.') ?? "xyzw";
+        }
+
+        private bool Sample(string opcode, List<Operand> args, string destination)
+        {
+            int operands = opcode switch { "sample_b" or "sample_l" => 5, "sample_d" => 6, _ => 4 };
+            if (args.Count != operands) return false;
+
+            var resource = args[2];
+            var sampler = args[3];
+            int texture = resource.Index;
+            string callArgs = $"{SamplerName(sampler.Index)}, {Coord(args[1], texture)}";
+            string method;
+            switch (opcode)
+            {
+                case "sample_b":
+                case "sample_l":
+                    method = opcode == "sample_b" ? "SampleBias" : "SampleLevel";
+                    callArgs += $", {Scalar(args[4])}";
+                    break;
+                case "sample_d":
+                    method = "SampleGrad";
+                    callArgs += $", {Coord(args[4], texture, gradient: true)}, {Coord(args[5], texture, gradient: true)}";
+                    break;
+                case "gather":
+                case "gather4":
+                    method = sampler.Swizzle switch
+                    {
+                        ".y" => "GatherGreen", ".z" => "GatherBlue", ".w" => "GatherAlpha", _ => "GatherRed",
+                    };
+                    break;
+                default:
+                    method = "Sample";
+                    break;
+            }
+
+            string call = $"{TexName(texture)}.{method}({callArgs})";
+            Line($"{destination} = {TextureResult(call, args[0], resource)};");
             return true;
         }
 
@@ -4296,40 +4295,63 @@ namespace ShaderRipper.Emit
         /// A multisampled resource's overload takes the sample count instead of a
         /// mip level, and passes it as the last of four outputs.
         /// </summary>
-        private bool ResInfo(List<Operand> a, string d)
+        private bool ResInfo(Instruction ins, List<Operand> a, string d)
         {
-            if (a.Count < 3) return false;
-            int tex = a[2].Index;
-            var decl = _m.Decls.FirstOrDefault(x => x.Kind == "texture" && x.Register == tex);
-            bool ms = decl?.Ms ?? false;
-            string mip = a[1].Lit is { Length: > 0 } lit ? Number(lit[0]) : Scalar(a[1]);
+            if (a.Count != 3 || a[2].Kind is not (RegKind.T or RegKind.U)) return false;
+            var resource = a[2];
+            bool uav = resource.Kind == RegKind.U;
+            var decl = uav
+                ? _m.Decls.FirstOrDefault(x => x.Kind == "uav" && x.Register == resource.Index)
+                : TextureDecl(resource.Index);
+            if (decl == null || decl.Dimension == 7 || decl.Structured || RawBuffer(decl)) return false;
 
-            string w = $"_ri{_resInfoSeq}";
-            _resInfoSeq++;
-            if (ms)
+            string prefix = $"_ri{_resInfoSeq++}";
+            string name = uav ? UavName(resource.Index) : TexName(resource.Index);
+            Line($"uint {prefix}w = 0u, {prefix}h = 0u, {prefix}d = 0u, {prefix}n = 0u;");
+            string dims = decl.Dimension switch
             {
-                // Texture2DMS has no mip chain: its overload is
-                // GetDimensions(w, h, sampleCount).
-                Line($"uint {w}w = 0u, {w}h = 0u, {w}n = 0u;");
-                Line($"{TexName(tex)}.GetDimensions({w}w, {w}h, {w}n);");
+                1 => $"{prefix}w",
+                3 or 5 or 8 => $"{prefix}w, {prefix}h, {prefix}d",
+                _ => $"{prefix}w, {prefix}h",
+            };
+            if (decl.Ms || uav)
+            {
+                if (decl.Ms) Line($"uint {prefix}samples;");
+                Line($"{name}.GetDimensions({dims}{(decl.Ms ? $", {prefix}samples" : "")});");
+                Line($"{prefix}n = {prefix}w != 0u ? 1u : 0u;");
             }
             else
             {
-                Line($"uint {w}w = 0u, {w}h = 0u, {w}d = 0u, {w}n = 0u;");
-                Line($"{TexName(tex)}.GetDimensions(asuint({mip}), {w}w, {w}h, {w}d, {w}n);");
+                string mip = AsUInt(RemapForMask(a[1], "x"));
+                Line($"{name}.GetDimensions({mip}, {dims}, {prefix}n);");
             }
 
-            // Which lanes the destination asked for: width, height, depth/layers,
-            // mip count.  A two-lane destination is the common (w, h) case.
-            string mask = DestMask(a[0]);
-            if (mask.Length == 0) mask = "xyzw";
-            int width = DestWidth(a[0]);
-            var parts = new List<string>(mask.Length);
-            foreach (char c in mask)
-                parts.Add(c switch { 'x' => $"{w}w", 'y' => $"{w}h", 'z' => $"{w}d", _ => $"{w}n" });
-            string ctor = width == 1 ? "uint" : "uint" + width;
-            Line($"{d} = asfloat({ctor}({string.Join(", ", parts)}));");
+            // A reciprocal query applies to spatial axes. Array size and mip count
+            // are returned as ordinary floats.
+            bool reciprocal = ins.OpcodeFull.Contains("_rcpfloat", StringComparison.OrdinalIgnoreCase);
+            bool integer = ins.OpcodeFull.Contains("_uint", StringComparison.Ordinal);
+            string axes = decl.Dimension switch { 1 or 6 => "x", 3 => "xyz", _ => "xy" };
+            WriteResourceQuery(d, a[0], resource,
+                new[] { $"{prefix}w", $"{prefix}h", $"{prefix}d", $"{prefix}n" }, integer,
+                reciprocal ? axes : "");
             return true;
+        }
+
+        private void WriteResourceQuery(string destination, Operand dst, Operand resource,
+                                        string[] values, bool integer, string reciprocal = "")
+        {
+            string suffix = Comps(dst);
+            var lanes = TextureLanes(dst, resource);
+            var parts = lanes.Select(lane =>
+            {
+                string value = values["xyzw".IndexOf(lane)];
+                if (integer) return value;
+                return reciprocal.Contains(lane) ? $"1.0 / float({value})" : $"float({value})";
+            });
+            string value = suffix.Length == 0
+                ? parts.Single()
+                : $"{(integer ? "uint" : "float")}{suffix}({string.Join(", ", parts)})";
+            Line($"{destination} = {(integer ? $"asfloat({value})" : value)};");
         }
 
         /// <summary>Distinct temporary name per <c>resinfo</c> in this program.</summary>
@@ -4375,7 +4397,8 @@ namespace ShaderRipper.Emit
                 // coordinate) on a typed texture.
                 case "store_uav_typed":
                     if (a.Count < 3) return false;
-                    Line($"{name}[{IntCoord(a[2], decl?.Dimension == 5 ? 3 : 2)}] = {Expr(a[1])};");
+                    int dimensions = decl?.Dimension switch { 1 or 7 => 1, 3 or 5 => 3, _ => 2 };
+                    Line($"{name}[{IntCoord(a[2], dimensions)}] = {Expr(a[1])};");
                     return true;
 
                 // `store_structured u1.xyzw, r5.x, l(0), r1.xyzw`: (target, record
@@ -4442,40 +4465,22 @@ namespace ShaderRipper.Emit
             return addr;
         }
 
-        private string IntCoord(Operand o, int comps)
-        {
-            string core = Core(o);
-            if (core == null) return null;
-            string sw = (o.Swizzle ?? ".xyzw")[1..];
-            if (sw.Length < comps) sw = sw.PadRight(comps, sw[^1]);
-            sw = sw[..comps];
-            string cast = comps == 1 ? "int" : "int" + comps;
-            return $"{cast}(asint(({core}).{sw}))";
-        }
+        private string IntCoord(Operand o, int comps) => IntCoord(o, "xyzw"[..comps]);
 
-        /// <summary>
-        /// The sample coordinate at the width the resource needs: three
-        /// components for a 3D or cube texture, two for everything else.  Getting
-        /// this wrong is X3013 ("no matching intrinsic"), which is how the game
-        /// run found it.
-        /// </summary>
-        private string Coord(Operand o, int texRegister)
+        private string IntCoord(Operand o, string slots) => AsInt(RemapForMask(o, slots));
+
+        private string Coord(Operand o, int texRegister, bool gradient = false)
         {
-            int dim = _m.Decls.FirstOrDefault(d => d.Kind == "texture" && d.Register == texRegister)?.Dimension ?? 2;
-            // A 2D array and a cube both need three components: (u, v, slice) and
-            // (u, v, face) respectively.
-            int comps = dim is 3 or 4 or 5 ? 3 : 2;
-            string e = Expr(o);
+            int dim = TextureDecl(texRegister)?.Dimension ?? 2;
+            int comps = dim switch
+            {
+                1 => 1, 3 or 4 => 3, 5 when !gradient => 3, 6 when gradient => 1,
+                8 => gradient ? 3 : 4, _ => 2,
+            };
+            string e = Expr(RemapForMask(o, "xyzw"[..comps]));
             if (e == null) return null;
-            // The coordinate components come from the instruction's own swizzle,
-            // not the resource dimension: DXBC samples probe volumes with
-            // `r0.zwzz`-style sources, and forcing `.xy` there reads the wrong
-            // components -- and lets the compiler fold distinct taps together.
-            string src = (o.Swizzle ?? ".xyzw")[1..];
-            if (src.Length < comps) src = src.PadRight(comps, src[^1]);
             var m = System.Text.RegularExpressions.Regex.Match(e, @"^(\w[\w.\[\]]*)\.([xyzw]+)$");
-            if (m.Success) return $"({m.Groups[1].Value})." + src[..comps];
-            return $"({e}).{src[..comps]}";
+            return m.Success ? $"({m.Groups[1].Value}).{m.Groups[2].Value}" : e;
         }
     }
 }

@@ -315,6 +315,7 @@ namespace ShaderRipper.Emit
             // gl_FragCoord is rewritten to sv_position (see the identifier map),
             // and that rewritten reference needs the SV_Position input.
             _usesSvPosition = !_vertex && src.Contains("gl_FragCoord", StringComparison.Ordinal);
+            _usesSampleId = !_vertex && src.Contains("gl_SampleID", StringComparison.Ordinal);
             // A depth-only pass writes gl_FragDepth; HLSL has no such variable, so
             // the value has to leave through an `SV_Depth` out parameter.
             _usesFragDepth = !_vertex && src.Contains("gl_FragDepth", StringComparison.Ordinal);
@@ -364,6 +365,7 @@ namespace ShaderRipper.Emit
         private readonly bool _usesInstance;
         private readonly bool _usesVertex;
         private readonly bool _usesSvPosition;
+        private readonly bool _usesSampleId;
         private readonly bool _usesFragDepth;
 
         /// <summary>
@@ -773,22 +775,13 @@ namespace ShaderRipper.Emit
         private static readonly Dictionary<string, string> SynthHelperText =
             new(StringComparer.Ordinal)
         {
+            ["mix"] = MixHelpers(),
             ["mod"] = string.Concat(new[] { "float", "float2", "float3", "float4" }
                 .Select(type => $"{type} _sri_mod({type} x, {type} y) {{ return x - y * floor(x / y); }}\n")
                 .Concat(new[] { "float2", "float3", "float4" }
                     .Select(type => $"{type} _sri_mod({type} x, float y) {{ return x - y * floor(x / y); }}\n"))) + "\n",
-            ["bitfieldInsert"] =
-                "int _sri_bitfieldInsert(int base, int insert, int offset, int bits)\n" +
-                "{\n    int mask = ((1 << bits) - 1) << offset;\n" +
-                "    return (base & ~mask) | ((insert << offset) & mask);\n}\n\n" +
-                "uint _sri_bitfieldInsert(uint base, uint insert, uint offset, uint bits)\n" +
-                "{\n    uint mask = ((1u << bits) - 1u) << offset;\n" +
-                "    return (base & ~mask) | ((insert << offset) & mask);\n}\n\n",
-            ["bitfieldExtract"] =
-                "int _sri_bitfieldExtract(int value, int offset, int bits)\n" +
-                "{\n    return (value >> offset) & ((1 << bits) - 1);\n}\n\n" +
-                "uint _sri_bitfieldExtract(uint value, uint offset, uint bits)\n" +
-                "{\n    return (value >> offset) & ((1u << bits) - 1u);\n}\n\n",
+            ["bitfieldInsert"] = BitfieldHelpers(insert: true),
+            ["bitfieldExtract"] = BitfieldHelpers(insert: false),
             ["atomicAdd"] =
                 "uint _sri_atomicAdd(inout uint dest, uint value)\n" +
                 "{\n    uint original;\n    InterlockedAdd(dest, value, original);\n" +
@@ -797,6 +790,57 @@ namespace ShaderRipper.Emit
                 "{\n    int original;\n    InterlockedAdd(dest, value, original);\n" +
                 "    return original;\n}\n\n",
         };
+
+        private static string MixHelpers()
+        {
+            var text = new StringBuilder();
+            for (int width = 1; width <= 4; width++)
+            {
+                string suffix = width == 1 ? "" : width.ToString();
+                string floats = "float" + suffix;
+                text.AppendLine($"{floats} _sri_mix({floats} x, {floats} y, {floats} a) {{ return lerp(x, y, a); }}");
+                if (width > 1)
+                    text.AppendLine($"{floats} _sri_mix({floats} x, {floats} y, float a) {{ return lerp(x, y, a); }}");
+                foreach (string baseType in new[] { "float", "int", "uint", "bool" })
+                {
+                    string type = baseType + suffix;
+                    text.AppendLine($"{type} _sri_mix({type} x, {type} y, bool{suffix} a) {{ return a ? y : x; }}");
+                }
+            }
+            return text.AppendLine().ToString();
+        }
+
+        private static string BitfieldHelpers(bool insert)
+        {
+            var text = new StringBuilder();
+            for (int width = 1; width <= 4; width++)
+            {
+                string suffix = width == 1 ? "" : width.ToString();
+                foreach (string baseType in new[] { "int", "uint" })
+                {
+                    string type = baseType + suffix;
+                    if (insert)
+                    {
+                        text.AppendLine($"{type} _sri_bitfieldInsert({type} value, {type} insert, int offset, int bits)")
+                            .AppendLine("{")
+                            .AppendLine("    if (bits == 0) return value;")
+                            .AppendLine("    uint mask = (0xffffffffu >> ((32 - bits) & 31)) << (offset & 31);")
+                            .AppendLine($"    return ({type})((asuint(value) & ~mask) | ((asuint(insert) << (offset & 31)) & mask));");
+                    }
+                    else
+                    {
+                        text.AppendLine($"{type} _sri_bitfieldExtract({type} value, int offset, int bits)")
+                            .AppendLine("{")
+                            .AppendLine("    if (bits == 0) return 0;");
+                        text.AppendLine(baseType == "int"
+                            ? "    return asint(asuint(value) << ((32 - offset - bits) & 31)) >> ((32 - bits) & 31);"
+                            : "    return (value >> (offset & 31)) & (0xffffffffu >> ((32 - bits) & 31));");
+                    }
+                    text.AppendLine("}").AppendLine();
+                }
+            }
+            return text.ToString();
+        }
 
         /// <summary>
         /// An SSBO / UBO interface block (`readonly buffer name { members };`).
@@ -1105,9 +1149,11 @@ namespace ShaderRipper.Emit
                 // redefinition.  `SamplerOf` spells the include's sampler at the
                 // call sites instead.
                 if (IncludeDeclared.Contains(name)) continue;
-                string tex = TextureShapes.TryGetValue(type, out var shape) ? shape.ObjectType : "Texture2D";
+                bool knownShape = TextureShapes.TryGetValue(type, out var shape);
+                string tex = knownShape ? shape.ObjectType : "Texture2D";
                 _sb.Append(tex).Append(' ').Append(name).Append(";\n");
-                if (type != "samplerBuffer") _sb.Append("SamplerState sampler_").Append(name).Append(";\n");
+                if (!knownShape || shape.Mipmapped)
+                    _sb.Append("SamplerState sampler_").Append(name).Append(";\n");
             }
             // Names already declared inside a cbuffer must not be declared again:
             // HLSL rejects the redefinition ("redefinition of '_SpecColor'"), and
@@ -1323,6 +1369,7 @@ namespace ShaderRipper.Emit
             {
                 if (varying) entryParams.Add(structName + " stage_in");
                 if (_usesSvPosition) entryParams.Add("float4 sv_position : SV_Position");
+                if (_usesSampleId) entryParams.Add("uint sv_sample_index : SV_SampleIndex");
                 if (_usesFragDepth) entryParams.Add("out float _frag_depth : SV_Depth");
             }
             if (entryParams.Count > 0) _sb.Append(string.Join(", ", entryParams));
@@ -1337,6 +1384,7 @@ namespace ShaderRipper.Emit
             // the mesh collapsed.
             var vertexInputs = _vertex ? _ins : new List<(string type, string name)>();
             if (_usesInstance) _sb.Append("    uint gl_InstanceID = sv_instance;\n");
+            if (_usesSampleId) _sb.Append("    int gl_SampleID = int(sv_sample_index);\n");
             if (_usesVertex) _sb.Append("    uint gl_VertexID = sv_vertex;\n");
             foreach (var (type, name) in vertexInputs)
                 _sb.Append("    ").Append(type).Append(' ').Append(name).Append(";\n");
@@ -1694,10 +1742,10 @@ namespace ShaderRipper.Emit
         /// </summary>
         private string Call(string name, List<string> args)
         {
-            if (name == "mod" && args.Count == 2)
+            if ((name == "mod" && args.Count == 2) || (name == "mix" && args.Count == 3))
             {
                 _synthHelpers.Add(name);
-                return $"_sri_mod({args[0]}, {args[1]})";
+                return $"_sri_{name}({string.Join(", ", args)})";
             }
             name = name switch
             {
@@ -1743,7 +1791,12 @@ namespace ShaderRipper.Emit
                     case "textureSize" when args.Count == (shape.Mipmapped ? 2 : 1):
                         _synthHelpers.Add(kind);
                         return $"_sri_textureSize_{kind}({string.Join(", ", args)})";
-                    case "texelFetch" when !shape.Mipmapped && args.Count == 2:
+                    case "textureSamples" when shape.Multisampled && args.Count == 1:
+                        _synthHelpers.Add(kind);
+                        return $"_sri_textureSamples_{kind}({sampler})";
+                    case "texelFetch" when shape.Multisampled && args.Count == 3:
+                        return $"{sampler}.Load({args[1]}, {args[2]})";
+                    case "texelFetch" when !shape.Mipmapped && !shape.Multisampled && args.Count == 2:
                         return $"{sampler}.Load({args[1]})";
                     case "texelFetch" when shape.Offsets && args.Count == 3:
                         return $"{sampler}.Load(int{shape.Dimensions + 1}({args[1]}, {args[2]}))";
@@ -1790,7 +1843,8 @@ namespace ShaderRipper.Emit
         }
 
         private readonly record struct TextureShape(string ObjectType, int Dimensions,
-                                                    bool Offsets = true, bool Mipmapped = true);
+                                                    bool Offsets = true, bool Mipmapped = true,
+                                                    bool Multisampled = false);
 
         private static readonly Dictionary<string, TextureShape> TextureShapes = new(StringComparer.Ordinal)
         {
@@ -1802,6 +1856,8 @@ namespace ShaderRipper.Emit
             ["samplerCube"] = new("TextureCube", 2, Offsets: false),
             ["samplerCubeArray"] = new("TextureCubeArray", 3, Offsets: false),
             ["samplerBuffer"] = new("Buffer<float4>", 1, Offsets: false, Mipmapped: false),
+            ["sampler2DMS"] = new("Texture2DMS<float4>", 2, Offsets: false, Mipmapped: false, Multisampled: true),
+            ["sampler2DMSArray"] = new("Texture2DMSArray<float4>", 3, Offsets: false, Mipmapped: false, Multisampled: true),
         };
 
         private static string TextureSizeHelper(string kind, TextureShape shape)
@@ -1809,11 +1865,16 @@ namespace ShaderRipper.Emit
             string type = shape.Dimensions == 1 ? "int" : $"int{shape.Dimensions}";
             string dimensions = string.Join(", ", new[] { "width", "height", "depth" }.Take(shape.Dimensions));
             string lodParameter = shape.Mipmapped ? ", int lod" : "";
-            string outputs = shape.Mipmapped ? $"{dimensions}, levels" : dimensions;
+            string outputs = shape.Mipmapped ? $"{dimensions}, levels"
+                : shape.Multisampled ? $"{dimensions}, samples" : dimensions;
             string arguments = shape.Mipmapped ? $"lod, {outputs}" : outputs;
-            return $"{type} _sri_textureSize_{kind}({shape.ObjectType} tex{lodParameter})\n" +
-                   $"{{\n    uint {outputs};\n    tex.GetDimensions({arguments});\n" +
-                   $"    return {type}({dimensions});\n}}\n\n";
+            string size = $"{type} _sri_textureSize_{kind}({shape.ObjectType} tex{lodParameter})\n" +
+                          $"{{\n    uint {outputs};\n    tex.GetDimensions({arguments});\n" +
+                          $"    return {type}({dimensions});\n}}\n\n";
+            return shape.Multisampled
+                ? size + $"int _sri_textureSamples_{kind}({shape.ObjectType} tex)\n" +
+                  $"{{\n    uint {outputs};\n    tex.GetDimensions({arguments});\n    return int(samples);\n}}\n\n"
+                : size;
         }
 
         private static readonly System.Text.RegularExpressions.Regex Swizzle =
@@ -1954,7 +2015,6 @@ namespace ShaderRipper.Emit
 
         private static readonly Dictionary<string, string> Renamed = new(StringComparer.Ordinal)
         {
-            ["mix"] = "lerp",
             ["fract"] = "frac",
             ["dFdx"] = "ddx",
             ["dFdy"] = "ddy",
