@@ -2849,17 +2849,17 @@ namespace ShaderRipper.Game
         private static string Named(string propertyName, string literal) =>
             string.IsNullOrEmpty(propertyName) ? literal : $"[{propertyName}]";
 
-        /// <summary><c>ColorMask</c> letters for a four-bit mask (1 = R, 2 = G, 4 = B, 8 = A).</summary>
+        /// <summary><c>ColorMask</c> letters for a four-bit mask (1 = A, 2 = B, 4 = G, 8 = R, matching Unity's ColorWriteMask).</summary>
         private static string ColourMaskLetters(float mask)
         {
             int m = (int)mask;
             if (m == 0) return "0";
             if (m == 15) return "RGBA";
             var sb = new System.Text.StringBuilder(4);
-            if ((m & 1) != 0) sb.Append('R');
-            if ((m & 2) != 0) sb.Append('G');
-            if ((m & 4) != 0) sb.Append('B');
-            if ((m & 8) != 0) sb.Append('A');
+            if ((m & 8) != 0) sb.Append('R');
+            if ((m & 4) != 0) sb.Append('G');
+            if ((m & 2) != 0) sb.Append('B');
+            if ((m & 1) != 0) sb.Append('A');
             return sb.ToString();
         }
 

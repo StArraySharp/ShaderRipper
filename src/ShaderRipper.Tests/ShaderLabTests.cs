@@ -1,6 +1,7 @@
 using NUnit.Framework;
 using ShaderRipper.Data;
 using ShaderRipper.Emit;
+using ShaderRipper.Game;
 
 namespace ShaderRipper.Tests;
 
@@ -338,4 +339,59 @@ public class MatrixChainTests
         Assert.That(text, Does.Contain("dot("));
     }
 }
+
+/// <summary>
+/// Unity's <c>ColorWriteMask</c> packs bits as Alpha=1, Blue=2, Green=4, Red=8.
+/// </summary>
+[TestFixture]
+public class ColorMaskTests
+{
+    [TestCase(0f, "ColorMask 0")]
+    [TestCase(1f, "ColorMask A")]
+    [TestCase(2f, "ColorMask B")]
+    [TestCase(4f, "ColorMask G")]
+    [TestCase(8f, "ColorMask R")]
+    [TestCase(14f, "ColorMask RGB")]
+    [TestCase(12f, "ColorMask RG")]
+    [TestCase(10f, "ColorMask RB")]
+    [TestCase(9f, "ColorMask RA")]
+    public void DescribeRenderStateDecodesUnityColorWriteMaskBits(float colMask, string expectedLine)
+    {
+        var pass = new Pass
+        {
+            Blends = { new BlendState { ColMask = colMask } },
+        };
+
+        var states = GameExport.DescribeRenderState(pass);
+
+        Assert.That(states, Does.Contain(expectedLine));
+    }
+
+    [Test]
+    public void DescribeRenderStateOmitsDefaultFullColorMask()
+    {
+        var pass = new Pass
+        {
+            Blends = { new BlendState { ColMask = 15f } },
+        };
+
+        var states = GameExport.DescribeRenderState(pass);
+
+        Assert.That(states.Any(s => s.StartsWith("ColorMask")), Is.False);
+    }
+
+    [Test]
+    public void DescribeRenderStatePreservesPropertyDrivenColorMask()
+    {
+        var pass = new Pass
+        {
+            Blends = { new BlendState { ColMask = 15f, ColMaskName = "_ColorMask" } },
+        };
+
+        var states = GameExport.DescribeRenderState(pass);
+
+        Assert.That(states, Does.Contain("ColorMask [_ColorMask]"));
+    }
+}
+
 
